@@ -1,0 +1,2 @@
+Testing upload with: 2fb37d52004d970fef6abac99081d6a9aebfeca9f134710c4e1f59db349fcbe8.png
+❌ Server Error: 500 { error: 'imageRepo.registerAsset is not a function' }

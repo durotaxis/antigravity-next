@@ -1,0 +1,56 @@
+# Node
+node_modules/
+
+# env / secrets
+.env
+credentials.json
+token.json
+
+# binary / media
+*.exe
+*.msi
+*.mp3
+*.aac
+*.wav
+*.mp4
+*.pdf
+*.xlsx
+*.xls
+*.data
+*.jpeg
+*.jpg
+*.png
+
+# personal folders
+_music/
+__software/
+__old/
+_*/
+# SQLite
+daily.db
+*.db
+*.db-journal
+
+# ---- local backups / old repo ----
+.git_backup/
+
+# ---- local data / caches ----
+daily.db
+*.db
+token.json
+credentials.json
+.env*
+desktop.ini
+
+# ---- big folders accidentally under Downloads ----
+google drive/
+Phone Link/
+__old/
+__software/
+_music/
+_notebooklm/
+_技術者経歴書/
+_確定申告/
+node_modules/
+inbox/
+public/assets/store/

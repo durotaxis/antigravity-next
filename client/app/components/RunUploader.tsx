@@ -20,7 +20,8 @@ export default function RunUploader() {
             });
 
             if (!res.ok) {
-                throw new Error(`Upload failed: ${res.statusText}`);
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Upload failed: ${res.statusText}`);
             }
 
             const data = await res.json();
@@ -29,9 +30,9 @@ export default function RunUploader() {
             // Reload to show new data
             window.location.reload();
 
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error uploading:', err);
-            alert('Analysis failed. Please try again.');
+            alert(`Analysis failed: ${err.message}`);
             setIsUploading(false);
             // Clear the input
             e.target.value = '';

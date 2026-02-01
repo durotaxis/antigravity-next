@@ -2,6 +2,9 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const imageRepo = require('./image_repo');
+const repo = require('./repo');
+const googleFitService = require('./google_fit_service');
+const geminiService = require('./gemini_service');
 
 const INBOX_DIR = path.join(__dirname, 'Phone Link');
 const STORE_DIR = path.join(__dirname, 'public/assets/store');
@@ -21,8 +24,9 @@ async function getFileHash(filePath) {
  * Returns YYYY-MM-DD or null
  */
 function extractDateFromFilename(filename) {
-    // Regex for "20260124" pattern
-    const match = filename.match(/(\d{4})(\d{2})(\d{2})/);
+    // Regex for "20260124" or "2026-01-24" or "2026_01_24"
+    // Try YYYY[-_]?MM[-_]?DD
+    const match = filename.match(/(\d{4})[-_]?(\d{2})[-_]?(\d{2})/);
     if (match) {
         return `${match[1]}-${match[2]}-${match[3]}`;
     }
@@ -85,6 +89,36 @@ async function importFromInbox() {
                 await imageRepo.linkImageToRun(date, asset.asset_id);
                 console.log(`  -> Linked to Run: ${date}`);
                 linked = true;
+
+                // ★ Auto-create Daily Summary if missing
+                try {
+                    const existingSummary = await repo.getDailySummary(date);
+                    if (!existingSummary) {
+                        console.log(`  -> No Daily Summary for ${date}. Fetching from Google Fit...`);
+                        const fitData = await googleFitService.getDailyMetrics(date);
+
+                        if (fitData && fitData.step_count > 0) {
+                            console.log(`  -> Fit Data Found: ${fitData.step_count} steps. Generating Advice...`);
+                            const advice = await geminiService.generateAdvice(fitData);
+
+                            const summaryData = {
+                                date: fitData.date,
+                                max_stride: fitData.max_stride_cm,
+                                avg_stride: fitData.avg_stride_cm,
+                                hr_avg: fitData.avg_heart_rate,
+                                hr_max: fitData.max_heart_rate,
+                                message: advice
+                            };
+
+                            await repo.saveDailySummary(summaryData);
+                            console.log(`  -> ✨ Daily Summary Auto-created with AI Advice!`);
+                        } else {
+                            console.log(`  -> No valid Fit data found for ${date}. Skipping summary creation.`);
+                        }
+                    }
+                } catch (summErr) {
+                    console.error('  -> Failed to auto-create summary:', summErr.message);
+                }
             }
 
             results.push({ file, hash, linked, date });
@@ -153,6 +187,35 @@ async function importSelectedFiles(filenames, runId) {
             // 3. Link to Run
             await imageRepo.linkImageToRun(runId, asset.asset_id);
             console.log(`  -> Linked to Run: ${runId}`);
+
+            // ★ Auto-create Daily Summary if missing (for Selected Import)
+            // runId is the date string here
+            try {
+                const existingSummary = await repo.getDailySummary(runId);
+                if (!existingSummary) {
+                    console.log(`  -> No Daily Summary for ${runId}. Fetching from Google Fit...`);
+                    const fitData = await googleFitService.getDailyMetrics(runId);
+
+                    if (fitData && fitData.step_count > 0) {
+                        console.log(`  -> Fit Data Found: ${fitData.step_count} steps. Generating Advice...`);
+                        const advice = await geminiService.generateAdvice(fitData);
+
+                        const summaryData = {
+                            date: fitData.date,
+                            max_stride: fitData.max_stride_cm,
+                            avg_stride: fitData.avg_stride_cm,
+                            hr_avg: fitData.avg_heart_rate,
+                            hr_max: fitData.max_heart_rate,
+                            message: advice
+                        };
+
+                        await repo.saveDailySummary(summaryData);
+                        console.log(`  -> ✨ Daily Summary Auto-created with AI Advice!`);
+                    }
+                }
+            } catch (summErr) {
+                console.error('  -> Failed to auto-create summary:', summErr.message);
+            }
 
             results.push({ file, hash, status: 'success' });
 

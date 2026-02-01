@@ -7,10 +7,13 @@ async function loadData() {
     const tbody = document.querySelector('#resultTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
 
-    // UI Feedback: Loading state
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = 'ANALYZING...';
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
+
+    // Clear message first
+    document.getElementById('daily-message-container').style.display = 'none';
+    document.getElementById('daily-message-text').textContent = '';
 
     try {
         const res = await fetch(`/api/stride?date=${date}`);
@@ -99,6 +102,9 @@ async function loadData() {
         // --- Call AI Advice ---
         getAdvice(date, maxStride, data);
 
+        // --- NEW: Load Manual Message / Title ---
+        loadDailyMessage(date);
+
     } catch (error) {
         console.error(error);
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
@@ -109,8 +115,12 @@ async function loadData() {
 }
 
 async function getAdvice(date, maxStride, data) {
-    const aiContainer = document.getElementById('ai-advice');
-    aiContainer.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Wait... AI Coach is analyzing...</span>';
+    const aiContainer = document.getElementById('daily-message-container');
+    const aiText = document.getElementById('daily-message-text');
+
+    // Show loading state
+    aiContainer.style.display = 'block';
+    aiText.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Wait... AI Coach is analyzing...</span>';
 
     // Calculate Averages
     const totalSteps = data.reduce((acc, d) => acc + d.steps, 0);
@@ -148,17 +158,17 @@ async function getAdvice(date, maxStride, data) {
         try {
             const json = JSON.parse(text);
             if (json.error) throw new Error(json.error);
-            aiContainer.innerHTML = json.advice;
+            aiText.innerHTML = json.advice;
         } catch (e) {
             console.error("API Response was not JSON:", text);
             if (text.includes("<!DOCTYPE html>")) {
-                aiContainer.innerHTML = "Error: API Endpoint not found or Server Error (HTML response). Check console.";
+                aiText.innerHTML = "Error: API Endpoint not found or Server Error (HTML response). Check console.";
             } else {
-                aiContainer.innerHTML = "AI Analysis Failed: " + (json?.error || e.message);
+                aiText.innerHTML = "AI Analysis Failed: " + (json?.error || e.message);
             }
         }
     } catch (e) {
-        aiContainer.innerHTML = "AI Analysis Failed: " + e.message;
+        aiText.innerHTML = "AI Analysis Failed: " + e.message;
     }
 }
 
@@ -681,11 +691,36 @@ Time: ${data.total_time || 'N/A'}`;
         // location.reload(); // Reload if we want to reflect changes immediately (optional as per improved flow)
 
 
-    } catch (err) {
-        console.error(err);
         alert('Analysis Failed: ' + err.message);
     } finally {
         btn.innerHTML = originalHTML;
         btn.disabled = false;
     }
 });
+
+// --- NEW: Load Daily Message ---
+async function loadDailyMessage(date) {
+    const container = document.getElementById('daily-message-container');
+    const textSpan = document.getElementById('daily-message-text');
+
+    try {
+        const res = await fetch(`/api/daily/${date}`);
+        if (!res.ok) {
+            // 404 is expected if no message exists yet
+            container.style.display = 'none';
+            return;
+        }
+
+        const data = await res.json();
+        if (data.message && data.message.trim().length > 0) {
+            textSpan.textContent = data.message;
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+
+    } catch (err) {
+        console.error('Error fetching daily message:', err);
+        container.style.display = 'none';
+    }
+}

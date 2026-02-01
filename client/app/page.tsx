@@ -15,9 +15,10 @@ type Run = {
   time: string;
   steps: number;
   avg_stride: number;
-  max_stride?: number;
+  max_stride?: number; // Updated: consistent naming
   avg_heart_rate: number;
-  hr_max?: number;
+  max_heart_rate?: number; // Updated: consistent naming with API
+  message?: string;
   images: { id: number; url: string; alt?: string }[];
 };
 
@@ -26,14 +27,14 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   // Lightbox用の状態管理
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{ url: string; assetId: number; runId: number; runDate: string } | null>(null);
 
   // Lightboxを開く関数
-  const openLightbox = (url: string) => {
-    setSelectedImage(url);
-    setIsLightboxOpen(true);
+  const openLightbox = (url: string, assetId: number, runId: number, runDate: string) => {
+    setLightboxData({ url, assetId, runId, runDate });
   };
+
+  const closeLightbox = () => setLightboxData(null);
 
   // Express (Port 3000) からデータを取得
   useEffect(() => {
@@ -54,14 +55,51 @@ export default function Home() {
       });
   }, []);
 
+  // 画像削除ハンドラ
+  const handleDeleteImage = async (runId: number, runDate: string, assetId: number) => {
+    if (!confirm('Remove this image link? (The daily summary will remain)')) return;
+
+    try {
+      // NOTE: run_imagesテーブルは date を run_id として使用しているため、APIには date を渡す必要がある
+      const res = await fetch(`http://192.168.3.153:3000/api/runs/${runDate}/images/${assetId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        // UI側の状態も更新（リロードせずに反映）
+        setRuns(prevRuns => prevRuns.map(run => {
+          if (run.id === runId) {
+            return {
+              ...run,
+              images: run.images.filter(img => img.id !== assetId)
+            };
+          }
+          return run;
+        }));
+      } else {
+        alert('Failed to delete image');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting image');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
 
       {/* Lightbox (モーダル表示) */}
+      {/* Lightbox (モーダル表示) */}
       <Lightbox
-        isOpen={isLightboxOpen}
-        imageSrc={selectedImage}
-        onClose={() => setIsLightboxOpen(false)}
+        isOpen={!!lightboxData}
+        imageSrc={lightboxData?.url || null}
+        onClose={closeLightbox}
+        onDelete={() => {
+          if (lightboxData) {
+            handleDeleteImage(lightboxData.runId, lightboxData.runDate, lightboxData.assetId);
+            closeLightbox();
+          }
+        }}
       />
 
       <header className="mb-8">
@@ -145,20 +183,62 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ストライドと心拍数 */}
-              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-50">
-                <div className="text-center">
-                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-1">Stride</span>
-                  <span className="block font-bold text-gray-700 text-lg">
-                    {run.avg_stride ? run.avg_stride : '-'} <span className="text-xs font-normal">cm</span>
-                  </span>
+              {/* Message Display */}
+              {run.message && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
+                  <span className="block text-xs font-bold text-blue-400 uppercase mb-1">Coach Advice</span>
+                  {run.message}
                 </div>
-                <div className="text-center border-l border-gray-50">
-                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-1">Heart Rate</span>
-                  <span className="block font-bold text-red-500 text-lg">
-                    {run.avg_heart_rate ? run.avg_heart_rate : '-'} <span className="text-xs font-normal">bpm</span>
-                  </span>
+              )}
+
+              {/* ストライドと心拍数 (Avg / Max) */}
+              {/* ストライドと心拍数 (Max Top / Avg Bottom) */}
+              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-50 text-center">
+
+                {/* Stride Column */}
+                <div>
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2">Stride (cm)</span>
+                  <div className="flex flex-col items-center gap-1">
+                    {/* Display Max if exists (even if 0) */}
+                    {run.max_stride !== undefined && run.max_stride !== null ? (
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Max</span>
+                        <span className="font-bold text-gray-900 text-lg leading-none">
+                          {run.max_stride}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Avg</span>
+                      <span className="font-bold text-gray-700 text-lg leading-none">
+                        {run.avg_stride ? run.avg_stride : '-'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Heart Rate Column */}
+                <div className="border-l border-gray-50">
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2">Heart Rate (bpm)</span>
+                  <div className="flex flex-col items-center gap-1">
+                    {/* Display Max if exists (even if 0) */}
+                    {run.max_heart_rate !== undefined && run.max_heart_rate !== null && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Max</span>
+                        <span className="font-bold text-red-700 text-lg leading-none">
+                          {run.max_heart_rate}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Avg</span>
+                      <span className="font-bold text-red-500 text-lg leading-none">
+                        {run.avg_heart_rate ? run.avg_heart_rate : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* 画像グリッド (本番データ) */}
@@ -167,7 +247,7 @@ export default function Home() {
                 {run.images && run.images.length > 0 ? (
                   <ImageGrid
                     images={run.images}
-                    onImageClick={openLightbox}
+                    onImageClick={(url, assetId) => openLightbox(url, assetId, run.id, run.date)}
                   />
                 ) : (
                   <p className="text-xs text-gray-400 italic">No images available</p>

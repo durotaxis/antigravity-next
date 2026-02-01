@@ -16,10 +16,11 @@ type Run = {
   date: string;
   avg_stride: number;
   avg_heart_rate: number;
-  max_stride?: number | null; // DB上のMax
-  hr_max?: number | null;     // DB上のMax
-  max_stride_5p?: number | null; // vNext計算値
-  max_hr_5p?: number | null;     // vNext計算値
+  max_stride?: number | null;
+  max_heart_rate?: number | null; // Updated to match API
+  hr_max?: number | null; // Compatibility
+  max_stride_5p?: number | null;
+  max_hr_5p?: number | null;
 };
 
 type Props = {
@@ -32,25 +33,18 @@ export default function EfficiencyChart({ runs }: Props) {
     new Date(a.date).getTime() - new Date(b.date).getTime()
   );
 
-  // 2. 表示用データの加工 (自動フォールバック)
-  // vNext(5P SMA)がない日は、既存の平均値(Avg)を使ってグラフをつなぐ
+  // 2. 表示用データの加工 (Simple Max Only)
   const chartData = sortedRuns.map(run => {
-    // ストライドの決定: 5P SMA -> DB Max -> DB Avg の順で存在するものを採用
-    let displayStride = run.max_stride_5p;
-    if (!displayStride || displayStride === 0) displayStride = run.max_stride;
-    if (!displayStride || displayStride === 0) displayStride = run.avg_stride;
-
-    // 心拍数の決定
-    let displayHr = run.max_hr_5p;
-    if (!displayHr || displayHr === 0) displayHr = run.hr_max;
-    if (!displayHr || displayHr === 0) displayHr = run.avg_heart_rate;
+    // User requested RAW daily summary max values
+    // Using max_heart_rate from API (or hr_max if passed that way)
+    const displayHr = run.max_heart_rate || run.hr_max || 0;
+    const displayStride = run.max_stride || 0;
 
     return {
       ...run,
       displayStride,
       displayHr,
-      // ツールチップで「どのデータを使っているか」分かるようにフラグを持たせる
-      isEstimated: !run.max_stride_5p
+      isEstimated: false // No longer estimating
     };
   });
 
@@ -91,7 +85,7 @@ export default function EfficiencyChart({ runs }: Props) {
         Performance Trend
       </h2>
       <p className="text-xs text-center text-gray-400 mb-4">
-        Max Metrics (Solid) / Avg Metrics (Fallback)
+        Max Stride / Max Heart Rate
       </p>
 
       <ResponsiveContainer width="100%" height="100%">
@@ -140,7 +134,7 @@ export default function EfficiencyChart({ runs }: Props) {
             yAxisId="left"
             type="monotone" // 滑らかにつなぐ
             dataKey="displayStride"
-            name="Stride"
+            name="Max Stride"
             stroke="#3b82f6"
             strokeWidth={3}
             dot={{ r: 4, strokeWidth: 2 }}
@@ -153,7 +147,7 @@ export default function EfficiencyChart({ runs }: Props) {
             yAxisId="right"
             type="monotone"
             dataKey="displayHr"
-            name="Heart Rate"
+            name="Max Heart Rate"
             stroke="#ef4444"
             strokeWidth={2}
             dot={{ r: 3 }}

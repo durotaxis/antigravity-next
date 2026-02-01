@@ -5,10 +5,20 @@ const db = require('./db');
  */
 function createAsset(fileHash, storedFilename, originalFilename) {
     return new Promise((resolve, reject) => {
-        const sql = `INSERT INTO image_assets (file_hash, stored_filename, original_filename) VALUES (?, ?, ?)`;
-        db.run(sql, [fileHash, storedFilename, originalFilename], function (err) {
+        // First check if exists
+        db.get('SELECT asset_id FROM image_assets WHERE file_hash = ?', [fileHash], (err, row) => {
             if (err) return reject(err);
-            resolve(this.lastID);
+            if (row) {
+                console.log(`Asset already exists (ID: ${row.asset_id}). Reusing.`);
+                return resolve(row.asset_id);
+            }
+
+            // If not exists, insert
+            const sql = `INSERT INTO image_assets (file_hash, stored_filename, original_filename) VALUES (?, ?, ?)`;
+            db.run(sql, [fileHash, storedFilename, originalFilename], function (err) {
+                if (err) return reject(err);
+                resolve(this.lastID);
+            });
         });
     });
 }

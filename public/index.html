@@ -27,38 +27,39 @@
 
         <section class="controls glass-card">
             <input type="date" id="dateInput" value="2026-01-16">
-            <button id="analyzeBtn" class="btn-primary">Run Analyzer</button>
-        </section>
 
-        <div id="ai-advice" class="glass-card ai-advice-container">
-            AI Coach Standing By...
-        </div>
 
-        <div
-            style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
-            <canvas id="strideChart"></canvas>
-        </div>
+            <!-- NEW: Daily Message Container -->
+            <div id="daily-message-container" class="glass-card"
+                style="margin: 20px auto; padding: 15px; text-align: center; color: #fff; font-size: 1.1rem; display: none;">
+                <span id="daily-message-text"></span>
+            </div>
 
-        <section id="summary">
-            <!-- Summary stats will be injected here -->
-        </section>
+            <div
+                style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+                <canvas id="strideChart"></canvas>
+            </div>
 
-        <section class="glass-card data-table-container">
-            <table id="resultTable">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Steps</th>
-                        <th>Dist (m)</th>
-                        <th>Stride (cm)</th>
-                        <th>Heart Rate</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Data rows will be injected here -->
-                </tbody>
-            </table>
-        </section>
+            <section id="summary">
+                <!-- Summary stats will be injected here -->
+            </section>
+
+            <section class="glass-card data-table-container">
+                <table id="resultTable">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Steps</th>
+                            <th>Dist (m)</th>
+                            <th>Stride (cm)</th>
+                            <th>Heart Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Data rows will be injected here -->
+                    </tbody>
+                </table>
+            </section>
     </div>
 
     <!-- Inbox Picker Modal -->
@@ -82,7 +83,8 @@
     <!-- Lightbox -->
     <div id="lightbox" class="lightbox-overlay">
         <div class="lightbox-controls">
-            <button id="lbAnalyzeBtn" class="lb-control-btn analyze" title="Analyze with AI"><span class="lb-btn-icon">🤖</span><span class="lb-btn-text">Analyze</span></button>
+            <button id="lbAnalyzeBtn" class="lb-control-btn analyze" title="Analyze with AI"><span
+                    class="lb-btn-icon">🤖</span><span class="lb-btn-text">Analyze</span></button>
             <button id="lbUnlinkBtn" class="lb-control-btn delete" title="Unlink Image">🗑️</button>
             <button id="lbCloseBtn" class="lb-control-btn close" title="Close">×</button>
         </div>

@@ -6,35 +6,25 @@ const repo = require('./repo');
 const imageRepo = require('./image_repo');
 const imageService = require('./image_service');
 const visionService = require('./vision_service');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { google } = require('googleapis');
-const { authenticate } = require('@google-cloud/local-auth');
 const fs = require('fs').promises;
+const geminiService = require('./gemini_service');
+const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
 
 // --- Security & Config ---
-
-// 開発中は全オリジン許可 (CORSエラー回避)
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-
+// 全オリジン許可 (スマホからの接続をスムーズに)
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
-// --- Initialize Gemini ---
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-const TOKEN_PATH = path.join(process.cwd(), 'token.json');
-const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
-
+const genAI = null; // Removed generic init
+const model = null; // Removed generic init
 
 // --- API Controller ---
 
-// Get all runs (Adapter Layer)
+// 1. Get All Runs (シンプル・イズ・ベスト)
+// DBにある事実（日付、ストライド、心拍数、画像）だけを返します
 app.get('/api/runs', async (req, res) => {
   try {
     const rawRuns = await repo.getAllRuns();
@@ -42,17 +32,13 @@ app.get('/api/runs', async (req, res) => {
     const formattedRuns = rawRuns.map(row => ({
       id: row.id,
       date: row.date,
-
+      // Next版が必要とするデータのみ
       avg_stride: row.avg_stride ?? 0,
       avg_heart_rate: row.hr_avg ?? 0,
-
-      // UI dummy data
-      distance: 0,
-      time: '--:--',
-      steps: 0,
-
-      // Link real images
-      images: row.images || []
+      max_stride: row.max_stride ?? 0,
+      max_heart_rate: row.hr_max ?? 0,
+      images: row.images || [],
+      message: row.message || '' // AIアドバイス
     }));
 
     res.json(formattedRuns);
@@ -62,335 +48,276 @@ app.get('/api/runs', async (req, res) => {
   }
 });
 
-// Delete Run
+// 2. Delete Run
 app.delete('/api/runs/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const changes = await repo.deleteRun(id);
-
-    if (changes === 0) {
-      return res.status(404).json({ error: 'Run not found' });
-    }
-
-    console.log(`Deleted run ID: ${id}`);
+    if (changes === 0) return res.status(404).json({ error: 'Run not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('Delete Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// List files in Inbox
+// 2.5 Get Single Daily Title/Message
+app.get('/api/daily/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    const summary = await repo.getDailySummary(date);
+    if (!summary) return res.status(404).json({ error: 'No summary found' });
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+
+});
+
+// 2.6 Get Intraday Stride Data (For Chart)
+app.get('/api/stride', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    // Fetch from Google Fit directly
+    const chartData = await googleFitService.getIntradayMetrics(date);
+    res.json(chartData);
+  } catch (err) {
+    console.error("Stride API Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Update Daily Summary (手動修正など)
+app.post('/api/daily', async (req, res) => {
+  try {
+    const { date, max_stride, avg_stride, hr_max, hr_avg, message } = req.body;
+
+    if (!date) return res.status(400).json({ error: 'Date is required' });
+
+    // キャメルケース/スネークケースの揺れを吸収
+    const data = {
+      date,
+      max_stride: max_stride ?? req.body.maxStride,
+      avg_stride: avg_stride ?? req.body.avgStride,
+      hr_max: hr_max ?? req.body.maxHR,
+      hr_avg: hr_avg ?? req.body.avgHR,
+      message: message ?? ''
+    };
+    await repo.saveDailySummary(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- File & Image Management (Inbox機能) ---
+
 app.get('/api/inbox/files', async (req, res) => {
   try {
     const files = await imageService.getInboxFiles();
     res.json(files);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Preview Inbox File
 app.get('/api/inbox/preview/:filename', (req, res) => {
   const { filename } = req.params;
-  // Basic path traversal protection
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    return res.status(400).send('Invalid filename');
-  }
+  if (filename.includes('..') || filename.includes('/')) return res.status(400).send('Invalid');
   const filepath = path.join(imageService.INBOX_DIR, filename);
   res.sendFile(filepath);
 });
 
-// Import selected
 app.post('/api/runs/:runId/import-selected', async (req, res) => {
   try {
     const { runId } = req.params;
     const { filenames } = req.body;
-
-    if (!Array.isArray(filenames) || filenames.length === 0) {
-      return res.status(400).json({ error: 'No filenames provided' });
-    }
-
+    if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
     const results = await imageService.importSelectedFiles(filenames, runId);
     res.json({ results });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Unlink image
+app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
+  try {
+    const { runId, assetId } = req.params;
+    await imageRepo.unlinkImageFromRun(runId, assetId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2.7 Delete Image Link
 app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
   try {
     const { runId, assetId } = req.params;
     const changes = await imageRepo.unlinkImageFromRun(runId, assetId);
-    if (changes === 0) {
-      return res.status(404).json({ error: 'Image link not found' });
+    if (changes > 0) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Link not found' });
     }
-    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Multer setup for file uploads
+// --- Upload & Analysis (Core Feature) ---
+
 const multer = require('multer');
 const crypto = require('crypto');
-
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'public/assets/store/')
-  },
+  destination: function (req, file, cb) { cb(null, 'public/assets/store/') },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
     const hash = crypto.createHash('sha256').update(file.originalname + Date.now()).digest('hex').substring(0, 12);
     cb(null, `upload_${hash}${ext}`);
   }
 });
-
 const upload = multer({ storage: storage });
 
-// Vision Analysis Endpoint (Upload + Analyze)
+// 画像アップロード -> Gemini解析 -> DB保存
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
+    if (!req.file) return res.status(400).json({ error: 'No file' });
+    const filename = req.file.filename;
+    const originalName = req.file.originalname;
+    console.log(`Processing: ${filename}`);
+
+    // 1. Asset作成 (Hash & Deduplication)
+    const fs = require('fs').promises;
+    const fileBuffer = await fs.readFile(req.file.path);
+    const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+    const assetId = await imageRepo.createAsset(fileHash, filename, originalName);
+
+    // 2. Optimization: Check if date exists in filename and summary exists in DB
+    const dateFromFilename = imageService.extractDateFromFilename(originalName);
+    console.log(`[DEBUG] Original Filename: ${originalName}`);
+    console.log(`[DEBUG] Extracted Date: ${dateFromFilename}`);
+
+    if (dateFromFilename) {
+      const existingSummary = await repo.getDailySummary(dateFromFilename);
+      if (existingSummary) {
+        console.log(`[Optimization] Summary exists for ${dateFromFilename}. Skipping Gemini Analysis.`);
+        // Link image to run
+        await imageRepo.linkImageToRun(dateFromFilename, assetId);
+        // Return success with existing data
+        return res.json({
+          ...existingSummary,
+          skippedAnalysis: true,
+          message: 'Linked to existing run'
+        });
+      }
     }
 
-    const filename = req.file.filename;
-    console.log(`Processing uploaded file: ${filename}`);
-
-    // 1. Analyze with Gemini
+    // 3. Main Analysis (Gemini)
+    console.log(`Analyzing: ${filename} (Gemini)`);
     const result = await visionService.analyzeImage(filename);
     console.log("Analysis Result:", result);
 
-    // 2. Map to DB Schema
-    const dbData = {
-      date: result.date,
-      max_stride: result.max_stride_cm || 0,
-      avg_stride: result.avg_stride_cm || 0,
-      hr_avg: result.avg_heart_rate || 0,
-      hr_max: result.max_heart_rate || 0,
-      message: '' // Advice will be generated later
-    };
+    // 2. 日付が取れたらDBに保存 (Runの自動作成)
+    if (result.date) {
+      await repo.saveDailySummary({
+        date: result.date,
+        max_stride: result.max_stride_cm || 0,
+        avg_stride: result.avg_stride_cm || 0,
+        hr_max: result.max_heart_rate || 0,
+        hr_avg: result.avg_heart_rate || 0,
+        message: ''
+      });
 
-    // 3. Save to Daily Summary DB
-    if (dbData.date) {
-      await repo.saveDailySummary(dbData);
-    } else {
-      console.warn("Date not found in analysis, skipping DB daily_summary save");
+      // ★ Generate Advice (Async update)
+      try {
+        console.log("Generating Advice for", result.date);
+        const advice = await geminiService.generateAdvice({
+          date: result.date,
+          step_count: result.step_count,
+          total_distance_km: result.total_distance_km,
+          calories_kcal: result.calories_kcal,
+          avg_stride_cm: result.avg_stride_cm || 0,
+          avg_heart_rate: result.avg_heart_rate || 0
+        });
+
+        await repo.saveDailySummary({
+          date: result.date,
+          max_stride: result.max_stride_cm || 0,
+          avg_stride: result.avg_stride_cm || 0,
+          hr_max: result.max_heart_rate || 0,
+          hr_avg: result.avg_heart_rate || 0,
+          message: advice // Update with advice
+        });
+        console.log("Advice Saved.");
+      } catch (adviceErr) {
+        console.error("Advice Gen Failed:", adviceErr.message);
+      }
+
+      // 画像をRunに紐付け
+      await imageRepo.linkImageToRun(result.date, assetId);
     }
 
-    // 4. Link Image to Run
-    // Need to find run_id (which is the date)
-    if (dbData.date) {
-      // Create asset record
-      const assetId = await imageRepo.registerAsset(filename, req.file.originalname);
-      // Link to run
-      await imageRepo.linkImageToRun(dbData.date, assetId);
-    }
-
-    // 5. Update Asset Metrics (redundant but checks out)
+    // 3. アセット情報更新
     await imageRepo.updateAssetMetrics(filename, result);
 
     res.json({ success: true, data: result });
-
-  } catch (err) {
-    console.error('Analysis API Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Vision Analysis (Existing - Direct Filename)
-app.post('/api/analyze-vision', async (req, res) => {
-  try {
-    const { filename } = req.body;
-    if (!filename) {
-      return res.status(400).json({ error: 'Filename required' });
-    }
-
-    console.log(`Analyzing vision for: ${filename}`);
-    const result = await visionService.analyzeImage(filename);
-
-    console.log(`Saving analysis to asset: ${filename}`);
-    await imageRepo.updateAssetMetrics(filename, result);
-
-    res.json({ success: true, data: result });
-
-  } catch (err) {
-    console.error('Vision API Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Helper for Google Auth
-async function getAuthenticatedClient() {
-  const credentialsContent = await fs.readFile(CREDENTIALS_PATH);
-  const keys = JSON.parse(credentialsContent);
-  const key = keys.installed || keys.web;
-  const auth = new google.auth.OAuth2(key.client_id, key.client_secret, key.redirect_uris[0]);
-
-  try {
-    const tokenContent = await fs.readFile(TOKEN_PATH);
-    auth.setCredentials(JSON.parse(tokenContent));
-    return auth;
-  } catch (err) {
-    const client = await authenticate({
-      keyfilePath: CREDENTIALS_PATH,
-      scopes: [
-        'https://www.googleapis.com/auth/fitness.activity.read',
-        'https://www.googleapis.com/auth/fitness.location.read',
-        'https://www.googleapis.com/auth/fitness.body.read',
-        'https://www.googleapis.com/auth/fitness.heart_rate.read'
-      ],
-      authOptions: { access_type: 'offline', prompt: 'consent' }
-    });
-    await fs.writeFile(TOKEN_PATH, JSON.stringify(client.credentials));
-    return client;
-  }
-}
-
-// Stride API
-app.get('/api/stride', async (req, res) => {
-  try {
-    const inputDate = req.query.date || new Date().toISOString().split('T')[0];
-    const auth = await getAuthenticatedClient();
-    const fitness = google.fitness({ version: 'v1', auth });
-
-    const start = new Date(`${inputDate}T00:00:00`);
-    const end = new Date(`${inputDate}T23:59:59`);
-
-    const fitnessRes = await fitness.users.dataset.aggregate({
-      userId: 'me',
-      requestBody: {
-        aggregateBy: [
-          { dataSourceId: "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps" },
-          { dataSourceId: "derived:com.google.distance.delta:com.google.android.gms:pruned_distance" },
-          { dataTypeName: "com.google.heart_rate.bpm" }
-        ],
-        bucketByTime: { durationMillis: 60000 },
-        startTimeMillis: start.getTime(),
-        endTimeMillis: end.getTime(),
-      },
-    });
-
-    const data = fitnessRes.data.bucket.map(bucket => {
-      const steps = bucket.dataset[0].point[0]?.value[0]?.intVal || 0;
-      const distance = bucket.dataset[1].point[0]?.value[0]?.fpVal || 0;
-      const heartRate = bucket.dataset[2].point[0]?.value[0]?.fpVal || 0;
-
-      return {
-        time: new Date(parseInt(bucket.startTimeMillis)).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-        steps,
-        distance,
-        heartRate,
-        stride: steps > 30 ? (distance / steps) * 100 : 0
-      };
-    }).filter(d => d.steps > 30);
-
-    res.json(data);
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});
-
-// Advice API
-app.post('/api/advice', async (req, res) => {
-  try {
-    const { date, maxStride, avgStride, maxHR, avgHR } = req.body;
-
-    const cachedData = await repo.getDailySummary(date);
-    if (cachedData && cachedData.message) {
-      console.log('✅ Found in DB');
-      return res.json({ advice: cachedData.message });
-    }
-
-    console.log('🤖 Not in DB, calling Gemini...');
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Server missing GEMINI_API_KEY" });
-    }
-
-    const prompt = `
-      You are a biomechanics expert and elite running coach.
-      Analyze the following running data for date: ${date}:
-      
-      - Max Stride: ${maxStride} cm
-      - Avg Stride: ${avgStride} cm
-      - Max Heart Rate: ${maxHR} bpm
-      - Avg Heart Rate: ${avgHR} bpm
-      
-      Provide concise, actionable advice (under 100 characters in Japanese) to improve performance, 
-      focusing on the relationship between stride length and cardiovascular efficiency.
-      Do not state the obvious. Be insightful.
-    `;
-
-    const callGemini = async () => {
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text().trim();
-    };
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini API Timeout')), 15000)
-    );
-
-    const advice = await Promise.race([callGemini(), timeoutPromise]);
-
-    await repo.saveDailySummary({
-      date,
-      max_stride: maxStride || 0,
-      avg_stride: avgStride || 0,
-      hr_max: maxHR || 0,
-      hr_avg: avgHR || 0,
-      message: advice
-    });
-    console.log('💾 Saved to DB');
-
-    res.json({ advice });
-
-  } catch (error) {
-    console.error("Gemini/DB Error:", error);
-    const msg = error.message || '';
-    if (msg.includes('Timeout')) return res.status(504).json({ error: "Timeout" });
-    res.status(500).json({ error: `AI Error: ${msg}` });
-  }
-});
-
-// Update Daily Summary
-app.post('/api/daily', async (req, res) => {
-  try {
-    const { date, maxStride, avgStride, maxHR, avgHR, message,
-      max_stride, avg_stride, hr_max, hr_avg } = req.body;
-
-    if (!date) {
-      return res.status(400).json({ error: 'Date is required' });
-    }
-
-    const data = {
-      date,
-      max_stride: max_stride ?? maxStride,
-      avg_stride: avg_stride ?? avgStride,
-      hr_max: hr_max ?? maxHR,
-      hr_avg: hr_avg ?? avgHR,
-      message: message ?? ''
-    };
-
-    await repo.saveDailySummary(data);
-    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Static files
+// Gemini Advice API
+app.post('/api/advice', async (req, res) => {
+  try {
+    const { date, avgStride, avgHR, maxStride, maxHR } = req.body;
+
+    const cached = await repo.getDailySummary(date);
+    if (cached && cached.message) return res.json({ advice: cached.message });
+
+    // Prompt has been moved to geminiService
+    const advice = await geminiService.generateCoachAdvice({
+      date,
+      avgStride,
+      avgHR,
+      maxStride,
+      maxHR
+    });
+
+    // DBにアドバイスを保存
+    await repo.saveDailySummary({
+      date,
+      max_stride: maxStride,
+      avg_stride: avgStride,
+      hr_max: maxHR,
+      hr_avg: avgHR,
+      message: advice
+    });
+
+    res.json({ advice });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Static Files ---
+// --- Static Files ---
+// Enable serving of all static files (index.html, css, js, assets)
 app.use(express.static(path.join(process.cwd(), 'public')));
 
+// --- Server Start ---
 if (require.main === module) {
-  app.listen(port, () => console.log(`--- CONTROL TOWER ONLINE (Port: ${port}) ---`));
+  // スマホからアクセス可能にする (0.0.0.0)
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`--- AntiGravity Engine ONLINE (Port: ${port}) ---`);
+    console.log(`- API Ready: http://192.168.3.153:${port}`);
+    console.log(`- Mobile App: Use Port 3001`);
+  });
 }
 
 module.exports = app;

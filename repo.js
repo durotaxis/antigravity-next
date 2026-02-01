@@ -13,11 +13,11 @@ function saveDailySummary(data) {
             INSERT INTO daily_summary (date, max_stride, avg_stride, hr_avg, hr_max, message, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
-                max_stride = excluded.max_stride,
-                avg_stride = excluded.avg_stride,
-                hr_avg = excluded.hr_avg,
-                hr_max = excluded.hr_max,
-                message = excluded.message,
+                max_stride = CASE WHEN excluded.max_stride > 0 THEN excluded.max_stride ELSE max_stride END,
+                avg_stride = CASE WHEN excluded.avg_stride > 0 THEN excluded.avg_stride ELSE avg_stride END,
+                hr_avg = CASE WHEN excluded.hr_avg > 0 THEN excluded.hr_avg ELSE hr_avg END,
+                hr_max = CASE WHEN excluded.hr_max > 0 THEN excluded.hr_max ELSE hr_max END,
+                message = COALESCE(excluded.message, message),
                 created_at = excluded.created_at
         `;
 
@@ -150,13 +150,29 @@ function getAllRuns() {
  */
 function deleteRun(id) {
     return new Promise((resolve, reject) => {
-        const sql = 'DELETE FROM daily_summary WHERE rowid = ?';
-        db.run(sql, [id], function (err) {
-            if (err) {
-                console.error('Error in deleteRun:', err);
-                return reject(err);
-            }
-            resolve(this.changes);
+        // 1. Get the date (run_id) first to delete linked images
+        const checkSql = 'SELECT date FROM daily_summary WHERE rowid = ?';
+        db.get(checkSql, [id], (err, row) => {
+            if (err) return reject(err);
+            if (!row) return resolve(0); // Not found
+
+            const runId = row.date;
+
+            // 2. Delete linked images
+            const deleteImagesSql = 'DELETE FROM run_images WHERE run_id = ?';
+            db.run(deleteImagesSql, [runId], (err) => {
+                if (err) console.error("Error deleting linked images:", err); // Log but continue
+
+                // 3. Delete the run itself
+                const deleteRunSql = 'DELETE FROM daily_summary WHERE rowid = ?';
+                db.run(deleteRunSql, [id], function (err) {
+                    if (err) {
+                        console.error('Error in deleteRun:', err);
+                        return reject(err);
+                    }
+                    resolve(this.changes);
+                });
+            });
         });
     });
 }

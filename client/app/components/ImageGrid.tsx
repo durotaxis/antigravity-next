@@ -8,7 +8,7 @@ type ImageAsset = {
 
 type ImageGridProps = {
   images: ImageAsset[];
-  onImageClick: (url: string) => void;
+  onImageClick: (url: string, id: number) => void;
 };
 
 export default function ImageGrid({ images, onImageClick }: ImageGridProps) {
@@ -19,10 +19,10 @@ export default function ImageGrid({ images, onImageClick }: ImageGridProps) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
       {images.map((img) => (
-        <div 
-          key={img.id} 
+        <div
+          key={img.id}
           className="group relative aspect-square overflow-hidden rounded-xl bg-gray-100 cursor-pointer border border-gray-200 hover:border-blue-400 transition-all duration-300 shadow-sm hover:shadow-md"
-          onClick={() => onImageClick(img.url)}
+          onClick={() => onImageClick(img.url, img.id)}
         >
           {/* 画像 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -32,12 +32,14 @@ export default function ImageGrid({ images, onImageClick }: ImageGridProps) {
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
             loading="lazy"
           />
-          
+
           {/* ホバー時のオーバーレイ */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
-             <span className="bg-white/90 text-gray-800 text-xs font-bold px-3 py-1 rounded-full shadow-lg">
-               View
-             </span>
+            <span className="bg-white/90 text-gray-800 text-xs font-bold px-3 py-1 rounded-full shadow-lg pointer-events-none">
+              View
+            </span>
+
+
           </div>
         </div>
       ))}

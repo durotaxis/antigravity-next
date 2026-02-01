@@ -366,7 +366,71 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === document.getElementById('inboxModal')) closeModal();
     });
     document.getElementById('importBtn').addEventListener('click', importSelectedImages);
+
+    // Initial History Load
+    loadRunHistory();
 });
+
+// --- NEW: History List Logic ---
+async function loadRunHistory() {
+    console.log("Loading Run History..."); // Debug
+    const tbody = document.querySelector('#historyTable tbody');
+    if (!tbody) {
+        console.error("History Table Body not found!");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/runs');
+        if (!res.ok) throw new Error('API Failed');
+        const runs = await res.json();
+        console.log("Runs fetched:", runs.length); // Debug
+
+        tbody.innerHTML = '';
+
+        // Sort descending by date
+        runs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        runs.forEach(run => {
+            const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            tr.onclick = () => {
+                console.log("Clicked run:", run.date);
+                document.getElementById('dateInput').value = run.date;
+                loadData(); // Load chart for this date
+
+                // Highlight selected row with class
+                document.querySelectorAll('#historyTable tr').forEach(r => r.classList.remove('history-row-active'));
+                tr.classList.add('history-row-active');
+            };
+
+            tr.innerHTML = `
+                <td>${run.date}</td>
+                <td class="${run.max_stride > 140 ? 'cell-high' : ''}">${run.max_stride ? run.max_stride.toFixed(1) : '-'} cm</td>
+                <td style="color: #ff4444;">${run.max_heart_rate ? Math.round(run.max_heart_rate) : '-'}</td>
+                <td><button class="btn-primary" style="padding: 4px 10px; font-size: 0.7rem; min-width: auto;" onclick="event.stopPropagation(); deleteRun('${run.id}')">DEL</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (err) {
+        console.error('Failed to load history:', err);
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Failed to load history</td></tr>';
+    }
+}
+
+async function deleteRun(runId) {
+    if (!confirm('Are you sure you want to delete this run?')) return;
+    try {
+        const res = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+        if (res.ok) {
+            loadRunHistory(); // Refresh list
+        } else {
+            alert('Delete failed');
+        }
+    } catch (err) {
+        alert('Error deleting run');
+    }
+}
 
 // --- Image Management Logic ---
 

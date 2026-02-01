@@ -140,5 +140,45 @@ module.exports = {
     linkImageToRun,
     getImagesForRun,
     unlinkImageFromRun,
-    updateAssetMetrics
+    updateAssetMetrics,
+    deleteAssetWithFile
 };
+
+/**
+ * Delete asset from DB and filesystem
+ */
+const fs = require('fs').promises;
+const path = require('path');
+const STORE_DIR = path.join(__dirname, 'public/assets/store');
+
+function deleteAssetWithFile(assetId) {
+    return new Promise((resolve, reject) => {
+        // 1. Get Filename
+        db.get('SELECT stored_filename FROM image_assets WHERE asset_id = ?', [assetId], async (err, row) => {
+            if (err) return reject(err);
+            if (!row) return resolve(0); // Not found
+
+            const filename = row.stored_filename;
+
+            try {
+                // 2. Delete File
+                if (filename) {
+                    const filePath = path.join(STORE_DIR, filename);
+                    await fs.unlink(filePath).catch(e => console.log(`File cleanup skipped: ${e.message}`));
+                }
+
+                db.serialize(() => {
+                    // 3. Delete DB Records
+                    db.run('DELETE FROM run_images WHERE asset_id = ?', [assetId]);
+                    db.run('DELETE FROM image_assets WHERE asset_id = ?', [assetId], function (err) {
+                        if (err) return reject(err);
+                        resolve(this.changes);
+                    });
+                });
+
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}

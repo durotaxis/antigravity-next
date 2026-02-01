@@ -110,6 +110,7 @@ Required Fields:
             console.log(`Calculated Stride: ${data.avg_stride_cm} cm`);
         }
 
+
         return data;
 
     } catch (err) {

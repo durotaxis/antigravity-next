@@ -141,28 +141,17 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
   }
 });
 
+
+// 2.7 Delete Image Asset (Physical & DB)
 app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
   try {
-    const { runId, assetId } = req.params;
-    await imageRepo.unlinkImageFromRun(runId, assetId);
+    const { assetId } = req.params;
+    // Completely remove valid asset (User requested physical delete)
+    const changes = await imageRepo.deleteAssetWithFile(assetId);
+    console.log(`Deleted Asset ${assetId}: ${changes} records removed.`);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 2.7 Delete Image Link
-app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
-  try {
-    const { runId, assetId } = req.params;
-    const changes = await imageRepo.unlinkImageFromRun(runId, assetId);
-    if (changes > 0) {
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Link not found' });
-    }
-  } catch (err) {
-    console.error(err);
+    console.error("Delete Error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -221,15 +210,57 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const result = await visionService.analyzeImage(filename);
     console.log("Analysis Result:", result);
 
-    // 2. 日付が取れたらDBに保存 (Runの自動作成)
+    // 2. 日付が取れたらGoogle Fitから正確なデータを取得してDBに保存
     if (result.date) {
+
+      // ★ Optimization: Check if summary already exists before calling Fit API
+      const existingSummary = await repo.getDailySummary(result.date);
+
+      let fitMetrics = {
+        max_stride_cm: 0,
+        max_heart_rate: 0
+      };
+
+      // Only fetch from Google Fit if NOT already in DB
+      if (!existingSummary) {
+        try {
+          console.log(`Fetching Google Fit data for ${result.date}...`);
+          // ★ API Integration: Get Real values including Max Stride (SMA) & Max HR
+          const fitData = await googleFitService.getDailyMetrics(result.date);
+          if (fitData) {
+            console.log("Google Fit Data Fetched:", fitData);
+            fitMetrics = fitData;
+          }
+        } catch (fitErr) {
+          console.error("Google Fit Fetch Failed (continuing with vision data):", fitErr.message);
+        }
+      } else {
+        console.log(`[Optimization] Summary exists for ${result.date}. Skipping Fit API.`);
+      }
+
+      const safeMaxStride = (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
+        : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride
+          : (result.max_stride_cm || 0);
+
+      const safeAvgStride = (fitMetrics.avg_stride_cm > 0) ? fitMetrics.avg_stride_cm
+        : (existingSummary && existingSummary.avg_stride > 0) ? existingSummary.avg_stride
+          : (result.avg_stride_cm || 0);
+
+      const safeMaxHR = (fitMetrics.max_heart_rate > 0) ? fitMetrics.max_heart_rate
+        : (existingSummary && existingSummary.hr_max > 0) ? existingSummary.hr_max
+          : (result.max_heart_rate || 0);
+
+      const safeAvgHR = (fitMetrics.avg_heart_rate > 0) ? fitMetrics.avg_heart_rate
+        : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg
+          : (result.avg_heart_rate || 0);
+
       await repo.saveDailySummary({
         date: result.date,
-        max_stride: result.max_stride_cm || 0,
-        avg_stride: result.avg_stride_cm || 0,
-        hr_max: result.max_heart_rate || 0,
-        hr_avg: result.avg_heart_rate || 0,
-        message: ''
+        max_stride: safeMaxStride,
+        avg_stride: safeAvgStride,
+        hr_max: safeMaxHR,
+        hr_avg: safeAvgHR,
+        message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
       // ★ Generate Advice (Async update)
@@ -262,7 +293,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
 
     // 3. アセット情報更新
-    await imageRepo.updateAssetMetrics(filename, result);
+    if (result.date) {
+      await imageRepo.updateAssetMetrics(filename, result);
+    }
 
     res.json({ success: true, data: result });
   } catch (err) {

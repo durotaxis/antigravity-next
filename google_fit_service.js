@@ -138,16 +138,52 @@ async function getDailyMetrics(dateString) {
             avgStride = (distance * 100) / steps;
         }
 
+        // --- FETCH INTRADAY DATA TO FIND REAL MAX VALUES (Match Old Screen Logic) ---
+        // The Daily Aggregate doesn't reliably return Max HR/Stride.
+        // We must fetch detailed buckets and find the peak.
+        const intradayData = await getIntradayMetrics(dateString);
+        let realMaxHR = 0;
+        let realMaxStride = 0;
+
+        if (intradayData && intradayData.length > 0) {
+            // 1. Find Real Max HR (Raw)
+            intradayData.forEach(d => {
+                if (d.heartRate > realMaxHR) realMaxHR = d.heartRate;
+            });
+
+            // 2. Find Real Max Stride (SMA Based - with Noise Filter steps > 30)
+            let max_stride_5p = 0;
+            const windowSize = 5;
+
+            for (let i = 0; i <= intradayData.length - windowSize; i++) {
+                const window = intradayData.slice(i, i + windowSize);
+
+                // Filter: Check if all points in window are valid (running)
+                // Threshold: steps > 30 to exclude GPS noise when standing/walking slowly
+                const isValidWindow = window.every(p => (p.steps > 30) && (p.stride > 0));
+
+                if (isValidWindow) {
+                    const avgStride = window.reduce((sum, p) => sum + p.stride, 0) / windowSize;
+                    if (avgStride > max_stride_5p) max_stride_5p = avgStride;
+                }
+            }
+            realMaxStride = max_stride_5p;
+
+            console.log(`[Metrics] Found Real Max values. HR(Raw)=${realMaxHR}, Stride(SMA-5)=${realMaxStride}`);
+        } else {
+            console.log(`[Metrics] No Intraday data found. Max values will be 0.`);
+        }
+
         return {
             date: dateString,
             step_count: Math.round(steps),
             total_distance_km: parseFloat((distance / 1000).toFixed(2)),
             total_time: '00:00:00', // Cannot easily get moving time from simple daily aggregate
             avg_heart_rate: Math.round(avgHR),
-            max_heart_rate: Math.round(avgHR * 1.1), // Rough estimate for now
+            max_heart_rate: Math.round(realMaxHR), // Real value (Raw)
             calories_kcal: Math.round(calories),
             avg_stride_cm: parseFloat(avgStride.toFixed(1)),
-            max_stride_cm: parseFloat((avgStride * 1.3).toFixed(1)) // Rough estimate
+            max_stride_cm: parseFloat(realMaxStride.toFixed(1)) // Real value (SMA)
         };
 
     } catch (err) {
@@ -164,10 +200,48 @@ async function getDailyMetrics(dateString) {
 }
 
 /**
+ * Helper: Calculate Simple Moving Average (Matches script.js)
+ */
+function calculateSMA(data, windowSize) {
+    const sma = [];
+    for (let i = 0; i < data.length; i++) {
+        if (i < windowSize - 1) {
+            // Not enough data for full window, stick to raw (or partial average if preferred, script.js uses raw/partial logic implicitly by pushing raw if < window?)
+            // Checking script.js: "if (i < windowSize - 1) { sma.push(data[i]); }" -> It uses raw value for the start.
+            sma.push(data[i]);
+        } else {
+            let sum = 0;
+            for (let j = 0; j < windowSize; j++) {
+                sum += data[i - j];
+            }
+            sma.push(sum / windowSize);
+        }
+    }
+    return sma;
+}
+
+/**
  * Fetch Intraday Metrics for Chart (15-min buckets)
  * @param {string} dateString 'YYYY-MM-DD'
  */
 async function getIntradayMetrics(dateString) {
+    // ★ Caching Logic for Quota Efficiency
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const cacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
+
+    try {
+        // Ensure cache directory exists
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+
+        // Try to read cache first
+        const cachedData = await fs.readFile(cacheFile, 'utf8');
+        console.log(`[GoogleFit] Serving Intraday data from cache: ${cacheFile}`);
+        return JSON.parse(cachedData);
+    } catch (err) {
+        // Cache miss or error, proceed to fetch
+        console.log(`[GoogleFit] Cache miss for ${dateString}, fetching from API...`);
+    }
+
     try {
         const auth = await authorize();
         const fitness = google.fitness({ version: 'v1', auth });
@@ -175,7 +249,7 @@ async function getIntradayMetrics(dateString) {
         const date = new Date(dateString);
         const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
         const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
-        const bucketDuration = 15 * 60 * 1000; // 15 minutes
+        const bucketDuration = 60 * 1000; // 1 minute granularity
 
         const requestBody = {
             aggregateBy: [
@@ -232,6 +306,12 @@ async function getIntradayMetrics(dateString) {
                 });
             }
         });
+
+        // ★ Save to Cache
+        if (chartData.length > 0) {
+            await fs.writeFile(cacheFile, JSON.stringify(chartData, null, 2));
+            console.log(`[GoogleFit] Saved Intraday data to cache: ${cacheFile}`);
+        }
 
         return chartData;
 

@@ -243,9 +243,17 @@ tr:hover td {
     background-color: rgba(255, 255, 255, 0.03);
 }
 
-.cell-high {
-    color: var(--accent-color);
-    font-weight: 700;
+/* History Table specific */
+#historyTable tr {
+    transition: background-color 0.2s;
+}
+
+#historyTable tr:hover td {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.history-row-active td {
+    background-color: rgba(56, 189, 248, 0.2) !important;
 }
 
 /* Responsive */

@@ -28,8 +28,11 @@ function extractDateFromFilename(filename) {
     // Try YYYY[-_]?MM[-_]?DD
     const match = filename.match(/(\d{4})[-_]?(\d{2})[-_]?(\d{2})/);
     if (match) {
-        return `${match[1]}-${match[2]}-${match[3]}`;
+        const date = `${match[1]}-${match[2]}-${match[3]}`;
+        console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
+        return date;
     }
+    console.log(`[ImageService] Failed to extract date from ${filename}`);
     return null;
 }
 

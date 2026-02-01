@@ -1,0 +1,135 @@
+[
+  {
+    "time": "06:05",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "06:06",
+    "steps": 9,
+    "distance": 1.9,
+    "stride": 21.3,
+    "heartRate": 0
+  },
+  {
+    "time": "06:45",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "06:46",
+    "steps": 13,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "09:42",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "09:43",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "09:59",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "10:00",
+    "steps": 10,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "10:11",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:24",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:25",
+    "steps": 4,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "12:08",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "12:09",
+    "steps": 6,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "23:50",
+    "steps": 12,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "23:51",
+    "steps": 64,
+    "distance": 37.5,
+    "stride": 58.6,
+    "heartRate": 0
+  },
+  {
+    "time": "23:52",
+    "steps": 1,
+    "distance": 0.4,
+    "stride": 35.6,
+    "heartRate": 0
+  },
+  {
+    "time": "23:53",
+    "steps": 23,
+    "distance": 14.8,
+    "stride": 64.5,
+    "heartRate": 0
+  },
+  {
+    "time": "23:54",
+    "steps": 37,
+    "distance": 23.6,
+    "stride": 63.7,
+    "heartRate": 0
+  },
+  {
+    "time": "23:55",
+    "steps": 5,
+    "distance": 3,
+    "stride": 60.6,
+    "heartRate": 0
+  }
+]

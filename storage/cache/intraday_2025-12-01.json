@@ -1,0 +1,1465 @@
+[
+  {
+    "time": "00:24",
+    "steps": 7,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "00:25",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "01:28",
+    "steps": 3,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "01:29",
+    "steps": 13,
+    "distance": 5.1,
+    "stride": 39.3,
+    "heartRate": 0
+  },
+  {
+    "time": "01:30",
+    "steps": 30,
+    "distance": 23.8,
+    "stride": 79.4,
+    "heartRate": 0
+  },
+  {
+    "time": "01:31",
+    "steps": 30,
+    "distance": 23.8,
+    "stride": 79.4,
+    "heartRate": 0
+  },
+  {
+    "time": "01:32",
+    "steps": 75,
+    "distance": 87.5,
+    "stride": 116.7,
+    "heartRate": 94
+  },
+  {
+    "time": "01:33",
+    "steps": 155,
+    "distance": 118.7,
+    "stride": 76.6,
+    "heartRate": 101
+  },
+  {
+    "time": "01:34",
+    "steps": 148,
+    "distance": 107.8,
+    "stride": 72.9,
+    "heartRate": 110
+  },
+  {
+    "time": "01:35",
+    "steps": 144,
+    "distance": 106,
+    "stride": 73.6,
+    "heartRate": 112
+  },
+  {
+    "time": "01:36",
+    "steps": 145,
+    "distance": 108.9,
+    "stride": 75.1,
+    "heartRate": 112
+  },
+  {
+    "time": "01:37",
+    "steps": 146,
+    "distance": 134.2,
+    "stride": 91.9,
+    "heartRate": 124
+  },
+  {
+    "time": "01:38",
+    "steps": 141,
+    "distance": 110.3,
+    "stride": 78.2,
+    "heartRate": 134
+  },
+  {
+    "time": "01:39",
+    "steps": 142,
+    "distance": 96,
+    "stride": 67.6,
+    "heartRate": 142
+  },
+  {
+    "time": "01:40",
+    "steps": 147,
+    "distance": 95.7,
+    "stride": 65.1,
+    "heartRate": 142
+  },
+  {
+    "time": "01:41",
+    "steps": 146,
+    "distance": 91.3,
+    "stride": 62.6,
+    "heartRate": 144
+  },
+  {
+    "time": "01:42",
+    "steps": 144,
+    "distance": 93.4,
+    "stride": 64.8,
+    "heartRate": 143
+  },
+  {
+    "time": "01:43",
+    "steps": 142,
+    "distance": 103.3,
+    "stride": 72.7,
+    "heartRate": 147
+  },
+  {
+    "time": "01:44",
+    "steps": 147,
+    "distance": 101.2,
+    "stride": 68.8,
+    "heartRate": 142
+  },
+  {
+    "time": "01:45",
+    "steps": 142,
+    "distance": 120,
+    "stride": 84.5,
+    "heartRate": 141
+  },
+  {
+    "time": "01:46",
+    "steps": 173,
+    "distance": 132.3,
+    "stride": 76.5,
+    "heartRate": 132
+  },
+  {
+    "time": "01:47",
+    "steps": 177,
+    "distance": 127.3,
+    "stride": 71.9,
+    "heartRate": 133
+  },
+  {
+    "time": "01:48",
+    "steps": 154,
+    "distance": 146,
+    "stride": 94.8,
+    "heartRate": 135
+  },
+  {
+    "time": "01:49",
+    "steps": 153,
+    "distance": 148.8,
+    "stride": 97.2,
+    "heartRate": 141
+  },
+  {
+    "time": "01:50",
+    "steps": 150,
+    "distance": 124.9,
+    "stride": 83.3,
+    "heartRate": 147
+  },
+  {
+    "time": "01:51",
+    "steps": 150,
+    "distance": 165.7,
+    "stride": 110.5,
+    "heartRate": 148
+  },
+  {
+    "time": "01:52",
+    "steps": 150,
+    "distance": 145.8,
+    "stride": 97.2,
+    "heartRate": 148
+  },
+  {
+    "time": "01:53",
+    "steps": 159,
+    "distance": 152.9,
+    "stride": 96.1,
+    "heartRate": 153
+  },
+  {
+    "time": "01:54",
+    "steps": 169,
+    "distance": 143.6,
+    "stride": 84.9,
+    "heartRate": 153
+  },
+  {
+    "time": "01:55",
+    "steps": 164,
+    "distance": 114.9,
+    "stride": 70,
+    "heartRate": 164
+  },
+  {
+    "time": "01:56",
+    "steps": 158,
+    "distance": 201.9,
+    "stride": 127.8,
+    "heartRate": 163
+  },
+  {
+    "time": "01:57",
+    "steps": 162,
+    "distance": 127.5,
+    "stride": 78.7,
+    "heartRate": 162
+  },
+  {
+    "time": "01:58",
+    "steps": 164,
+    "distance": 146.7,
+    "stride": 89.5,
+    "heartRate": 161
+  },
+  {
+    "time": "01:59",
+    "steps": 163,
+    "distance": 159.9,
+    "stride": 98.1,
+    "heartRate": 162
+  },
+  {
+    "time": "02:00",
+    "steps": 167,
+    "distance": 158.1,
+    "stride": 94.7,
+    "heartRate": 141
+  },
+  {
+    "time": "02:01",
+    "steps": 166,
+    "distance": 128.7,
+    "stride": 77.5,
+    "heartRate": 137
+  },
+  {
+    "time": "02:02",
+    "steps": 168,
+    "distance": 218.5,
+    "stride": 130.1,
+    "heartRate": 136
+  },
+  {
+    "time": "02:03",
+    "steps": 167,
+    "distance": 232.5,
+    "stride": 139.2,
+    "heartRate": 142
+  },
+  {
+    "time": "02:04",
+    "steps": 165,
+    "distance": 184.3,
+    "stride": 111.7,
+    "heartRate": 145
+  },
+  {
+    "time": "02:05",
+    "steps": 169,
+    "distance": 149,
+    "stride": 88.2,
+    "heartRate": 150
+  },
+  {
+    "time": "02:06",
+    "steps": 165,
+    "distance": 129.7,
+    "stride": 78.6,
+    "heartRate": 150
+  },
+  {
+    "time": "02:07",
+    "steps": 175,
+    "distance": 149.3,
+    "stride": 85.3,
+    "heartRate": 150
+  },
+  {
+    "time": "02:08",
+    "steps": 49,
+    "distance": 43.3,
+    "stride": 88.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:09",
+    "steps": 108,
+    "distance": 81,
+    "stride": 75,
+    "heartRate": 110
+  },
+  {
+    "time": "02:10",
+    "steps": 111,
+    "distance": 80.3,
+    "stride": 72.3,
+    "heartRate": 0
+  },
+  {
+    "time": "02:11",
+    "steps": 102,
+    "distance": 73.5,
+    "stride": 72,
+    "heartRate": 0
+  },
+  {
+    "time": "02:12",
+    "steps": 67,
+    "distance": 54.6,
+    "stride": 81.5,
+    "heartRate": 0
+  },
+  {
+    "time": "02:13",
+    "steps": 7,
+    "distance": 3.9,
+    "stride": 55.5,
+    "heartRate": 0
+  },
+  {
+    "time": "02:14",
+    "steps": 5,
+    "distance": 2.6,
+    "stride": 51.7,
+    "heartRate": 0
+  },
+  {
+    "time": "02:15",
+    "steps": 4,
+    "distance": 2.2,
+    "stride": 54.2,
+    "heartRate": 0
+  },
+  {
+    "time": "02:19",
+    "steps": 0,
+    "distance": 0.3,
+    "stride": 0,
+    "heartRate": 105
+  },
+  {
+    "time": "02:30",
+    "steps": 0,
+    "distance": 0.3,
+    "stride": 0,
+    "heartRate": 60
+  },
+  {
+    "time": "02:32",
+    "steps": 7,
+    "distance": 4.7,
+    "stride": 66.9,
+    "heartRate": 0
+  },
+  {
+    "time": "02:33",
+    "steps": 2,
+    "distance": 1.2,
+    "stride": 62.3,
+    "heartRate": 0
+  },
+  {
+    "time": "02:34",
+    "steps": 2,
+    "distance": 1.2,
+    "stride": 62.3,
+    "heartRate": 70
+  },
+  {
+    "time": "02:35",
+    "steps": 10,
+    "distance": 5.7,
+    "stride": 56.5,
+    "heartRate": 0
+  },
+  {
+    "time": "02:36",
+    "steps": 4,
+    "distance": 0.8,
+    "stride": 19.3,
+    "heartRate": 0
+  },
+  {
+    "time": "02:37",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:38",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:39",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:40",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:41",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:42",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:43",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:44",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:45",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:46",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 91
+  },
+  {
+    "time": "02:47",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:48",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:49",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:50",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:51",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:52",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:53",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:54",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:55",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:56",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:57",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 87
+  },
+  {
+    "time": "02:58",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "02:59",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "03:00",
+    "steps": 1,
+    "distance": 0.5,
+    "stride": 50.4,
+    "heartRate": 0
+  },
+  {
+    "time": "03:01",
+    "steps": 1,
+    "distance": 0.6,
+    "stride": 56.7,
+    "heartRate": 0
+  },
+  {
+    "time": "03:02",
+    "steps": 1,
+    "distance": 1.4,
+    "stride": 144.6,
+    "heartRate": 0
+  },
+  {
+    "time": "03:03",
+    "steps": 1,
+    "distance": 1.4,
+    "stride": 144.6,
+    "heartRate": 0
+  },
+  {
+    "time": "03:04",
+    "steps": 1,
+    "distance": 1.4,
+    "stride": 144.6,
+    "heartRate": 0
+  },
+  {
+    "time": "03:05",
+    "steps": 1,
+    "distance": 1.4,
+    "stride": 144.6,
+    "heartRate": 0
+  },
+  {
+    "time": "03:06",
+    "steps": 29,
+    "distance": 27.5,
+    "stride": 94.7,
+    "heartRate": 0
+  },
+  {
+    "time": "03:07",
+    "steps": 57,
+    "distance": 39,
+    "stride": 68.4,
+    "heartRate": 0
+  },
+  {
+    "time": "03:08",
+    "steps": 10,
+    "distance": 7.5,
+    "stride": 75.5,
+    "heartRate": 0
+  },
+  {
+    "time": "03:09",
+    "steps": 22,
+    "distance": 15.9,
+    "stride": 72.3,
+    "heartRate": 0
+  },
+  {
+    "time": "03:10",
+    "steps": 35,
+    "distance": 28.3,
+    "stride": 80.8,
+    "heartRate": 0
+  },
+  {
+    "time": "03:11",
+    "steps": 59,
+    "distance": 65.3,
+    "stride": 110.8,
+    "heartRate": 95
+  },
+  {
+    "time": "03:12",
+    "steps": 15,
+    "distance": 11.7,
+    "stride": 78,
+    "heartRate": 0
+  },
+  {
+    "time": "03:13",
+    "steps": 14,
+    "distance": 4.1,
+    "stride": 29.3,
+    "heartRate": 0
+  },
+  {
+    "time": "03:14",
+    "steps": 9,
+    "distance": 6.4,
+    "stride": 70.6,
+    "heartRate": 0
+  },
+  {
+    "time": "03:15",
+    "steps": 1,
+    "distance": 1.1,
+    "stride": 109.8,
+    "heartRate": 0
+  },
+  {
+    "time": "03:22",
+    "steps": 0,
+    "distance": 0.3,
+    "stride": 0,
+    "heartRate": 93
+  },
+  {
+    "time": "03:32",
+    "steps": 0,
+    "distance": 0.3,
+    "stride": 0,
+    "heartRate": 84
+  },
+  {
+    "time": "03:43",
+    "steps": 3,
+    "distance": 1.8,
+    "stride": 59.2,
+    "heartRate": 57
+  },
+  {
+    "time": "03:44",
+    "steps": 7,
+    "distance": 4.3,
+    "stride": 61.3,
+    "heartRate": 0
+  },
+  {
+    "time": "03:45",
+    "steps": 9,
+    "distance": 6.2,
+    "stride": 68.8,
+    "heartRate": 0
+  },
+  {
+    "time": "03:46",
+    "steps": 68,
+    "distance": 50.9,
+    "stride": 74.9,
+    "heartRate": 0
+  },
+  {
+    "time": "03:47",
+    "steps": 76,
+    "distance": 54.1,
+    "stride": 71.2,
+    "heartRate": 0
+  },
+  {
+    "time": "03:48",
+    "steps": 125,
+    "distance": 95.5,
+    "stride": 76.4,
+    "heartRate": 0
+  },
+  {
+    "time": "03:49",
+    "steps": 119,
+    "distance": 90.3,
+    "stride": 75.9,
+    "heartRate": 0
+  },
+  {
+    "time": "03:50",
+    "steps": 117,
+    "distance": 91.2,
+    "stride": 77.9,
+    "heartRate": 0
+  },
+  {
+    "time": "03:51",
+    "steps": 121,
+    "distance": 95.5,
+    "stride": 79,
+    "heartRate": 0
+  },
+  {
+    "time": "03:52",
+    "steps": 93,
+    "distance": 70.2,
+    "stride": 75.4,
+    "heartRate": 0
+  },
+  {
+    "time": "03:53",
+    "steps": 8,
+    "distance": 6.2,
+    "stride": 77.4,
+    "heartRate": 100
+  },
+  {
+    "time": "03:54",
+    "steps": 8,
+    "distance": 5,
+    "stride": 62.5,
+    "heartRate": 0
+  },
+  {
+    "time": "03:55",
+    "steps": 37,
+    "distance": 25.9,
+    "stride": 70,
+    "heartRate": 0
+  },
+  {
+    "time": "03:56",
+    "steps": 93,
+    "distance": 70,
+    "stride": 75.3,
+    "heartRate": 0
+  },
+  {
+    "time": "03:57",
+    "steps": 126,
+    "distance": 98.2,
+    "stride": 77.9,
+    "heartRate": 0
+  },
+  {
+    "time": "03:58",
+    "steps": 130,
+    "distance": 102.4,
+    "stride": 78.8,
+    "heartRate": 0
+  },
+  {
+    "time": "03:59",
+    "steps": 131,
+    "distance": 104,
+    "stride": 79.4,
+    "heartRate": 0
+  },
+  {
+    "time": "04:00",
+    "steps": 132,
+    "distance": 105.6,
+    "stride": 80,
+    "heartRate": 0
+  },
+  {
+    "time": "04:01",
+    "steps": 58,
+    "distance": 44,
+    "stride": 75.9,
+    "heartRate": 0
+  },
+  {
+    "time": "04:02",
+    "steps": 26,
+    "distance": 16.4,
+    "stride": 63.1,
+    "heartRate": 0
+  },
+  {
+    "time": "04:03",
+    "steps": 8,
+    "distance": 5.1,
+    "stride": 63.5,
+    "heartRate": 0
+  },
+  {
+    "time": "06:16",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "06:17",
+    "steps": 10,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "06:47",
+    "steps": 3,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "06:48",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "10:27",
+    "steps": 12,
+    "distance": 0.4,
+    "stride": 3.7,
+    "heartRate": 0
+  },
+  {
+    "time": "10:28",
+    "steps": 30,
+    "distance": 19.1,
+    "stride": 63.8,
+    "heartRate": 0
+  },
+  {
+    "time": "11:20",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:22",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:23",
+    "steps": 4,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:24",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:25",
+    "steps": 27,
+    "distance": 14.5,
+    "stride": 53.8,
+    "heartRate": 0
+  },
+  {
+    "time": "11:26",
+    "steps": 91,
+    "distance": 59.6,
+    "stride": 65.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:27",
+    "steps": 95,
+    "distance": 63.7,
+    "stride": 67,
+    "heartRate": 0
+  },
+  {
+    "time": "11:28",
+    "steps": 93,
+    "distance": 62.4,
+    "stride": 67,
+    "heartRate": 0
+  },
+  {
+    "time": "11:29",
+    "steps": 95,
+    "distance": 63.7,
+    "stride": 67,
+    "heartRate": 0
+  },
+  {
+    "time": "11:30",
+    "steps": 87,
+    "distance": 57.6,
+    "stride": 66.2,
+    "heartRate": 0
+  },
+  {
+    "time": "11:31",
+    "steps": 88,
+    "distance": 57.5,
+    "stride": 65.4,
+    "heartRate": 0
+  },
+  {
+    "time": "11:32",
+    "steps": 33,
+    "distance": 21.5,
+    "stride": 65.1,
+    "heartRate": 0
+  },
+  {
+    "time": "11:33",
+    "steps": 41,
+    "distance": 26.6,
+    "stride": 64.8,
+    "heartRate": 0
+  },
+  {
+    "time": "11:34",
+    "steps": 77,
+    "distance": 49.2,
+    "stride": 63.9,
+    "heartRate": 0
+  },
+  {
+    "time": "11:35",
+    "steps": 45,
+    "distance": 28.6,
+    "stride": 63.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:36",
+    "steps": 45,
+    "distance": 28.6,
+    "stride": 63.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:37",
+    "steps": 52,
+    "distance": 40.6,
+    "stride": 78.1,
+    "heartRate": 0
+  },
+  {
+    "time": "11:38",
+    "steps": 57,
+    "distance": 43,
+    "stride": 75.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:39",
+    "steps": 71,
+    "distance": 42.5,
+    "stride": 59.9,
+    "heartRate": 0
+  },
+  {
+    "time": "11:40",
+    "steps": 62,
+    "distance": 42.4,
+    "stride": 68.4,
+    "heartRate": 0
+  },
+  {
+    "time": "11:41",
+    "steps": 79,
+    "distance": 19.1,
+    "stride": 24.2,
+    "heartRate": 0
+  },
+  {
+    "time": "11:42",
+    "steps": 97,
+    "distance": 13.1,
+    "stride": 13.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:43",
+    "steps": 76,
+    "distance": 10.5,
+    "stride": 13.8,
+    "heartRate": 0
+  },
+  {
+    "time": "11:44",
+    "steps": 31,
+    "distance": 9.8,
+    "stride": 31.5,
+    "heartRate": 0
+  },
+  {
+    "time": "11:56",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "11:57",
+    "steps": 44,
+    "distance": 27.3,
+    "stride": 62,
+    "heartRate": 0
+  },
+  {
+    "time": "11:58",
+    "steps": 53,
+    "distance": 33.7,
+    "stride": 63.6,
+    "heartRate": 0
+  },
+  {
+    "time": "11:59",
+    "steps": 85,
+    "distance": 56,
+    "stride": 65.9,
+    "heartRate": 0
+  },
+  {
+    "time": "12:00",
+    "steps": 67,
+    "distance": 42.6,
+    "stride": 63.6,
+    "heartRate": 0
+  },
+  {
+    "time": "12:01",
+    "steps": 62,
+    "distance": 39.6,
+    "stride": 63.8,
+    "heartRate": 0
+  },
+  {
+    "time": "12:02",
+    "steps": 61,
+    "distance": 39.1,
+    "stride": 64.1,
+    "heartRate": 0
+  },
+  {
+    "time": "12:03",
+    "steps": 55,
+    "distance": 36.3,
+    "stride": 65.9,
+    "heartRate": 0
+  },
+  {
+    "time": "12:06",
+    "steps": 13,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "12:07",
+    "steps": 88,
+    "distance": 59.1,
+    "stride": 67.1,
+    "heartRate": 0
+  },
+  {
+    "time": "12:08",
+    "steps": 97,
+    "distance": 65.7,
+    "stride": 67.7,
+    "heartRate": 0
+  },
+  {
+    "time": "12:09",
+    "steps": 96,
+    "distance": 64.6,
+    "stride": 67.2,
+    "heartRate": 0
+  },
+  {
+    "time": "12:10",
+    "steps": 25,
+    "distance": 17.1,
+    "stride": 68.3,
+    "heartRate": 0
+  },
+  {
+    "time": "18:43",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 75
+  },
+  {
+    "time": "18:54",
+    "steps": 0,
+    "distance": 8.2,
+    "stride": 0,
+    "heartRate": 117
+  },
+  {
+    "time": "19:12",
+    "steps": 3,
+    "distance": 20.9,
+    "stride": 695.5,
+    "heartRate": 55
+  },
+  {
+    "time": "19:13",
+    "steps": 24,
+    "distance": 8.7,
+    "stride": 36.2,
+    "heartRate": 0
+  },
+  {
+    "time": "19:14",
+    "steps": 67,
+    "distance": 8.7,
+    "stride": 13,
+    "heartRate": 0
+  },
+  {
+    "time": "19:15",
+    "steps": 106,
+    "distance": 9.5,
+    "stride": 9,
+    "heartRate": 0
+  },
+  {
+    "time": "19:16",
+    "steps": 113,
+    "distance": 60.6,
+    "stride": 53.6,
+    "heartRate": 0
+  },
+  {
+    "time": "19:17",
+    "steps": 70,
+    "distance": 54.5,
+    "stride": 77.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:18",
+    "steps": 17,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:19",
+    "steps": 12,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:20",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:21",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:23",
+    "steps": 3,
+    "distance": 2,
+    "stride": 65.9,
+    "heartRate": 0
+  },
+  {
+    "time": "19:24",
+    "steps": 37,
+    "distance": 20.3,
+    "stride": 54.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:25",
+    "steps": 4,
+    "distance": 2.9,
+    "stride": 72.2,
+    "heartRate": 55
+  },
+  {
+    "time": "19:28",
+    "steps": 15,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:29",
+    "steps": 29,
+    "distance": 20.1,
+    "stride": 69.3,
+    "heartRate": 0
+  },
+  {
+    "time": "19:30",
+    "steps": 31,
+    "distance": 20,
+    "stride": 64.7,
+    "heartRate": 0
+  },
+  {
+    "time": "19:31",
+    "steps": 31,
+    "distance": 29.7,
+    "stride": 95.7,
+    "heartRate": 0
+  },
+  {
+    "time": "19:32",
+    "steps": 45,
+    "distance": 39.4,
+    "stride": 87.5,
+    "heartRate": 0
+  },
+  {
+    "time": "19:33",
+    "steps": 40,
+    "distance": 25.7,
+    "stride": 64.3,
+    "heartRate": 92
+  },
+  {
+    "time": "19:34",
+    "steps": 40,
+    "distance": 33.3,
+    "stride": 83.2,
+    "heartRate": 0
+  },
+  {
+    "time": "19:35",
+    "steps": 35,
+    "distance": 29.4,
+    "stride": 83.9,
+    "heartRate": 0
+  },
+  {
+    "time": "19:36",
+    "steps": 37,
+    "distance": 22.9,
+    "stride": 61.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:37",
+    "steps": 38,
+    "distance": 24.3,
+    "stride": 63.9,
+    "heartRate": 0
+  },
+  {
+    "time": "19:38",
+    "steps": 30,
+    "distance": 19.1,
+    "stride": 63.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:39",
+    "steps": 30,
+    "distance": 19.1,
+    "stride": 63.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:40",
+    "steps": 48,
+    "distance": 20.3,
+    "stride": 42.3,
+    "heartRate": 0
+  },
+  {
+    "time": "19:41",
+    "steps": 54,
+    "distance": 22.7,
+    "stride": 42,
+    "heartRate": 0
+  },
+  {
+    "time": "19:42",
+    "steps": 75,
+    "distance": 48.4,
+    "stride": 64.6,
+    "heartRate": 0
+  },
+  {
+    "time": "19:43",
+    "steps": 67,
+    "distance": 42.6,
+    "stride": 63.5,
+    "heartRate": 0
+  },
+  {
+    "time": "19:44",
+    "steps": 109,
+    "distance": 61.2,
+    "stride": 56.2,
+    "heartRate": 104
+  },
+  {
+    "time": "19:45",
+    "steps": 112,
+    "distance": 74.3,
+    "stride": 66.3,
+    "heartRate": 0
+  },
+  {
+    "time": "19:46",
+    "steps": 52,
+    "distance": 42.6,
+    "stride": 81.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:47",
+    "steps": 69,
+    "distance": 38.3,
+    "stride": 55.5,
+    "heartRate": 0
+  },
+  {
+    "time": "19:48",
+    "steps": 84,
+    "distance": 45.4,
+    "stride": 54,
+    "heartRate": 0
+  },
+  {
+    "time": "19:49",
+    "steps": 79,
+    "distance": 50.6,
+    "stride": 64,
+    "heartRate": 0
+  },
+  {
+    "time": "19:50",
+    "steps": 22,
+    "distance": 15.8,
+    "stride": 71.8,
+    "heartRate": 0
+  },
+  {
+    "time": "19:52",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:53",
+    "steps": 5,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:56",
+    "steps": 15,
+    "distance": 9.3,
+    "stride": 62,
+    "heartRate": 0
+  },
+  {
+    "time": "19:57",
+    "steps": 9,
+    "distance": 6,
+    "stride": 66.7,
+    "heartRate": 0
+  },
+  {
+    "time": "19:58",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "19:59",
+    "steps": 11,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0
+  },
+  {
+    "time": "20:00",
+    "steps": 13,
+    "distance": 2.6,
+    "stride": 20.3,
+    "heartRate": 0
+  },
+  {
+    "time": "20:01",
+    "steps": 30,
+    "distance": 19.1,
+    "stride": 63.8,
+    "heartRate": 0
+  },
+  {
+    "time": "20:02",
+    "steps": 22,
+    "distance": 13.9,
+    "stride": 63.3,
+    "heartRate": 0
+  }
+]

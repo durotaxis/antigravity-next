@@ -37,8 +37,14 @@ export default function EfficiencyChart({ runs }: Props) {
   const chartData = sortedRuns.map(run => {
     // User requested RAW daily summary max values
     // Using max_heart_rate from API (or hr_max if passed that way)
-    const displayHr = run.max_heart_rate || run.hr_max || 0;
-    const displayStride = run.max_stride || 0;
+    let displayHr = run.max_heart_rate || run.hr_max || 0;
+    let displayStride = run.max_stride || 0;
+
+    // Apply Filters (Matching Old Screen Logic)
+    // 1. Invalid Stride > 300cm
+    if (displayStride > 300) displayStride = 0;
+    // 2. Invalid HR <= 100 or Missing (0) -> Invalidate Stride
+    if (displayHr <= 100) displayStride = 0;
 
     return {
       ...run,
@@ -66,11 +72,9 @@ export default function EfficiencyChart({ runs }: Props) {
           <div className="space-y-1">
             <p className="text-blue-600">
               Stride: <strong>{data.displayStride}</strong> cm
-              {data.isEstimated && <span className="text-xs text-gray-400 ml-1">(Avg)</span>}
             </p>
             <p className="text-red-500">
               Heart Rate: <strong>{data.displayHr}</strong> bpm
-              {data.isEstimated && <span className="text-xs text-gray-400 ml-1">(Avg)</span>}
             </p>
           </div>
         </div>
@@ -85,7 +89,7 @@ export default function EfficiencyChart({ runs }: Props) {
         Performance Trend
       </h2>
       <p className="text-xs text-center text-gray-400 mb-4">
-        Max Stride / Max Heart Rate
+        Max Stride / Heart Rate
       </p>
 
       <ResponsiveContainer width="100%" height="100%">
@@ -147,7 +151,7 @@ export default function EfficiencyChart({ runs }: Props) {
             yAxisId="right"
             type="monotone"
             dataKey="displayHr"
-            name="Max Heart Rate"
+            name="HR @ Max Stride"
             stroke="#ef4444"
             strokeWidth={2}
             dot={{ r: 3 }}

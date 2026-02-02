@@ -199,8 +199,8 @@ export default function Home() {
                 <div>
                   <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2">Stride (cm)</span>
                   <div className="flex flex-col items-center gap-1">
-                    {/* Display Max if exists (even if 0) */}
-                    {run.max_stride !== undefined && run.max_stride !== null ? (
+                    {/* Display Max if exists AND valid (HR > 100, Stride <= 300) */}
+                    {run.max_stride !== undefined && run.max_stride !== null && run.max_stride <= 300 && (run.max_heart_rate || 0) > 100 ? (
                       <div className="flex items-baseline gap-2">
                         <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Max</span>
                         <span className="font-bold text-gray-900 text-lg leading-none">

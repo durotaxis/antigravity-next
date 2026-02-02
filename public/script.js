@@ -46,14 +46,20 @@ async function loadData() {
 
         // Calculate SMAs to find TRUE Peak Performance (trend)
         const stridesRaw = data.map(d => d.stride);
-        const stridesSMA = calculateSMA(stridesRaw, 5);
+        const stridesSMA = calculateSMA(stridesRaw, 3); // Changed from 5 to 3
 
         // Find Max based on SMA
         let maxSMAVal = 0;
         let maxIndex = 0;
 
         stridesSMA.forEach((val, i) => {
-            if (val > maxSMAVal) {
+            // Filter: Ignore if Heart Rate is <= 100 OR Missing
+            // Filter: Ignore unrealistic Stride > 300cm
+            const currentHR = data[i].heartRate;
+            const hasGoodHeartRate = (currentHR !== undefined && currentHR !== null && currentHR > 100);
+            const isRealisticStride = (val <= 300);
+
+            if (val > maxSMAVal && hasGoodHeartRate && isRealisticStride) {
                 maxSMAVal = val;
                 maxIndex = i;
             }
@@ -62,6 +68,20 @@ async function loadData() {
         // Use SMA-based Peak for Summary and AI
         const maxStride = maxSMAVal;
         const maxTime = data[maxIndex].time;
+        // CHANGED: Use HR at the time of Max Stride (avg of window if possible, but here point value is fine as SMA is stride only)
+        // Note: stridesSMA[i] corresponds to window starting at i. 
+        // We should ideally take avg HR of window, or just HR at this point. 
+        // Logic: google_fit_service uses avg HR of window. Here we can approximate with data[maxIndex].heartRate (center of window approx).
+        // Let's use the HR at `maxIndex` as it's the start of the window.
+        // Or better: calculated average of i, i+1, i+2.
+        let hrAtMax = 0;
+        if (maxIndex < data.length - 2) {
+            hrAtMax = Math.round((data[maxIndex].heartRate + data[maxIndex + 1].heartRate + data[maxIndex + 2].heartRate) / 3);
+        } else {
+            hrAtMax = data[maxIndex].heartRate;
+        }
+
+        let maxHeartRate = hrAtMax;
 
         // Populate Table with Raw Data
         data.forEach(d => {

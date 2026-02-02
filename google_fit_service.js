@@ -153,23 +153,37 @@ async function getDailyMetrics(dateString) {
 
             // 2. Find Real Max Stride (SMA Based - with Noise Filter steps > 30)
             let max_stride_5p = 0;
-            const windowSize = 5;
+            let hr_at_max_stride = 0; // New: Track HR at the moment of peak stride
+            const windowSize = 3; // Changed from 5 to 3 per user request
 
             for (let i = 0; i <= intradayData.length - windowSize; i++) {
                 const window = intradayData.slice(i, i + windowSize);
 
                 // Filter: Check if all points in window are valid (running)
-                // Threshold: steps > 30 to exclude GPS noise when standing/walking slowly
-                const isValidWindow = window.every(p => (p.steps > 30) && (p.stride > 0));
+                // Threshold: steps > 30, stride <= 300, heartRate > 100
+                const isValidWindow = window.every(p =>
+                    (p.steps > 30) &&
+                    (p.stride > 0 && p.stride <= 300) &&
+                    (p.heartRate !== undefined && p.heartRate !== null && p.heartRate > 100)
+                );
 
                 if (isValidWindow) {
                     const avgStride = window.reduce((sum, p) => sum + p.stride, 0) / windowSize;
-                    if (avgStride > max_stride_5p) max_stride_5p = avgStride;
+                    if (avgStride > max_stride_5p) {
+                        max_stride_5p = avgStride;
+                        // Calculate Avg HR for this same window
+                        const avgHR = window.reduce((sum, p) => sum + p.heartRate, 0) / windowSize;
+                        hr_at_max_stride = Math.round(avgHR);
+                    }
                 }
             }
             realMaxStride = max_stride_5p;
+            // Override Map Heart Rate with "HR at Peak Stride" (Per user request)
+            if (hr_at_max_stride > 0) {
+                realMaxHR = hr_at_max_stride;
+            }
 
-            console.log(`[Metrics] Found Real Max values. HR(Raw)=${realMaxHR}, Stride(SMA-5)=${realMaxStride}`);
+            console.log(`[Metrics] Found Real Max values. HR(at Peak Stride)=${realMaxHR}, Stride(SMA-3)=${realMaxStride}`);
         } else {
             console.log(`[Metrics] No Intraday data found. Max values will be 0.`);
         }

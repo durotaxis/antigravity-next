@@ -138,66 +138,77 @@ async function getDailyMetrics(dateString) {
             avgStride = (distance * 100) / steps;
         }
 
-        // --- FETCH INTRADAY DATA TO FIND REAL MAX VALUES (Match Old Screen Logic) ---
-        // The Daily Aggregate doesn't reliably return Max HR/Stride.
-        // We must fetch detailed buckets and find the peak.
+        // --- FETCH INTRADAY DATA TO FIND REAL MAX VALUES & RECALCULATE AVERAGES ---
+        // Instead of using the 24h raw aggregate, we will RECALCULATE the daily averages
+        // based on the CLEANED running segments from getIntradayMetrics.
+        // This ensures the "Avg HR" and "Avg Stride" on the card match the filtered chart.
+
         const intradayData = await getIntradayMetrics(dateString);
         let realMaxHR = 0;
         let realMaxStride = 0;
 
+        // Recalculated Averages (Filtered)
+        let filteredAvgHR = 0;
+        let filteredAvgStride = 0;
+
         if (intradayData && intradayData.length > 0) {
-            // 1. Find Real Max HR (Raw)
+            // calculate averages from valid points only
+            let sumHR = 0;
+            let countHR = 0;
+            let sumStride = 0;
+            let countStride = 0;
+
             intradayData.forEach(d => {
+                // Find Max
                 if (d.heartRate > realMaxHR) realMaxHR = d.heartRate;
+                if (d.stride > realMaxStride) realMaxStride = d.stride;
+
+                // Accumulate for Average
+                if (d.heartRate > 0) {
+                    sumHR += d.heartRate;
+                    countHR++;
+                }
+                if (d.stride > 0) {
+                    sumStride += d.stride;
+                    countStride++;
+                }
             });
 
-            // 2. Find Real Max Stride (SMA Based - with Noise Filter steps > 30)
-            let max_stride_5p = 0;
-            let hr_at_max_stride = 0; // New: Track HR at the moment of peak stride
-            const windowSize = 3; // Changed from 5 to 3 per user request
+            if (countHR > 0) filteredAvgHR = Math.round(sumHR / countHR);
+            if (countStride > 0) filteredAvgStride = parseFloat((sumStride / countStride).toFixed(1));
 
-            for (let i = 0; i <= intradayData.length - windowSize; i++) {
-                const window = intradayData.slice(i, i + windowSize);
+            // Debug Logging
+            console.log(`[Metric Debug] CountStride=${countStride}, SumStride=${sumStride}`);
+            console.log(`[Metric Debug] RealMaxStride=${realMaxStride}, FilteredAvgStride=${filteredAvgStride}`);
 
-                // Filter: Check if all points in window are valid (running)
-                // Threshold: steps > 30, stride <= 300, heartRate > 100
-                const isValidWindow = window.every(p =>
-                    (p.steps > 30) &&
-                    (p.stride > 0 && p.stride <= 300) &&
-                    (p.heartRate !== undefined && p.heartRate !== null && p.heartRate > 100)
-                );
-
-                if (isValidWindow) {
-                    const avgStride = window.reduce((sum, p) => sum + p.stride, 0) / windowSize;
-                    if (avgStride > max_stride_5p) {
-                        max_stride_5p = avgStride;
-                        // Calculate Avg HR for this same window
-                        const avgHR = window.reduce((sum, p) => sum + p.heartRate, 0) / windowSize;
-                        hr_at_max_stride = Math.round(avgHR);
-                    }
-                }
-            }
-            realMaxStride = max_stride_5p;
-            // Override Map Heart Rate with "HR at Peak Stride" (Per user request)
-            if (hr_at_max_stride > 0) {
-                realMaxHR = hr_at_max_stride;
+            // Sanity Check: If Max is 0 but Avg > 0, something is wrong with the loop or data types
+            if (realMaxStride === 0 && filteredAvgStride > 0) {
+                console.warn('[Metric Warning] Max Stride is 0 but Avg is positive! Force updating Max to at least Avg.');
+                let tempMax = 0;
+                intradayData.forEach(d => { if (d.stride > tempMax) tempMax = d.stride; });
+                console.log(`[Metric Debug] Re-scan Max: ${tempMax}`);
+                realMaxStride = tempMax;
             }
 
-            console.log(`[Metrics] Found Real Max values. HR(at Peak Stride)=${realMaxHR}, Stride(SMA-3)=${realMaxStride}`);
+            console.log(`[Metrics] Recalculated from Intraday: MaxHR=${realMaxHR}, MaxStride=${realMaxStride}, AvgHR=${filteredAvgHR}, AvgStride=${filteredAvgStride}`);
         } else {
             console.log(`[Metrics] No Intraday data found. Max values will be 0.`);
         }
 
+        // Use filtered averages if available, otherwise fallback to raw 24h aggregate
+        const finalAvgHR = (filteredAvgHR > 0) ? filteredAvgHR : Math.round(avgHR);
+        const finalAvgStride = (filteredAvgStride > 0) ? filteredAvgStride : parseFloat(avgStride.toFixed(1));
+
         return {
             date: dateString,
-            step_count: Math.round(steps),
+            step_count: Math.round(steps), // Total steps (24h) remains specific to "Daily Summary" usually, but user might want Running Steps? keeping 24h for now.
             total_distance_km: parseFloat((distance / 1000).toFixed(2)),
-            total_time: '00:00:00', // Cannot easily get moving time from simple daily aggregate
-            avg_heart_rate: Math.round(avgHR),
-            max_heart_rate: Math.round(realMaxHR), // Real value (Raw)
+            total_time: '00:00:00',
+            avg_heart_rate: finalAvgHR,
+            max_heart_rate: Math.round(realMaxHR),
             calories_kcal: Math.round(calories),
-            avg_stride_cm: parseFloat(avgStride.toFixed(1)),
-            max_stride_cm: parseFloat(realMaxStride.toFixed(1)) // Real value (SMA)
+            avg_stride_cm: finalAvgStride,
+            max_stride_cm: parseFloat(realMaxStride.toFixed(1))
         };
 
     } catch (err) {
@@ -214,22 +225,93 @@ async function getDailyMetrics(dateString) {
 }
 
 /**
- * Helper: Calculate Simple Moving Average (Matches script.js)
+ * Clean and Filter Intraday Data
+ * - Filter by Source (TicWatch / Running)
+ * - Interpolate Spikes/Drops (0 or >100 jump)
+ * - Exclude Stride > 250cm
+ */
+function cleanIntradayData(rawData) {
+    if (!rawData || rawData.length === 0) return [];
+
+    // 1. Sort by time just in case
+    rawData.sort((a, b) => a.time.localeCompare(b.time));
+
+    const cleaned = [];
+
+    for (let i = 0; i < rawData.length; i++) {
+        let point = { ...rawData[i] };
+
+        // --- A. Interpolation (Spike/Zero Detection) ---
+        // Checks Heart Rate and Stride for anomalies
+        if (shouldInterpolate(point, rawData, i)) {
+            point = interpolatePoint(rawData, i);
+        }
+
+        // --- B. Stride Ceiling ---
+        // Physiologically unlikely threshold
+        if (point.stride > 250) {
+            point.stride = 0; // Invalidate stride
+        }
+
+        // Only keep points that have SOME valid data
+        if (point.steps > 0 || point.heartRate > 0) {
+            // Valid Running Filter: Eliminate "phone walking" noise if needed
+            // (For now, we trust the cache data source filtering if implemented in getIntradayMetrics,
+            // but here we ensure data quality)
+            cleaned.push(point);
+        }
+    }
+    return cleaned;
+}
+
+function shouldInterpolate(point, allData, index) {
+    // 1. Zero Drop (Heart Rate) but active steps
+    if (point.heartRate === 0 && point.steps > 10) return true;
+
+    // 2. Impossible Jump (e.g., > 80bpm difference from neighbors)
+    if (index > 0 && index < allData.length - 1) {
+        const prev = allData[index - 1];
+        if (prev.heartRate > 0 && Math.abs(point.heartRate - prev.heartRate) > 80) return true;
+    }
+    return false;
+}
+
+function interpolatePoint(allData, index) {
+    const point = { ...allData[index] };
+    const prev = (index > 0) ? allData[index - 1] : null;
+    const next = (index < allData.length - 1) ? allData[index + 1] : null;
+
+    // Simple Linear Interpolation
+    if (prev && next && prev.heartRate > 0 && next.heartRate > 0) {
+        point.heartRate = Math.round((prev.heartRate + next.heartRate) / 2);
+    } else if (prev && prev.heartRate > 0) {
+        point.heartRate = prev.heartRate;
+    } else if (next && next.heartRate > 0) {
+        point.heartRate = next.heartRate;
+    }
+    // If neighbors are empty, leave as is (cannot rescue)
+    return point;
+}
+
+
+/**
+ * Helper: Calculate Simple Moving Average (SMA)
  */
 function calculateSMA(data, windowSize) {
     const sma = [];
     for (let i = 0; i < data.length; i++) {
-        if (i < windowSize - 1) {
-            // Not enough data for full window, stick to raw (or partial average if preferred, script.js uses raw/partial logic implicitly by pushing raw if < window?)
-            // Checking script.js: "if (i < windowSize - 1) { sma.push(data[i]); }" -> It uses raw value for the start.
-            sma.push(data[i]);
-        } else {
-            let sum = 0;
-            for (let j = 0; j < windowSize; j++) {
+        // For the beginning of the array where we don't have enough points,
+        // we can either duplicate the first value or average available leading points.
+        // Charts look better if we just average what we have.
+        let sum = 0;
+        let count = 0;
+        for (let j = 0; j < windowSize; j++) {
+            if (i - j >= 0) {
                 sum += data[i - j];
+                count++;
             }
-            sma.push(sum / windowSize);
         }
+        sma.push((count > 0) ? sum / count : data[i]);
     }
     return sma;
 }
@@ -239,100 +321,134 @@ function calculateSMA(data, windowSize) {
  * @param {string} dateString 'YYYY-MM-DD'
  */
 async function getIntradayMetrics(dateString) {
-    // ★ Caching Logic for Quota Efficiency
+    // --- CACHING LOGIC (Two Layers) ---
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
-    const cacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
+    const rawCacheFile = path.join(CACHE_DIR, `raw_buckets_${dateString}.json`);
+    const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
+
+    let buckets = null;
 
     try {
-        // Ensure cache directory exists
         await fs.mkdir(CACHE_DIR, { recursive: true });
-
-        // Try to read cache first
-        const cachedData = await fs.readFile(cacheFile, 'utf8');
-        console.log(`[GoogleFit] Serving Intraday data from cache: ${cacheFile}`);
-        return JSON.parse(cachedData);
+        // Layer 1: Try Raw Buckets (Best for development/refinement)
+        const rawCached = await fs.readFile(rawCacheFile, 'utf8');
+        buckets = JSON.parse(rawCached);
+        console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit)`);
     } catch (err) {
-        // Cache miss or error, proceed to fetch
-        console.log(`[GoogleFit] Cache miss for ${dateString}, fetching from API...`);
+        console.log(`[GoogleFit] Raw cache miss for ${dateString}, calling API...`);
     }
 
-    try {
-        const auth = await authorize();
-        const fitness = google.fitness({ version: 'v1', auth });
+    // --- API FETCH (Only if no raw cache) ---
+    if (!buckets) {
+        try {
+            const auth = await authorize();
+            const fitness = google.fitness({ version: 'v1', auth });
 
-        const date = new Date(dateString);
-        const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
-        const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
-        const bucketDuration = 60 * 1000; // 1 minute granularity
+            const date = new Date(dateString);
+            const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
+            const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
+            const bucketDuration = 60 * 1000;
 
-        const requestBody = {
-            aggregateBy: [
-                { dataTypeName: 'com.google.step_count.delta' },
-                { dataTypeName: 'com.google.distance.delta' },
-                { dataTypeName: 'com.google.heart_rate.bpm' }
-            ],
-            bucketByTime: { durationMillis: bucketDuration },
-            startTimeMillis: startTimeMillis,
-            endTimeMillis: endTimeMillis
-        };
+            const requestBody = {
+                aggregateBy: [
+                    { dataTypeName: 'com.google.step_count.delta' },
+                    { dataTypeName: 'com.google.distance.delta' },
+                    { dataTypeName: 'com.google.heart_rate.bpm' },
+                    { dataTypeName: 'com.google.activity.segment' }
+                ],
+                bucketByTime: { durationMillis: bucketDuration },
+                startTimeMillis: startTimeMillis,
+                endTimeMillis: endTimeMillis
+            };
 
-        const response = await fitness.users.dataset.aggregate({
-            userId: 'me',
-            requestBody
-        });
+            const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
+            buckets = response.data.bucket || [];
 
-        const buckets = response.data.bucket || [];
-        const chartData = [];
-
-        buckets.forEach(bucket => {
-            const time = new Date(parseInt(bucket.startTimeMillis)).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-
-            let steps = 0;
-            let distance = 0;
-            let heartRate = 0;
-
-            bucket.dataset.forEach(ds => {
-                if (ds.point && ds.point.length > 0) {
-                    ds.point.forEach(p => {
-                        p.value.forEach(v => {
-                            if (ds.dataSourceId.includes('step_count')) steps += (v.intVal || 0);
-                            if (ds.dataSourceId.includes('distance')) distance += (v.fpVal || 0);
-                            if (ds.dataSourceId.includes('heart_rate')) heartRate = (v.fpVal || v.intVal || 0); // Avg for bucket
-                        });
-                    });
-                }
-            });
-
-            // Calculate Stride for this bucket
-            // stride (cm) = (distance (m) * 100) / steps
-            let stride = 0;
-            if (steps > 0) {
-                stride = (distance * 100) / steps;
+            // Save RAW data for future re-processing
+            if (buckets.length > 0) {
+                await fs.writeFile(rawCacheFile, JSON.stringify(buckets, null, 2));
+                console.log(`[GoogleFit] Saved RAW data to cache: ${rawCacheFile}`);
             }
+        } catch (err) {
+            console.error('Intraday API Error:', err.message);
+            // If API fails, try falling back to the processed cache if it exists
+            try {
+                const finalCached = await fs.readFile(finalCacheFile, 'utf8');
+                return JSON.parse(finalCached);
+            } catch (e) {
+                return [];
+            }
+        }
+    }
 
-            if (steps > 0 || heartRate > 0) {
-                chartData.push({
-                    time,
-                    steps,
-                    distance: parseFloat(distance.toFixed(1)),
-                    stride: parseFloat(stride.toFixed(1)),
-                    heartRate: Math.round(heartRate)
+    // --- PROCESSING (Always runs, can use raw cache or fresh API data) ---
+    const chartData = [];
+
+    buckets.forEach(bucket => {
+        const timeMillis = parseInt(bucket.startTimeMillis);
+        const time = new Date(timeMillis).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+        let steps = 0;
+        let distance = 0;
+        let heartRate = 0;
+        let isRunningActivity = false;
+        let isTicWatch = false;
+
+        bucket.dataset.forEach(ds => {
+            const sourceId = ds.dataSourceId || '';
+            if (ds.point && ds.point.length > 0) {
+                const isWatchOrSync =
+                    sourceId.toLowerCase().includes('mobvoi') ||
+                    sourceId.toLowerCase().includes('ticwatch') ||
+                    sourceId.toLowerCase().includes('watch') ||
+                    sourceId.toLowerCase().includes('wear') ||
+                    sourceId.toLowerCase().includes('android') ||
+                    sourceId.toLowerCase().includes('heart_rate');
+
+                if (isWatchOrSync) isTicWatch = true;
+
+                ds.point.forEach(p => {
+                    p.value.forEach(v => {
+                        if (sourceId.includes('step_count')) steps += (v.intVal || 0);
+                        if (sourceId.includes('distance')) distance += (v.fpVal || 0);
+                        if (sourceId.includes('heart_rate')) heartRate = (v.fpVal || v.intVal || 0);
+                        if (sourceId.includes('activity.segment') && v.intVal === 8) isRunningActivity = true;
+                    });
                 });
             }
         });
 
-        // ★ Save to Cache
-        if (chartData.length > 0) {
-            await fs.writeFile(cacheFile, JSON.stringify(chartData, null, 2));
-            console.log(`[GoogleFit] Saved Intraday data to cache: ${cacheFile}`);
+        let stride = 0;
+        if (steps > 0) stride = (distance * 100) / steps;
+
+        // HYBRID FILTER LOGIC
+        const isHighIntensity = heartRate > 100;
+        if ((steps > 0 || heartRate > 0) && isTicWatch && (isRunningActivity || isHighIntensity)) {
+            chartData.push({
+                time, steps, distance: parseFloat(distance.toFixed(1)),
+                stride: parseFloat(stride.toFixed(1)), heartRate: Math.round(heartRate),
+                source: 'ticwatch'
+            });
         }
+    });
 
-        return chartData;
-
-    } catch (err) {
-        console.error('Intraday API Error:', err.message);
-        return []; // Return empty array on error to prevent crash
+    // Save final processed data to cache
+    if (chartData.length > 0) {
+        await fs.writeFile(finalCacheFile, JSON.stringify(chartData, null, 2));
     }
+
+    // Cleaning & Smoothing
+    const cleanedData = cleanIntradayData(chartData);
+    const strideArray = cleanedData.map(d => d.stride);
+    const hrArray = cleanedData.map(d => d.heartRate);
+    const smoothedStride = calculateSMA(strideArray, 5);
+    const smoothedHR = calculateSMA(hrArray, 5);
+
+    return cleanedData.map((d, i) => ({
+        ...d,
+        stride: parseFloat(smoothedStride[i].toFixed(1)),
+        heartRate: Math.round(smoothedHR[i])
+    }));
 }
 
 function sumIntValues(dataset) {
@@ -357,7 +473,6 @@ function sumFpValues(dataset) {
 
 function getFpValue(dataset) {
     if (dataset.point && dataset.point.length > 0) {
-        // Return first value found
         if (dataset.point[0].value && dataset.point[0].value.length > 0) {
             return dataset.point[0].value[0].fpVal || dataset.point[0].value[0].intVal || 0;
         }

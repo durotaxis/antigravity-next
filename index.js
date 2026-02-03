@@ -221,21 +221,27 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         max_heart_rate: 0
       };
 
-      // Only fetch from Google Fit if NOT already in DB
-      if (!existingSummary) {
-        try {
-          console.log(`Fetching Google Fit data for ${result.date}...`);
-          // ★ API Integration: Get Real values including Max Stride (SMA) & Max HR
-          const fitData = await googleFitService.getDailyMetrics(result.date);
-          if (fitData) {
-            console.log("Google Fit Data Fetched:", fitData);
-            fitMetrics = fitData;
-          }
-        } catch (fitErr) {
-          console.error("Google Fit Fetch Failed (continuing with vision data):", fitErr.message);
+      // --- REFRESH METRICS FROM GOOGLE FIT ---
+      // We always attempt to fetch fresh metrics during analysis to ensure the Dashboard (DB)
+      // matches the latest filtering/smoothing logic in google_fit_service.
+      try {
+        console.log(`Refreshing Google Fit metrics for ${result.date}...`);
+        const fitData = await googleFitService.getDailyMetrics(result.date);
+        if (fitData) {
+          console.log("Updated Fit Metrics:", fitData);
+          fitMetrics = fitData;
         }
-      } else {
-        console.log(`[Optimization] Summary exists for ${result.date}. Skipping Fit API.`);
+      } catch (fitErr) {
+        console.error("Google Fit Refresh Failed (falling back to stored/vision data):", fitErr.message);
+        // Fallback to existing summary if available
+        if (existingSummary) {
+          fitMetrics = {
+            avg_heart_rate: existingSummary.avg_heart_rate,
+            max_heart_rate: existingSummary.max_heart_rate,
+            avg_stride_cm: existingSummary.avg_stride_cm,
+            max_stride_cm: existingSummary.max_stride_cm
+          };
+        }
       }
 
       const safeMaxStride = (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
@@ -266,21 +272,23 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // ★ Generate Advice (Async update)
       try {
         console.log("Generating Advice for", result.date);
+
+        // ★ FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
         const advice = await geminiService.generateAdvice({
           date: result.date,
           step_count: result.step_count,
           total_distance_km: result.total_distance_km,
           calories_kcal: result.calories_kcal,
-          avg_stride_cm: result.avg_stride_cm || 0,
-          avg_heart_rate: result.avg_heart_rate || 0
+          avg_stride_cm: safeAvgStride, // Use Safe Value
+          avg_heart_rate: safeAvgHR     // Use Safe Value
         });
 
         await repo.saveDailySummary({
           date: result.date,
-          max_stride: result.max_stride_cm || 0,
-          avg_stride: result.avg_stride_cm || 0,
-          hr_max: result.max_heart_rate || 0,
-          hr_avg: result.avg_heart_rate || 0,
+          max_stride: safeMaxStride, // Use Safe Value
+          avg_stride: safeAvgStride, // Use Safe Value
+          hr_max: safeMaxHR,         // Use Safe Value
+          hr_avg: safeAvgHR,         // Use Safe Value
           message: advice // Update with advice
         });
         console.log("Advice Saved.");

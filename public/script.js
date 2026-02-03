@@ -44,29 +44,26 @@ async function loadData() {
             return;
         }
 
-        // Calculate SMAs to find TRUE Peak Performance (trend)
-        const stridesRaw = data.map(d => d.stride);
-        const stridesSMA = calculateSMA(stridesRaw, 3); // Changed from 5 to 3
-
-        // Find Max based on SMA
-        let maxSMAVal = 0;
+        // Peak Performance Calculation (Using Backend-Smoothed Data)
+        let maxStrideVal = 0;
         let maxIndex = 0;
 
-        stridesSMA.forEach((val, i) => {
-            // Filter: Ignore if Heart Rate is <= 100 OR Missing
-            // Filter: Ignore unrealistic Stride > 300cm
-            const currentHR = data[i].heartRate;
+        data.forEach((d, i) => {
+            // Filter: Ignore if unrealistic Stride > 300cm (Safety)
+            // Note: Heart rate filtering is already applied by the backend's "Hybrid Filter"
+            // but we keep high-intensity focus for the highlight.
+            const val = d.stride;
+            const currentHR = d.heartRate;
             const hasGoodHeartRate = (currentHR !== undefined && currentHR !== null && currentHR > 100);
-            const isRealisticStride = (val <= 300);
 
-            if (val > maxSMAVal && hasGoodHeartRate && isRealisticStride) {
-                maxSMAVal = val;
+            if (val > maxStrideVal && hasGoodHeartRate) {
+                maxStrideVal = val;
                 maxIndex = i;
             }
         });
 
-        // Use SMA-based Peak for Summary and AI
-        const maxStride = maxSMAVal;
+        // Use Peak for Summary and AI
+        const maxStride = maxStrideVal;
         const maxTime = data[maxIndex].time;
         // CHANGED: Use HR at the time of Max Stride (avg of window if possible, but here point value is fine as SMA is stride only)
         // Note: stridesSMA[i] corresponds to window starting at i. 
@@ -251,13 +248,12 @@ function renderChart(data) {
 
     const times = data.map(d => d.time);
     const strides = data.map(d => d.stride);
-    const smaStrides = calculateSMA(strides, 5); // Window Size = 5
+    // Since backend already sends 5-pt SMA data, we don't need another SMA filter here
+    const smaStrides = strides;
 
-    // Heart Rate: Raw & SMA
-    // Use 0 for calculation, filter 0s for display
+    // Heart Rate: Use directly (Backend also smooths this to 5-pt SMA)
     const heartRatesRaw = data.map(d => d.heartRate || 0);
-    const heartRatesSMA = calculateSMA(heartRatesRaw, 5).map(v => v > 0 ? v : null);
-    const heartRatesDisplay = data.map(d => d.heartRate > 0 ? d.heartRate : null);
+    const heartRatesSMA = heartRatesRaw.map(v => v > 0 ? v : null);
 
     strideChartInstance = new Chart(ctx, {
         type: 'line',
@@ -266,23 +262,12 @@ function renderChart(data) {
             datasets: [
                 // --- STRIDE ---
                 {
-                    label: 'Raw Stride',
-                    data: strides,
-                    borderColor: 'rgba(200, 200, 200, 0.3)', // Faint Grey
-                    backgroundColor: 'transparent',
-                    borderWidth: 1,
-                    pointRadius: 1,
-                    tension: 0,
-                    yAxisID: 'y-stride',
-                    order: 3
-                },
-                {
-                    label: 'SMA Stride (5-pt)',
+                    label: 'Stride (5-pt SMA)',
                     data: smaStrides,
                     borderColor: '#00f2ff', // Cyan (Main)
                     backgroundColor: 'rgba(0, 242, 255, 0.05)',
                     borderWidth: 3,
-                    pointRadius: 0,
+                    pointRadius: 2, // Slight radius for visibility
                     tension: 0.4,
                     fill: true,
                     yAxisID: 'y-stride',
@@ -290,18 +275,7 @@ function renderChart(data) {
                 },
                 // --- HEART RATE ---
                 {
-                    label: 'Raw HR',
-                    data: heartRatesDisplay,
-                    borderColor: 'rgba(255, 0, 85, 0.3)', // Faint Red
-                    backgroundColor: 'transparent',
-                    borderWidth: 1,
-                    pointRadius: 1,
-                    tension: 0,
-                    yAxisID: 'y-heartrate',
-                    order: 2
-                },
-                {
-                    label: 'SMA HR (5-pt)',
+                    label: 'HR (5-pt SMA)',
                     data: heartRatesSMA,
                     borderColor: '#ff0055', // Bold Red
                     backgroundColor: 'transparent',

@@ -83,24 +83,7 @@ async function organizeAssets() {
                         console.log(`    -> ♻️  Asset already exists (ID: ${asset.asset_id})`);
                     }
 
-                    // 4. Link to Run if possible (using existing logic)
-                    // If date is parseable
-                    let date = imageService.extractDateFromFilename(file);
-                    // Handle Japanese format in root if needed? "スクリーンショット_26-1-2026..."
-                    if (!date && file.startsWith('スクリーンショット')) {
-                        // "スクリーンショット_26-1-2026_194352..." -> 26-1-2026 -> 2026-01-26
-                        // regex: _(\d{1,2})-(\d{1,2})-(\d{4})_
-                        const match = file.match(/_(\d{1,2})-(\d{1,2})-(\d{4})_/);
-                        if (match) {
-                            const [_, d, m, y] = match;
-                            date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-                        }
-                    }
-
-                    if (date) {
-                        await imageRepo.linkImageToRun(date, asset.asset_id);
-                        console.log(`    -> 🔗 Linked to Run Date: ${date}`);
-                    }
+                    // 4. Link to Run (Skipping filename-based linking per user request)
 
                     processedCount++;
 

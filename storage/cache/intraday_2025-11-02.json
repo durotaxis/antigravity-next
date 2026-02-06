@@ -1,0 +1,58 @@
+[
+  {
+    "time": "00:16",
+    "steps": 54,
+    "distance": 42.9,
+    "stride": 79.4,
+    "heartRate": 115,
+    "source": "ticwatch"
+  },
+  {
+    "time": "13:12",
+    "steps": 101,
+    "distance": 69.8,
+    "stride": 69.1,
+    "heartRate": 104,
+    "source": "ticwatch"
+  },
+  {
+    "time": "13:32",
+    "steps": 2,
+    "distance": 0.8,
+    "stride": 38.7,
+    "heartRate": 105,
+    "source": "ticwatch"
+  },
+  {
+    "time": "16:12",
+    "steps": 17,
+    "distance": 11.4,
+    "stride": 67.2,
+    "heartRate": 103,
+    "source": "ticwatch"
+  },
+  {
+    "time": "16:30",
+    "steps": 95,
+    "distance": 61.7,
+    "stride": 65,
+    "heartRate": 103,
+    "source": "ticwatch"
+  },
+  {
+    "time": "17:24",
+    "steps": 40,
+    "distance": 25.4,
+    "stride": 63.6,
+    "heartRate": 106,
+    "source": "ticwatch"
+  },
+  {
+    "time": "17:52",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 113,
+    "source": "ticwatch"
+  }
+]

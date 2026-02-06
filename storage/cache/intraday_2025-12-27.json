@@ -1,0 +1,10 @@
+[
+  {
+    "time": "20:30",
+    "steps": 2,
+    "distance": 1.5,
+    "stride": 76,
+    "heartRate": 102,
+    "source": "ticwatch"
+  }
+]

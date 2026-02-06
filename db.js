@@ -3,7 +3,7 @@ const path = require('path');
 require('dotenv').config();
 
 // チェック5: DBパスの環境変数化（分裂防止）
-const dbPath = process.env.DB_PATH 
+const dbPath = process.env.DB_PATH
     ? path.resolve(process.cwd(), process.env.DB_PATH)
     : path.resolve(__dirname, 'daily.db');
 

@@ -82,6 +82,7 @@ Specific Instructions:
   
 - **Steps:** Look for the Shoe Icon (👟) to find the Step Count.
 - **Heart Rate:** Look for the Heart Icon (❤️) or graph summary.
+- **Cadence / Pitch:** Look for steps per minute (SPM). This might be labeled as "Cadence", "Pitch", or "ピッチ".
 - **Stride:** Look for stride length (Avg/Max). If Max is not numeric but visible on graph, estimate it.
 - **Values:** If a value is not clearly visible, use null.
 
@@ -94,6 +95,7 @@ Required Fields:
 - max_heart_rate (number)
 - avg_stride_cm (number)
 - max_stride_cm (number)
+- avg_cadence (number)
 `;
 
         const result = await model.generateContent([dynamicPrompt, imagePart]);

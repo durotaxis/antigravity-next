@@ -1,0 +1,42 @@
+[
+  {
+    "time": "11:58",
+    "steps": 103,
+    "distance": 75.5,
+    "stride": 73.3,
+    "heartRate": 111,
+    "source": "ticwatch"
+  },
+  {
+    "time": "12:23",
+    "steps": 66,
+    "distance": 45.1,
+    "stride": 68.3,
+    "heartRate": 102,
+    "source": "ticwatch"
+  },
+  {
+    "time": "12:44",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 106,
+    "source": "ticwatch"
+  },
+  {
+    "time": "13:43",
+    "steps": 27,
+    "distance": 17,
+    "stride": 63,
+    "heartRate": 102,
+    "source": "ticwatch"
+  },
+  {
+    "time": "14:15",
+    "steps": 0,
+    "distance": 39.9,
+    "stride": 0,
+    "heartRate": 101,
+    "source": "ticwatch"
+  }
+]

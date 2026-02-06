@@ -1,0 +1,18 @@
+[
+  {
+    "time": "19:55",
+    "steps": 32,
+    "distance": 39.3,
+    "stride": 122.8,
+    "heartRate": 111,
+    "source": "ticwatch"
+  },
+  {
+    "time": "20:16",
+    "steps": 9,
+    "distance": 6,
+    "stride": 67,
+    "heartRate": 104,
+    "source": "ticwatch"
+  }
+]

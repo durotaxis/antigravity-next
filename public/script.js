@@ -167,7 +167,8 @@ async function getAdvice(date, maxStride, data) {
                 maxStride: Math.round(maxStride),
                 avgStride: Math.round(avgStride),
                 maxHR: Math.round(maxHR),
-                avgHR: Math.round(avgHR)
+                avgHR: Math.round(avgHR),
+                avgCadence: Math.round(avgCadence)
             })
         });
 

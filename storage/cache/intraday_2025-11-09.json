@@ -1,0 +1,74 @@
+[
+  {
+    "time": "00:00",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 104,
+    "source": "ticwatch"
+  },
+  {
+    "time": "00:01",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 110,
+    "source": "ticwatch"
+  },
+  {
+    "time": "00:07",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 110,
+    "source": "ticwatch"
+  },
+  {
+    "time": "00:11",
+    "steps": 1,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 105,
+    "source": "ticwatch"
+  },
+  {
+    "time": "12:42",
+    "steps": 0,
+    "distance": 2.3,
+    "stride": 0,
+    "heartRate": 105,
+    "source": "ticwatch"
+  },
+  {
+    "time": "12:52",
+    "steps": 0,
+    "distance": 70.7,
+    "stride": 0,
+    "heartRate": 114,
+    "source": "ticwatch"
+  },
+  {
+    "time": "13:23",
+    "steps": 20,
+    "distance": 17.6,
+    "stride": 88,
+    "heartRate": 135,
+    "source": "ticwatch"
+  },
+  {
+    "time": "15:44",
+    "steps": 116,
+    "distance": 83.2,
+    "stride": 71.7,
+    "heartRate": 107,
+    "source": "ticwatch"
+  },
+  {
+    "time": "16:32",
+    "steps": 17,
+    "distance": 12,
+    "stride": 70.3,
+    "heartRate": 108,
+    "source": "ticwatch"
+  }
+]

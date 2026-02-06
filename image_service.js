@@ -85,44 +85,9 @@ async function importFromInbox() {
                 console.log(`  -> Duplicate Asset Found: ${asset.asset_id}`);
             }
 
-            // 3. Link to Run (if date found)
-            const date = extractDateFromFilename(file);
-            let linked = false;
-            if (date) {
-                await imageRepo.linkImageToRun(date, asset.asset_id);
-                console.log(`  -> Linked to Run: ${date}`);
-                linked = true;
-
-                // ★ Auto-create Daily Summary if missing
-                try {
-                    const existingSummary = await repo.getDailySummary(date);
-                    if (!existingSummary) {
-                        console.log(`  -> No Daily Summary for ${date}. Fetching from Google Fit...`);
-                        const fitData = await googleFitService.getDailyMetrics(date);
-
-                        if (fitData && fitData.step_count > 0) {
-                            console.log(`  -> Fit Data Found: ${fitData.step_count} steps. Generating Advice...`);
-                            const advice = await geminiService.generateAdvice(fitData);
-
-                            const summaryData = {
-                                date: fitData.date,
-                                max_stride: fitData.max_stride_cm,
-                                avg_stride: fitData.avg_stride_cm,
-                                hr_avg: fitData.avg_heart_rate,
-                                hr_max: fitData.max_heart_rate,
-                                message: advice
-                            };
-
-                            await repo.saveDailySummary(summaryData);
-                            console.log(`  -> ✨ Daily Summary Auto-created with AI Advice!`);
-                        } else {
-                            console.log(`  -> No valid Fit data found for ${date}. Skipping summary creation.`);
-                        }
-                    }
-                } catch (summErr) {
-                    console.error('  -> Failed to auto-create summary:', summErr.message);
-                }
-            }
+            // 3. Link to Run (Skipping filename-based linking per user request)
+            const linked = false;
+            const date = null;
 
             results.push({ file, hash, linked, date });
         }

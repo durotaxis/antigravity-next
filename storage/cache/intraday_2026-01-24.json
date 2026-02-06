@@ -1,0 +1,386 @@
+[
+  {
+    "time": "18:05",
+    "steps": 148,
+    "distance": 166.2,
+    "stride": 112.3,
+    "heartRate": 109,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:06",
+    "steps": 146,
+    "distance": 166.1,
+    "stride": 113.8,
+    "heartRate": 112,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:07",
+    "steps": 146,
+    "distance": 158,
+    "stride": 108.2,
+    "heartRate": 119,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:08",
+    "steps": 150,
+    "distance": 172.9,
+    "stride": 115.2,
+    "heartRate": 117,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:09",
+    "steps": 148,
+    "distance": 136.1,
+    "stride": 91.9,
+    "heartRate": 119,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:10",
+    "steps": 152,
+    "distance": 116.5,
+    "stride": 76.6,
+    "heartRate": 125,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:11",
+    "steps": 148,
+    "distance": 187.9,
+    "stride": 127,
+    "heartRate": 139,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:12",
+    "steps": 150,
+    "distance": 122.5,
+    "stride": 81.7,
+    "heartRate": 149,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:13",
+    "steps": 151,
+    "distance": 118.5,
+    "stride": 78.4,
+    "heartRate": 131,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:14",
+    "steps": 148,
+    "distance": 126,
+    "stride": 85.1,
+    "heartRate": 132,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:15",
+    "steps": 153,
+    "distance": 135.9,
+    "stride": 88.8,
+    "heartRate": 139,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:16",
+    "steps": 153,
+    "distance": 177.5,
+    "stride": 116,
+    "heartRate": 141,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:17",
+    "steps": 156,
+    "distance": 112.5,
+    "stride": 72.1,
+    "heartRate": 143,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:18",
+    "steps": 154,
+    "distance": 120,
+    "stride": 77.9,
+    "heartRate": 150,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:19",
+    "steps": 152,
+    "distance": 119.3,
+    "stride": 78.5,
+    "heartRate": 137,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:20",
+    "steps": 155,
+    "distance": 129.7,
+    "stride": 83.7,
+    "heartRate": 136,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:21",
+    "steps": 153,
+    "distance": 118.5,
+    "stride": 77.5,
+    "heartRate": 138,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:22",
+    "steps": 154,
+    "distance": 167.7,
+    "stride": 108.9,
+    "heartRate": 139,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:23",
+    "steps": 159,
+    "distance": 168.6,
+    "stride": 106.1,
+    "heartRate": 142,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:24",
+    "steps": 153,
+    "distance": 135.9,
+    "stride": 88.8,
+    "heartRate": 145,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:25",
+    "steps": 145,
+    "distance": 142.9,
+    "stride": 98.5,
+    "heartRate": 148,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:26",
+    "steps": 160,
+    "distance": 135.7,
+    "stride": 84.8,
+    "heartRate": 154,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:27",
+    "steps": 157,
+    "distance": 141.5,
+    "stride": 90.1,
+    "heartRate": 155,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:28",
+    "steps": 149,
+    "distance": 109.4,
+    "stride": 73.4,
+    "heartRate": 155,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:29",
+    "steps": 158,
+    "distance": 143,
+    "stride": 90.5,
+    "heartRate": 154,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:30",
+    "steps": 159,
+    "distance": 137.5,
+    "stride": 86.5,
+    "heartRate": 153,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:31",
+    "steps": 159,
+    "distance": 124,
+    "stride": 78,
+    "heartRate": 158,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:32",
+    "steps": 159,
+    "distance": 153.3,
+    "stride": 96.4,
+    "heartRate": 157,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:33",
+    "steps": 162,
+    "distance": 144.8,
+    "stride": 89.4,
+    "heartRate": 157,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:34",
+    "steps": 167,
+    "distance": 140.6,
+    "stride": 84.2,
+    "heartRate": 160,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:35",
+    "steps": 164,
+    "distance": 141.1,
+    "stride": 86,
+    "heartRate": 165,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:36",
+    "steps": 162,
+    "distance": 152.6,
+    "stride": 94.2,
+    "heartRate": 165,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:37",
+    "steps": 164,
+    "distance": 136.7,
+    "stride": 83.3,
+    "heartRate": 162,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:38",
+    "steps": 163,
+    "distance": 203.4,
+    "stride": 124.8,
+    "heartRate": 160,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:39",
+    "steps": 155,
+    "distance": 190.5,
+    "stride": 122.9,
+    "heartRate": 162,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:40",
+    "steps": 38,
+    "distance": 18,
+    "stride": 47.3,
+    "heartRate": 110,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:41",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 110,
+    "source": "ticwatch"
+  },
+  {
+    "time": "18:53",
+    "steps": 0,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 101,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:11",
+    "steps": 122,
+    "distance": 107.2,
+    "stride": 87.9,
+    "heartRate": 108,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:12",
+    "steps": 157,
+    "distance": 149.7,
+    "stride": 95.3,
+    "heartRate": 119,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:13",
+    "steps": 137,
+    "distance": 121.4,
+    "stride": 88.6,
+    "heartRate": 138,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:14",
+    "steps": 32,
+    "distance": 24.6,
+    "stride": 76.8,
+    "heartRate": 155,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:15",
+    "steps": 106,
+    "distance": 100,
+    "stride": 94.4,
+    "heartRate": 104,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:16",
+    "steps": 75,
+    "distance": 72,
+    "stride": 96,
+    "heartRate": 116,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:17",
+    "steps": 20,
+    "distance": 12.2,
+    "stride": 61.1,
+    "heartRate": 112,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:18",
+    "steps": 6,
+    "distance": 0.6,
+    "stride": 10.6,
+    "heartRate": 111,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:19",
+    "steps": 2,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 108,
+    "source": "ticwatch"
+  },
+  {
+    "time": "19:52",
+    "steps": 44,
+    "distance": 27.7,
+    "stride": 62.9,
+    "heartRate": 111,
+    "source": "ticwatch"
+  }
+]

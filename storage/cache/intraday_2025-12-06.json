@@ -1,0 +1,146 @@
+[
+  {
+    "time": "03:38",
+    "steps": 105,
+    "distance": 102.8,
+    "stride": 98,
+    "heartRate": 107,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:39",
+    "steps": 153,
+    "distance": 185.9,
+    "stride": 121.5,
+    "heartRate": 124,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:40",
+    "steps": 149,
+    "distance": 173.5,
+    "stride": 116.4,
+    "heartRate": 127,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:41",
+    "steps": 147,
+    "distance": 167.3,
+    "stride": 113.8,
+    "heartRate": 127,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:42",
+    "steps": 148,
+    "distance": 161.7,
+    "stride": 109.2,
+    "heartRate": 128,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:43",
+    "steps": 143,
+    "distance": 149.6,
+    "stride": 104.6,
+    "heartRate": 135,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:44",
+    "steps": 148,
+    "distance": 161.7,
+    "stride": 109.2,
+    "heartRate": 127,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:45",
+    "steps": 146,
+    "distance": 161.4,
+    "stride": 110.6,
+    "heartRate": 166,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:46",
+    "steps": 148,
+    "distance": 166.8,
+    "stride": 112.7,
+    "heartRate": 164,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:47",
+    "steps": 152,
+    "distance": 179.4,
+    "stride": 118,
+    "heartRate": 162,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:48",
+    "steps": 150,
+    "distance": 175.5,
+    "stride": 117,
+    "heartRate": 144,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:49",
+    "steps": 151,
+    "distance": 177.6,
+    "stride": 117.6,
+    "heartRate": 141,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:50",
+    "steps": 159,
+    "distance": 202.7,
+    "stride": 127.5,
+    "heartRate": 155,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:53",
+    "steps": 156,
+    "distance": 198.3,
+    "stride": 127.1,
+    "heartRate": 123,
+    "source": "ticwatch"
+  },
+  {
+    "time": "03:54",
+    "steps": 135,
+    "distance": 162.9,
+    "stride": 120.7,
+    "heartRate": 132,
+    "source": "ticwatch"
+  },
+  {
+    "time": "04:02",
+    "steps": 152,
+    "distance": 171.4,
+    "stride": 112.7,
+    "heartRate": 121,
+    "source": "ticwatch"
+  },
+  {
+    "time": "04:03",
+    "steps": 150,
+    "distance": 162,
+    "stride": 108,
+    "heartRate": 143,
+    "source": "ticwatch"
+  },
+  {
+    "time": "04:04",
+    "steps": 1,
+    "distance": 1.2,
+    "stride": 116.6,
+    "heartRate": 133,
+    "source": "ticwatch"
+  }
+]

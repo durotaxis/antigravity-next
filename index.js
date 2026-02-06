@@ -185,26 +185,6 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
     const assetId = await imageRepo.createAsset(fileHash, filename, originalName);
 
-    // 2. Optimization: Check if date exists in filename and summary exists in DB
-    const dateFromFilename = imageService.extractDateFromFilename(originalName);
-    console.log(`[DEBUG] Original Filename: ${originalName}`);
-    console.log(`[DEBUG] Extracted Date: ${dateFromFilename}`);
-
-    if (dateFromFilename) {
-      const existingSummary = await repo.getDailySummary(dateFromFilename);
-      if (existingSummary) {
-        console.log(`[Optimization] Summary exists for ${dateFromFilename}. Skipping Gemini Analysis.`);
-        // Link image to run
-        await imageRepo.linkImageToRun(dateFromFilename, assetId);
-        // Return success with existing data
-        return res.json({
-          ...existingSummary,
-          skippedAnalysis: true,
-          message: 'Linked to existing run'
-        });
-      }
-    }
-
     // 3. Main Analysis (Gemini)
     console.log(`Analyzing: ${filename} (Gemini)`);
     const result = await visionService.analyzeImage(filename);
@@ -266,6 +246,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         avg_stride: safeAvgStride,
         hr_max: safeMaxHR,
         hr_avg: safeAvgHR,
+        avg_cadence: fitMetrics.avg_cadence || 0,
+        max_cadence: fitMetrics.max_cadence || 0,
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
@@ -280,8 +262,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           total_distance_km: result.total_distance_km,
           calories_kcal: result.calories_kcal,
           avg_stride_cm: safeAvgStride, // Use Safe Value
-          avg_heart_rate: safeAvgHR     // Use Safe Value
-        });
+          avg_heart_rate: safeAvgHR,     // Use Safe Value
+          avg_cadence: fitMetrics.avg_cadence || 0
+        }, [req.file.path]);
 
         await repo.saveDailySummary({
           date: result.date,
@@ -289,6 +272,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           avg_stride: safeAvgStride, // Use Safe Value
           hr_max: safeMaxHR,         // Use Safe Value
           hr_avg: safeAvgHR,         // Use Safe Value
+          avg_cadence: fitMetrics.avg_cadence || 0,
+          max_cadence: fitMetrics.max_cadence || 0,
           message: advice // Update with advice
         });
         console.log("Advice Saved.");
@@ -315,10 +300,14 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 // Gemini Advice API
 app.post('/api/advice', async (req, res) => {
   try {
-    const { date, avgStride, avgHR, maxStride, maxHR } = req.body;
+    const { date, avgStride, avgHR, maxStride, maxHR, avgCadence } = req.body;
 
     const cached = await repo.getDailySummary(date);
     if (cached && cached.message) return res.json({ advice: cached.message });
+
+    // Fetch images for this run to provide context to Gemini
+    const images = await imageRepo.getImagesForRun(date);
+    const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
 
     // Prompt has been moved to geminiService
     const advice = await geminiService.generateCoachAdvice({
@@ -326,8 +315,9 @@ app.post('/api/advice', async (req, res) => {
       avgStride,
       avgHR,
       maxStride,
-      maxHR
-    });
+      maxHR,
+      avgCadence
+    }, imagePaths);
 
     // DBにアドバイスを保存
     await repo.saveDailySummary({
@@ -336,6 +326,7 @@ app.post('/api/advice', async (req, res) => {
       avg_stride: avgStride,
       hr_max: maxHR,
       hr_avg: avgHR,
+      avg_cadence: avgCadence,
       message: advice
     });
 

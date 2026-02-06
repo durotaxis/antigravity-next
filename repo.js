@@ -6,22 +6,24 @@ const analysisService = require('./analysis_service');
  */
 function saveDailySummary(data) {
     return new Promise((resolve, reject) => {
-        const { date, max_stride, avg_stride, hr_avg, hr_max, message } = data;
+        const { date, max_stride, avg_stride, hr_avg, hr_max, message, avg_cadence, max_cadence } = data;
         const now = new Date().toISOString();
 
         const sql = `
-            INSERT INTO daily_summary (date, max_stride, avg_stride, hr_avg, hr_max, message, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO daily_summary (date, max_stride, avg_stride, hr_avg, hr_max, avg_cadence, max_cadence, message, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
                 max_stride = CASE WHEN excluded.max_stride > 0 THEN excluded.max_stride ELSE max_stride END,
                 avg_stride = CASE WHEN excluded.avg_stride > 0 THEN excluded.avg_stride ELSE avg_stride END,
                 hr_avg = CASE WHEN excluded.hr_avg > 0 THEN excluded.hr_avg ELSE hr_avg END,
                 hr_max = CASE WHEN excluded.hr_max > 0 THEN excluded.hr_max ELSE hr_max END,
+                avg_cadence = CASE WHEN excluded.avg_cadence > 0 THEN excluded.avg_cadence ELSE avg_cadence END,
+                max_cadence = CASE WHEN excluded.max_cadence > 0 THEN excluded.max_cadence ELSE max_cadence END,
                 message = COALESCE(excluded.message, message),
                 created_at = excluded.created_at
         `;
 
-        db.run(sql, [date, max_stride, avg_stride, hr_avg, hr_max, message, now], function (err) {
+        db.run(sql, [date, max_stride, avg_stride, hr_avg, hr_max, avg_cadence, max_cadence, message, now], function (err) {
             if (err) {
                 console.error('Error in saveDailySummary:', err);
                 return reject(err);
@@ -61,6 +63,8 @@ function getAllRuns() {
                 d.hr_avg,
                 d.max_stride,
                 d.hr_max,
+                d.avg_cadence,
+                d.max_cadence,
                 d.message,
                 i.asset_id,
                 i.stored_filename,
@@ -90,6 +94,8 @@ function getAllRuns() {
                         hr_avg: Number(row.hr_avg || 0),
                         max_stride: Number(row.max_stride || 0),
                         hr_max: Number(row.hr_max || 0),
+                        avg_cadence: Number(row.avg_cadence || 0),
+                        max_cadence: Number(row.max_cadence || 0),
                         message: row.message,
 
                         // 初期値

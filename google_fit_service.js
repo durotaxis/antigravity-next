@@ -150,6 +150,8 @@ async function getDailyMetrics(dateString) {
         // Recalculated Averages (Filtered)
         let filteredAvgHR = 0;
         let filteredAvgStride = 0;
+        let filteredAvgCadence = 0;
+        let realMaxCadence = 0;
 
         if (intradayData && intradayData.length > 0) {
             // calculate averages from valid points only
@@ -157,11 +159,14 @@ async function getDailyMetrics(dateString) {
             let countHR = 0;
             let sumStride = 0;
             let countStride = 0;
+            let sumCadence = 0;
+            let countCadence = 0;
 
             intradayData.forEach(d => {
                 // Find Max
                 if (d.heartRate > realMaxHR) realMaxHR = d.heartRate;
                 if (d.stride > realMaxStride) realMaxStride = d.stride;
+                if (d.steps > realMaxCadence) realMaxCadence = d.steps;
 
                 // Accumulate for Average
                 if (d.heartRate > 0) {
@@ -172,25 +177,30 @@ async function getDailyMetrics(dateString) {
                     sumStride += d.stride;
                     countStride++;
                 }
+                if (d.steps > 0) {
+                    sumCadence += d.steps;
+                    countCadence++;
+                }
             });
 
             if (countHR > 0) filteredAvgHR = Math.round(sumHR / countHR);
             if (countStride > 0) filteredAvgStride = parseFloat((sumStride / countStride).toFixed(1));
+            if (countCadence > 0) filteredAvgCadence = Math.round(sumCadence / countCadence);
 
             // Debug Logging
             console.log(`[Metric Debug] CountStride=${countStride}, SumStride=${sumStride}`);
             console.log(`[Metric Debug] RealMaxStride=${realMaxStride}, FilteredAvgStride=${filteredAvgStride}`);
+            console.log(`[Metric Debug] MaxCadence=${realMaxCadence}, AvgCadence=${filteredAvgCadence}`);
 
             // Sanity Check: If Max is 0 but Avg > 0, something is wrong with the loop or data types
             if (realMaxStride === 0 && filteredAvgStride > 0) {
                 console.warn('[Metric Warning] Max Stride is 0 but Avg is positive! Force updating Max to at least Avg.');
                 let tempMax = 0;
                 intradayData.forEach(d => { if (d.stride > tempMax) tempMax = d.stride; });
-                console.log(`[Metric Debug] Re-scan Max: ${tempMax}`);
                 realMaxStride = tempMax;
             }
 
-            console.log(`[Metrics] Recalculated from Intraday: MaxHR=${realMaxHR}, MaxStride=${realMaxStride}, AvgHR=${filteredAvgHR}, AvgStride=${filteredAvgStride}`);
+            console.log(`[Metrics] Recalculated from Intraday: MaxHR=${realMaxHR}, MaxStride=${realMaxStride}, AvgHR=${filteredAvgHR}, AvgStride=${filteredAvgStride}, Cadence=${filteredAvgCadence}`);
         } else {
             console.log(`[Metrics] No Intraday data found. Max values will be 0.`);
         }
@@ -201,14 +211,16 @@ async function getDailyMetrics(dateString) {
 
         return {
             date: dateString,
-            step_count: Math.round(steps), // Total steps (24h) remains specific to "Daily Summary" usually, but user might want Running Steps? keeping 24h for now.
+            step_count: Math.round(steps),
             total_distance_km: parseFloat((distance / 1000).toFixed(2)),
             total_time: '00:00:00',
             avg_heart_rate: finalAvgHR,
             max_heart_rate: Math.round(realMaxHR),
             calories_kcal: Math.round(calories),
             avg_stride_cm: finalAvgStride,
-            max_stride_cm: parseFloat(realMaxStride.toFixed(1))
+            max_stride_cm: parseFloat(realMaxStride.toFixed(1)),
+            avg_cadence: filteredAvgCadence,
+            max_cadence: realMaxCadence
         };
 
     } catch (err) {

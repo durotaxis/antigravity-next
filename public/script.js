@@ -9,7 +9,7 @@ async function loadData() {
 
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = 'ANALYZING...';
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
 
     // Clear message first
     document.getElementById('daily-message-container').style.display = 'none';
@@ -32,7 +32,7 @@ async function loadData() {
             if (strideChartInstance) {
                 strideChartInstance.destroy(); // Safety: Destroy existing chart
             }
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
             summaryContainer.innerHTML = ''; // Clear summary
 
             // Reset chart area to be blank/clean
@@ -80,15 +80,15 @@ async function loadData() {
 
         let maxHeartRate = hrAtMax;
 
-        // Populate Table with Raw Data
         data.forEach(d => {
-
+            const velocityKmH = (d.distance / 1000) * 60; // distance in m, time in 1 min
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${d.time}</td>
                 <td>${d.steps}</td>
                 <td>${d.distance.toFixed(1)}</td>
                 <td class="${d.stride > 140 ? 'cell-high' : ''}">${d.stride.toFixed(1)} cm</td>
+                <td style="color: #00f2ff; font-weight: bold;">${velocityKmH.toFixed(1)}</td>
                 <td style="color: #ff4444;">${d.heartRate ? Math.round(d.heartRate) : '-'}</td>
             `;
             tbody.appendChild(tr);
@@ -124,7 +124,7 @@ async function loadData() {
 
     } catch (error) {
         console.error(error);
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
     } finally {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = 'RUN ANALYZER';
@@ -139,9 +139,19 @@ async function getAdvice(date, maxStride, data) {
     aiContainer.style.display = 'block';
     aiText.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Wait... AI Coach is analyzing...</span>';
 
-    // Calculate Averages
-    const totalSteps = data.reduce((acc, d) => acc + d.steps, 0);
-    const avgStride = totalSteps > 0 ? (data.reduce((acc, d) => acc + (d.stride * d.steps), 0) / totalSteps) : 0;
+    // Calculate Averages & Max for Running
+    const runningData = data.filter(d => d.steps > 140);
+    const totalRunningSteps = runningData.reduce((acc, d) => acc + d.steps, 0);
+    const avgStride = totalRunningSteps > 0 ? (runningData.reduce((acc, d) => acc + (d.stride * d.steps), 0) / totalRunningSteps) : 0;
+
+    // Cadence (Steps per minute)
+    let maxCadence = 0;
+    let sumCadence = 0;
+    data.forEach(d => {
+        if (d.steps > maxCadence) maxCadence = d.steps;
+        if (d.steps > 140) sumCadence += d.steps;
+    });
+    const avgCadence = runningData.length > 0 ? (sumCadence / runningData.length) : 0;
 
     // Heart Rate Stats
     let maxHR = 0;
@@ -168,7 +178,8 @@ async function getAdvice(date, maxStride, data) {
                 avgStride: Math.round(avgStride),
                 maxHR: Math.round(maxHR),
                 avgHR: Math.round(avgHR),
-                avgCadence: Math.round(avgCadence)
+                avgCadence: Math.round(avgCadence),
+                maxCadence: Math.round(maxCadence)
             })
         });
 

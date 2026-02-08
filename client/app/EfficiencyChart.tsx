@@ -151,7 +151,7 @@ export default function EfficiencyChart({ runs }: Props) {
             yAxisId="right"
             type="monotone"
             dataKey="displayHr"
-            name="HR @ Max Stride"
+            name="Heart Rate"
             stroke="#ef4444"
             strokeWidth={2}
             dot={{ r: 3 }}

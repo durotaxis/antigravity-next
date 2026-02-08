@@ -300,7 +300,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 // Gemini Advice API
 app.post('/api/advice', async (req, res) => {
   try {
-    const { date, avgStride, avgHR, maxStride, maxHR, avgCadence } = req.body;
+    const { date, avgStride, avgHR, maxStride, maxHR, avgCadence, maxCadence } = req.body;
 
     const cached = await repo.getDailySummary(date);
     if (cached && cached.message) return res.json({ advice: cached.message });
@@ -316,7 +316,8 @@ app.post('/api/advice', async (req, res) => {
       avgHR,
       maxStride,
       maxHR,
-      avgCadence
+      avgCadence,
+      maxCadence
     }, imagePaths);
 
     // DBにアドバイスを保存
@@ -327,6 +328,7 @@ app.post('/api/advice', async (req, res) => {
       hr_max: maxHR,
       hr_avg: avgHR,
       avg_cadence: avgCadence,
+      max_cadence: maxCadence,
       message: advice
     });
 

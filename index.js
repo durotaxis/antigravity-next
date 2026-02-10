@@ -12,6 +12,7 @@ const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
+const GEMINI_RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -562,9 +563,48 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const assetId = await imageRepo.createAsset(fileHash, filename, originalName);
 
     // 3. Main Analysis (Gemini)
+    // If OCR fails, we still ingest the image and create/link the asset without crashing the request.
     console.log(`Analyzing: ${filename} (Gemini)`);
-    const result = await visionService.analyzeImage(filename);
-    console.log("Analysis Result:", result);
+    let result = {};
+    let ocrFailed = false;
+    try {
+      const analyzed = await visionService.analyzeImage(filename);
+      result = analyzed && typeof analyzed === 'object' ? analyzed : {};
+      console.log("Analysis Result:", result);
+    } catch (ocrErr) {
+      ocrFailed = true;
+      console.error("OCR Failed (continuing import):", ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
+      result = {
+        ocr_failed: true,
+        ocr_error: ocrErr && ocrErr.message ? String(ocrErr.message) : 'OCR failed'
+      };
+    }
+
+    if (ocrFailed) {
+      // Persist whatever we have (mostly NULLs) and return success.
+      await imageRepo.updateAssetMetricsById(assetId, result);
+
+      // Optional: caller can provide runId/date to link even when OCR fails.
+      const forcedRunId = (req.body && (req.body.runId || req.body.date)) ? String(req.body.runId || req.body.date).trim() : '';
+      if (forcedRunId) {
+        try {
+          await imageRepo.linkImageToRun(forcedRunId, assetId);
+          result.date = forcedRunId;
+        } catch (linkErr) {
+          console.error("Link Failed (ignored):", linkErr && linkErr.message ? linkErr.message : linkErr);
+        }
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          ...result,
+          asset_id: assetId,
+          stored_filename: filename,
+          original_filename: originalName
+        }
+      });
+    }
 
     // Persist avg_speed into image_assets even if date inference fails.
     // (daily_summary still requires result.date.)
@@ -710,6 +750,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_speed: finalMaxSpeed      // Add Speed
         }, [req.file.path]);
 
+        const adviceToSave = (advice === GEMINI_RATE_LIMIT_MESSAGE &&
+          existingSummary &&
+          String(existingSummary.message || '').trim().length > 0 &&
+          String(existingSummary.message || '').trim() !== GEMINI_RATE_LIMIT_MESSAGE)
+          ? existingSummary.message
+          : advice;
+
         await repo.saveDailySummary({
           date: result.date,
           step_count: summaryStepCount,
@@ -724,7 +771,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_cadence: finalMaxCadence,
           avg_speed: finalAvgSpeed,
           max_speed: finalMaxSpeed,
-          message: advice // Update with advice
+          message: adviceToSave // Update with advice
         });
         console.log("Advice Saved.");
       } catch (adviceErr) {

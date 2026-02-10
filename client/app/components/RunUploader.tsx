@@ -27,6 +27,13 @@ export default function RunUploader() {
             const data = await res.json();
             console.log('Analysis success:', data);
 
+            if (data?.data?.ocr_failed) {
+                alert('OCRに失敗しましたが、画像の取り込みは完了しました。回復後に再度お試し下さい。');
+                setIsUploading(false);
+                e.target.value = '';
+                return;
+            }
+
             // Reload to show new data
             window.location.reload();
 

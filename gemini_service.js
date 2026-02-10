@@ -8,6 +8,25 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const USER_HEIGHT_CM = 172;
+const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
+
+function isRateLimitError(error) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    if (Number.isFinite(status) && status === 429) return true;
+
+    const code = String(error?.code || error?.response?.data?.error?.status || '').toUpperCase();
+    if (code.includes('RESOURCE_EXHAUSTED')) return true;
+
+    const msg = String(error?.message || error || '').toLowerCase();
+    return (
+        msg.includes('429') ||
+        msg.includes('too many request') ||
+        msg.includes('too many requests') ||
+        msg.includes('rate limit') ||
+        msg.includes('quota') ||
+        msg.includes('resource_exhausted')
+    );
+}
 
 const THESIS_CONTENT = `
 筑波大学・榎本靖士 博士論文「長距離走動作のバイオメカニクス的評価法に関する研究」における分析手法と留意点：
@@ -54,6 +73,7 @@ async function generateAdvice(metrics, imagePaths = []) {
         };
         return await generateCoachAdvice(stats, imagePaths);
     } catch (e) {
+        if (isRateLimitError(e)) return RATE_LIMIT_MESSAGE;
         return "AI Analysis unavailable.";
     }
 }
@@ -101,6 +121,7 @@ async function generateCoachAdvice(stats, imagePaths = []) {
         return response.text().trim();
 
     } catch (error) {
+        if (isRateLimitError(error)) return RATE_LIMIT_MESSAGE;
         return "AI Analysis is currently unavailable.";
     }
 }

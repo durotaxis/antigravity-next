@@ -174,6 +174,197 @@ async function computeDerivedFromIntradayCache(dateString) {
   }
 }
 
+function secondsToHms(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function parseHmsToSeconds(hms) {
+  if (!hms) return 0;
+  const parts = String(hms).trim().split(':').map(p => Number(p));
+  if (parts.some(p => !Number.isFinite(p))) return 0;
+  if (parts.length === 3) return Math.max(0, parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  if (parts.length === 2) return Math.max(0, parts[0] * 60 + parts[1]);
+  return 0;
+}
+
+function pickPositive(preferred, fallback) {
+  const a = Number(preferred);
+  if (Number.isFinite(a) && a > 0) return a;
+  const b = Number(fallback);
+  return Number.isFinite(b) && b > 0 ? b : 0;
+}
+
+function pickText(preferred, fallback) {
+  const a = preferred === null || preferred === undefined ? '' : String(preferred).trim();
+  if (a.length > 0) return a;
+  const b = fallback === null || fallback === undefined ? '' : String(fallback).trim();
+  return b.length > 0 ? b : null;
+}
+
+async function computeDailySummaryFromCache(dateString) {
+  const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
+  const intradayFile = path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`);
+
+  const out = {
+    step_count: 0,
+    total_distance_km: 0,
+    total_time: null,
+    calories_kcal: 0,
+    avg_stride_cm: 0,
+    max_stride_cm: 0,
+    avg_heart_rate: 0,
+    max_heart_rate: 0,
+    avg_speed: 0,
+    max_speed: 0,
+    avg_cadence: 0,
+    max_cadence: 0
+  };
+
+  const derived = await computeDerivedFromIntradayCache(dateString);
+  if (derived) {
+    out.avg_speed = Number(derived.json_avg_speed || 0);
+    out.max_speed = Number(derived.json_max_speed || 0);
+    out.avg_cadence = Number(derived.json_avg_pitch || 0);
+    out.max_cadence = Number(derived.json_max_pitch || 0);
+  }
+
+  try {
+    const raw = await fs.readFile(rawBucketsFile, 'utf8');
+    const buckets = JSON.parse(raw);
+    if (Array.isArray(buckets) && buckets.length > 0) {
+      const any = { steps: 0, distanceM: 0, activeSec: 0, pointsDistance: 0 };
+      const run = { steps: 0, distanceM: 0, activeSec: 0, pointsDistance: 0 };
+
+      for (const bucket of buckets) {
+        const datasets = Array.isArray(bucket?.dataset) ? bucket.dataset : [];
+        if (datasets.length === 0) continue;
+
+        let bucketSteps = 0;
+        let bucketDistance = 0;
+        let bucketIsRun = false;
+
+        for (const ds of datasets) {
+          const dsid = String(ds?.dataSourceId || '');
+          const points = Array.isArray(ds?.point) ? ds.point : [];
+          if (points.length === 0) continue;
+
+          if (dsid.includes('activity.segment') || dsid.includes('activity.summary')) {
+            for (const p of points) {
+              const v = p?.value?.[0];
+              const t = Number(v?.intVal);
+              if (Number.isFinite(t) && t === 8) bucketIsRun = true;
+            }
+            continue;
+          }
+
+          if (dsid.includes('step_count.delta')) {
+            for (const p of points) {
+              const v = p?.value?.[0];
+              const n = Number(v?.intVal);
+              if (Number.isFinite(n) && n > 0) bucketSteps += n;
+            }
+            continue;
+          }
+
+          if (dsid.includes('distance.delta')) {
+            for (const p of points) {
+              const v = p?.value?.[0];
+              const n = Number(v?.fpVal);
+              if (Number.isFinite(n) && n > 0) bucketDistance += n;
+            }
+            continue;
+          }
+
+          if (dsid.includes('calories.expended')) {
+            for (const p of points) {
+              const v = p?.value?.[0];
+              const n = Number(v?.fpVal);
+              if (Number.isFinite(n) && n > 0) out.calories_kcal += n;
+            }
+            continue;
+          }
+        }
+
+        if (bucketSteps > 0) any.steps += bucketSteps;
+        if (bucketDistance > 0) {
+          any.distanceM += bucketDistance;
+          any.pointsDistance++;
+        }
+        if (bucketDistance > 0 || bucketSteps > 0) any.activeSec += 60;
+
+        if (bucketIsRun) {
+          if (bucketSteps > 0) run.steps += bucketSteps;
+          if (bucketDistance > 0) {
+            run.distanceM += bucketDistance;
+            run.pointsDistance++;
+          }
+          if (bucketDistance > 0 || bucketSteps > 0) run.activeSec += 60;
+        }
+      }
+
+      const useRun = run.distanceM > 0 && run.activeSec >= 60;
+      const picked = useRun ? run : any;
+
+      out.step_count = Math.round(picked.steps);
+      out.total_distance_km = Number((picked.distanceM / 1000).toFixed(2));
+
+      const seconds = picked.activeSec > 0 ? picked.activeSec : (picked.pointsDistance * 60);
+      out.total_time = seconds > 0 ? secondsToHms(seconds) : null;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const raw = await fs.readFile(intradayFile, 'utf8');
+    const points = JSON.parse(raw);
+    if (Array.isArray(points) && points.length > 0) {
+      let sumStride = 0, countStride = 0, maxStride = 0;
+      let sumHr = 0, countHr = 0, maxHr = 0;
+
+      for (const p of points) {
+        const stride = Number(p?.stride);
+        // Match google_fit_service cleaning: drop physiologically unlikely stride spikes.
+        if (Number.isFinite(stride) && stride > 0 && stride <= 250) {
+          sumStride += stride;
+          countStride++;
+          if (stride > maxStride) maxStride = stride;
+        }
+
+        const hr = Number(p?.heartRate);
+        if (Number.isFinite(hr) && hr > 0) {
+          sumHr += hr;
+          countHr++;
+          if (hr > maxHr) maxHr = hr;
+        }
+      }
+
+      out.avg_stride_cm = countStride > 0 ? Number((sumStride / countStride).toFixed(1)) : 0;
+      out.max_stride_cm = maxStride > 0 ? Number(maxStride.toFixed(1)) : 0;
+      out.avg_heart_rate = countHr > 0 ? Math.round(sumHr / countHr) : 0;
+      out.max_heart_rate = maxHr > 0 ? Math.round(maxHr) : 0;
+
+      if (!out.total_time) out.total_time = secondsToHms(points.length * 60);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (out.avg_speed <= 0 && out.total_distance_km > 0 && out.total_time) {
+    const hours = parseHmsToSeconds(out.total_time) / 3600;
+    if (hours > 0) out.avg_speed = Number((out.total_distance_km / hours).toFixed(1));
+  }
+
+  if (!Number.isFinite(out.calories_kcal)) out.calories_kcal = 0;
+  out.calories_kcal = out.calories_kcal > 0 ? Number(out.calories_kcal.toFixed(0)) : 0;
+
+  return out;
+}
+
 // --- Security & Config ---
 // 全オリジン許可 (スマホからの接続をスムーズに)
 app.use(cors({ origin: true, credentials: true }));
@@ -199,6 +390,10 @@ app.get('/api/runs', async (req, res) => {
       id: row.id,
       date: row.date,
       // Next版が必要とするデータのみ
+      step_count: row.step_count ?? 0,
+      total_distance_km: row.total_distance_km ?? 0,
+      total_time: row.total_time ?? null,
+      calories_kcal: row.calories_kcal ?? 0,
       avg_stride: row.avg_stride ?? 0,
       avg_heart_rate: row.hr_avg ?? 0,
       max_stride: row.max_stride ?? 0,
@@ -251,7 +446,16 @@ app.get('/api/stride', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    // Fetch from Google Fit directly
+    // Prefer local cache to avoid Fit API rate limits.
+    try {
+      const cacheFile = path.join(__dirname, 'storage', 'cache', `intraday_${date}.json`);
+      const raw = await fs.readFile(cacheFile, 'utf8');
+      const points = JSON.parse(raw);
+      return res.json(points);
+    } catch {
+      // fall back to Fit API
+    }
+
     const chartData = await googleFitService.getIntradayMetrics(date);
     res.json(chartData);
   } catch (err) {
@@ -380,10 +584,21 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       // ★ Optimization: Check if summary already exists before calling Fit API
       const existingSummary = await repo.getDailySummary(result.date);
+      const cacheMetrics = await computeDailySummaryFromCache(result.date);
+
+      const summaryStepCount = pickPositive(result.step_count, cacheMetrics.step_count);
+      const summaryTotalDistanceKm = pickPositive(result.total_distance_km, cacheMetrics.total_distance_km);
+      const summaryTotalTime = pickText(result.total_time, cacheMetrics.total_time);
+      const summaryCaloriesKcal = pickPositive(result.calories_kcal, cacheMetrics.calories_kcal);
 
       let fitMetrics = {
-        max_stride_cm: 0,
-        max_heart_rate: 0
+        avg_stride_cm: cacheMetrics.avg_stride_cm || 0,
+        max_stride_cm: cacheMetrics.max_stride_cm || 0,
+        avg_heart_rate: cacheMetrics.avg_heart_rate || 0,
+        max_heart_rate: cacheMetrics.max_heart_rate || 0,
+        avg_cadence: cacheMetrics.avg_cadence || 0,
+        max_cadence: cacheMetrics.max_cadence || 0,
+        max_speed: cacheMetrics.max_speed || 0
       };
 
       // --- REFRESH METRICS FROM GOOGLE FIT ---
@@ -391,7 +606,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // matches the latest filtering/smoothing logic in google_fit_service.
       try {
         console.log(`Refreshing Google Fit metrics for ${result.date}...`);
-        const fitData = await googleFitService.getDailyMetrics(result.date);
+        const fitData = null; // prefer local JSON cache to avoid API requests
         if (fitData) {
           console.log("Updated Fit Metrics:", fitData);
           fitMetrics = fitData;
@@ -409,21 +624,21 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         }
       }
 
-      const safeMaxStride = (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
-        : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride
-          : (result.max_stride_cm || 0);
+      const safeMaxStride = (result.max_stride_cm > 0) ? result.max_stride_cm
+        : (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
+          : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride : 0;
 
-      const safeAvgStride = (fitMetrics.avg_stride_cm > 0) ? fitMetrics.avg_stride_cm
-        : (existingSummary && existingSummary.avg_stride > 0) ? existingSummary.avg_stride
-          : (result.avg_stride_cm || 0);
+      const safeAvgStride = (result.avg_stride_cm > 0) ? result.avg_stride_cm
+        : (fitMetrics.avg_stride_cm > 0) ? fitMetrics.avg_stride_cm
+          : (existingSummary && existingSummary.avg_stride > 0) ? existingSummary.avg_stride : 0;
 
-      const safeMaxHR = (fitMetrics.max_heart_rate > 0) ? fitMetrics.max_heart_rate
-        : (existingSummary && existingSummary.hr_max > 0) ? existingSummary.hr_max
-          : (result.max_heart_rate || 0);
+      const safeMaxHR = (result.max_heart_rate > 0) ? result.max_heart_rate
+        : (fitMetrics.max_heart_rate > 0) ? fitMetrics.max_heart_rate
+          : (existingSummary && existingSummary.hr_max > 0) ? existingSummary.hr_max : 0;
 
-      const safeAvgHR = (fitMetrics.avg_heart_rate > 0) ? fitMetrics.avg_heart_rate
-        : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg
-          : (result.avg_heart_rate || 0);
+      const safeAvgHR = (result.avg_heart_rate > 0) ? result.avg_heart_rate
+        : (fitMetrics.avg_heart_rate > 0) ? fitMetrics.avg_heart_rate
+          : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg : 0;
 
       // --- CADENCE / PITCH (User Request) ---
       // Avg Cadence: Priority Vision > Fit > Existing
@@ -434,14 +649,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       // Max Cadence: Priority Fit (1-min max) > Vision > Existing
       const finalMaxCadence = (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence
-        : (result.max_cadence > 0) ? result.max_cadence
-          : (existingSummary && existingSummary.max_cadence > 0) ? existingSummary.max_cadence
-            : 0;
+        : (existingSummary && existingSummary.max_cadence > 0) ? existingSummary.max_cadence
+          : 0;
 
       // --- SPEED CALCULATION (User Request) ---
       // Avg Speed: Priority JSON(cache) > Vision > Calculated
       const derivedSpeed = await computeDerivedFromIntradayCache(result.date);
-      let finalAvgSpeed = (derivedSpeed && derivedSpeed.json_avg_speed > 0) ? derivedSpeed.json_avg_speed : (result.avg_speed || 0);
+      let finalAvgSpeed = (result.avg_speed > 0) ? result.avg_speed : ((derivedSpeed && derivedSpeed.json_avg_speed > 0) ? derivedSpeed.json_avg_speed : 0);
       if (finalAvgSpeed === 0 && result.total_distance_km > 0 && result.total_time) {
         // Calculate from Vision data if missing
         const parts = result.total_time.split(':').map(Number);
@@ -461,6 +675,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       await repo.saveDailySummary({
         date: result.date,
+        step_count: summaryStepCount,
+        total_distance_km: summaryTotalDistanceKm,
+        total_time: summaryTotalTime,
+        calories_kcal: summaryCaloriesKcal,
         max_stride: safeMaxStride,
         avg_stride: safeAvgStride,
         hr_max: safeMaxHR,
@@ -479,9 +697,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         // ★ FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
         const advice = await geminiService.generateAdvice({
           date: result.date,
-          step_count: result.step_count,
-          total_distance_km: result.total_distance_km,
-          calories_kcal: result.calories_kcal,
+          step_count: summaryStepCount,
+          total_distance_km: summaryTotalDistanceKm,
+          calories_kcal: summaryCaloriesKcal,
           avg_stride_cm: safeAvgStride,
           max_stride_cm: safeMaxStride, // Use Safe Value
           avg_heart_rate: safeAvgHR,
@@ -494,6 +712,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
         await repo.saveDailySummary({
           date: result.date,
+          step_count: summaryStepCount,
+          total_distance_km: summaryTotalDistanceKm,
+          total_time: summaryTotalTime,
+          calories_kcal: summaryCaloriesKcal,
           max_stride: safeMaxStride, // Use Safe Value
           avg_stride: safeAvgStride, // Use Safe Value
           hr_max: safeMaxHR,         // Use Safe Value

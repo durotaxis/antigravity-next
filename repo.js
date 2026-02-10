@@ -7,15 +7,24 @@ function toNumberOrZero(value) {
     return Number.isFinite(num) ? num : 0;
 }
 
+function toTextOrNull(value) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text.length > 0 ? text : null;
+}
+
 /**
  * 日次サマリーを保存・更新する (Upsert)
  */
 function saveDailySummary(data) {
     return new Promise((resolve, reject) => {
-        const { date, max_stride, avg_stride, hr_avg, hr_max, message, avg_cadence, max_cadence, avg_speed, max_speed } = data;
+        const { date, step_count, total_distance_km, total_time, calories_kcal, max_stride, avg_stride, hr_avg, hr_max, message, avg_cadence, max_cadence, avg_speed, max_speed } = data;
         const now = new Date().toISOString();
 
         // Ensure omitted/invalid numeric metrics don't become unintended NULLs in SQLite.
+        const safeStepCount = toNumberOrZero(step_count);
+        const safeTotalDistanceKm = toNumberOrZero(total_distance_km);
+        const safeCaloriesKcal = toNumberOrZero(calories_kcal);
         const safeMaxStride = toNumberOrZero(max_stride);
         const safeAvgStride = toNumberOrZero(avg_stride);
         const safeHrAvg = toNumberOrZero(hr_avg);
@@ -24,11 +33,32 @@ function saveDailySummary(data) {
         const safeMaxCadence = toNumberOrZero(max_cadence);
         const safeAvgSpeed = toNumberOrZero(avg_speed);
         const safeMaxSpeed = toNumberOrZero(max_speed);
+        const safeTotalTime = toTextOrNull(total_time);
 
         const sql = `
-            INSERT INTO daily_summary (date, max_stride, avg_stride, hr_avg, hr_max, avg_cadence, max_cadence, avg_speed, max_speed, message, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO daily_summary (
+                date,
+                step_count,
+                total_distance_km,
+                total_time,
+                calories_kcal,
+                max_stride,
+                avg_stride,
+                hr_avg,
+                hr_max,
+                avg_cadence,
+                max_cadence,
+                avg_speed,
+                max_speed,
+                message,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
+                step_count = CASE WHEN excluded.step_count > 0 THEN excluded.step_count ELSE step_count END,
+                total_distance_km = CASE WHEN excluded.total_distance_km > 0 THEN excluded.total_distance_km ELSE total_distance_km END,
+                total_time = COALESCE(excluded.total_time, total_time),
+                calories_kcal = CASE WHEN excluded.calories_kcal > 0 THEN excluded.calories_kcal ELSE calories_kcal END,
                 max_stride = CASE WHEN excluded.max_stride > 0 THEN excluded.max_stride ELSE max_stride END,
                 avg_stride = CASE WHEN excluded.avg_stride > 0 THEN excluded.avg_stride ELSE avg_stride END,
                 hr_avg = CASE WHEN excluded.hr_avg > 0 THEN excluded.hr_avg ELSE hr_avg END,
@@ -41,7 +71,7 @@ function saveDailySummary(data) {
                 created_at = excluded.created_at
         `;
 
-        db.run(sql, [date, safeMaxStride, safeAvgStride, safeHrAvg, safeHrMax, safeAvgCadence, safeMaxCadence, safeAvgSpeed, safeMaxSpeed, message, now], function (err) {
+        db.run(sql, [date, safeStepCount, safeTotalDistanceKm, safeTotalTime, safeCaloriesKcal, safeMaxStride, safeAvgStride, safeHrAvg, safeHrMax, safeAvgCadence, safeMaxCadence, safeAvgSpeed, safeMaxSpeed, message, now], function (err) {
             if (err) {
                 console.error('Error in saveDailySummary:', err);
                 return reject(err);
@@ -77,6 +107,10 @@ function getAllRuns() {
             SELECT 
                 d.rowid as id,
                 d.date,
+                d.step_count,
+                d.total_distance_km,
+                d.total_time,
+                d.calories_kcal,
                 d.avg_stride,
                 d.hr_avg,
                 d.max_stride,
@@ -109,6 +143,10 @@ function getAllRuns() {
                     runMap.set(row.date, {
                         id: row.id,
                         date: row.date,
+                        step_count: Number(row.step_count || 0),
+                        total_distance_km: Number(row.total_distance_km || 0),
+                        total_time: row.total_time || null,
+                        calories_kcal: Number(row.calories_kcal || 0),
                         // 数値型に変換して安全策をとる
                         avg_stride: Number(row.avg_stride || 0),
                         hr_avg: Number(row.hr_avg || 0),

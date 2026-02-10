@@ -20,6 +20,10 @@ db.serialize(() => {
     // これで repo.js の ON CONFLICT(date) がエラーにならず機能する
     db.run(`CREATE TABLE IF NOT EXISTS daily_summary (
         date TEXT PRIMARY KEY, 
+        step_count INTEGER,
+        total_distance_km REAL,
+        total_time TEXT,
+        calories_kcal REAL,
         max_stride REAL,
         avg_stride REAL,
         hr_avg REAL,
@@ -32,6 +36,26 @@ db.serialize(() => {
         created_at TEXT
     )`, (err) => {
         if (err) console.error('Error creating table daily_summary:', err);
+    });
+
+    // Lightweight migrations for existing DBs.
+    db.all(`PRAGMA table_info(daily_summary)`, (err, rows) => {
+        if (err) return console.error('Error reading daily_summary schema:', err);
+        const cols = new Set((rows || []).map(r => r.name));
+
+        const ensureColumn = (name, type) => {
+            if (cols.has(name)) return;
+            db.run(`ALTER TABLE daily_summary ADD COLUMN ${name} ${type}`, (alterErr) => {
+                if (alterErr && !String(alterErr.message || '').includes('duplicate column name')) {
+                    console.error(`Error adding daily_summary.${name}:`, alterErr);
+                }
+            });
+        };
+
+        ensureColumn('step_count', 'INTEGER');
+        ensureColumn('total_distance_km', 'REAL');
+        ensureColumn('total_time', 'TEXT');
+        ensureColumn('calories_kcal', 'REAL');
     });
 
     db.run(`CREATE TABLE IF NOT EXISTS image_assets (

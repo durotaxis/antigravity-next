@@ -18,8 +18,15 @@ type Run = {
   max_stride?: number; // Updated: consistent naming
   avg_heart_rate: number;
   max_heart_rate?: number; // Updated: consistent naming with API
+  avg_cadence?: number; // New
+  max_cadence?: number; // New
   avg_speed?: number; // New
   max_speed?: number; // New
+  json_max_speed?: number;
+  json_avg_speed?: number;
+  json_avg_pitch?: number;
+  json_max_pitch?: number;
+  json_points?: number;
   message?: string;
   images: { id: number; url: string; alt?: string }[];
 };
@@ -40,7 +47,7 @@ export default function Home() {
 
   // Express (Port 3000) からデータを取得
   useEffect(() => {
-    fetch('http://192.168.3.153:3000/api/runs')
+    fetch('http://192.168.3.153:3000/api/runs?includeDerived=1')
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -195,7 +202,7 @@ export default function Home() {
 
               {/* ストライドと心拍数 (Avg / Max) */}
               {/* ストライドと心拍数 (Max Top / Avg Bottom) */}
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-gray-50 text-center">
+              <div className="grid grid-cols-4 gap-3 pt-4 border-t border-gray-50 text-center">
 
                 {/* Stride Column */}
                 <div>
@@ -222,7 +229,7 @@ export default function Home() {
                 {/* Heart Rate Column */}
                 <div className="border-l border-gray-50">
                   <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2 leading-tight">
-                    <span className="block">Heart Rate</span>
+                    <span className="block">HR</span>
                     <span className="block">(bpm)</span>
                   </span>
                   <div className="flex flex-col items-stretch gap-1">
@@ -267,9 +274,42 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Pitch Column (New) */}
+                <div className="border-l border-gray-50">
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2 leading-tight">
+                    <span className="block">Pitch</span>
+                    <span className="block">(spm)</span>
+                  </span>
+                  <div className="flex flex-col items-stretch gap-1">
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Max</span>
+                      <span className="font-bold text-emerald-700 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.max_cadence !== undefined && run.max_cadence !== null && run.max_cadence > 0 ? run.max_cadence : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Avg</span>
+                      <span className="font-bold text-emerald-500 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.avg_cadence !== undefined && run.avg_cadence !== null && run.avg_cadence > 0 ? run.avg_cadence : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* 画像グリッド (本番データ) */}
+              {(run.json_avg_speed || run.json_max_speed || run.json_avg_pitch || run.json_max_pitch) ? (
+                <div className="mt-3 text-[10px] text-gray-400 flex justify-between">
+                  <span className="uppercase tracking-wide">JSON calc</span>
+                  <span className="tabular-nums text-right">
+                    Speed avg {run.json_avg_speed !== undefined && run.json_avg_speed !== null ? run.json_avg_speed.toFixed(1) : '-'} max {run.json_max_speed !== undefined && run.json_max_speed !== null ? run.json_max_speed.toFixed(1) : '-'} / Pitch avg {run.json_avg_pitch ?? '-'} max {run.json_max_pitch ?? '-'}
+                  </span>
+                </div>
+              ) : null}
+
               <div className="mt-6 border-t border-gray-50 pt-4">
                 <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Analysis Images</p>
                 {run.images && run.images.length > 0 ? (

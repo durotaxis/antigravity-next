@@ -124,12 +124,89 @@ function updateAssetMetrics(storedFilename, metrics) {
 
         console.log('Update Params:', params);
 
+        const runUpdate = () => {
+            db.run(sql, params, function (err) {
+                if (err) {
+                    console.error('Update Error:', err);
+                    return reject(err);
+                }
+                console.log('Rows updated:', this.changes);
+                resolve(this.changes);
+            });
+        };
+
         db.run(sql, params, function (err) {
+            if (err && String(err.message || '').includes('no such column: avg_speed')) {
+                // One-time self-heal for older DBs.
+                return db.run(`ALTER TABLE image_assets ADD COLUMN avg_speed REAL`, (alterErr) => {
+                    if (alterErr && !String(alterErr.message || '').includes('duplicate column name')) {
+                        console.error('Migration Error (avg_speed):', alterErr);
+                        return reject(alterErr);
+                    }
+                    runUpdate();
+                });
+            }
+
             if (err) {
                 console.error('Update Error:', err);
                 return reject(err);
             }
             console.log('Rows updated:', this.changes);
+            resolve(this.changes);
+        });
+    });
+}
+
+/**
+ * Update analysis metrics for an asset by asset_id.
+ * This is safer than stored_filename when assets are de-duplicated by file_hash.
+ */
+function updateAssetMetricsById(assetId, metrics) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            UPDATE image_assets 
+            SET 
+                steps = ?, 
+                total_distance = ?, 
+                total_time = ?, 
+                avg_speed = ?,
+                avg_heart_rate = ?, 
+                calories = ?, 
+                avg_stride = ?
+            WHERE asset_id = ?
+        `;
+        const params = [
+            metrics.step_count ?? null,
+            metrics.total_distance_km ?? null,
+            metrics.total_time ?? null,
+            metrics.avg_speed ?? null,
+            metrics.avg_heart_rate ?? null,
+            metrics.calories_kcal ?? null,
+            metrics.avg_stride_cm ?? null,
+            assetId
+        ];
+
+        const runUpdate = () => {
+            db.run(sql, params, function (err) {
+                if (err) {
+                    console.error('Update Error:', err);
+                    return reject(err);
+                }
+                resolve(this.changes);
+            });
+        };
+
+        db.run(sql, params, function (err) {
+            if (err && String(err.message || '').includes('no such column: avg_speed')) {
+                return db.run(`ALTER TABLE image_assets ADD COLUMN avg_speed REAL`, (alterErr) => {
+                    if (alterErr && !String(alterErr.message || '').includes('duplicate column name')) {
+                        console.error('Migration Error (avg_speed):', alterErr);
+                        return reject(alterErr);
+                    }
+                    runUpdate();
+                });
+            }
+            if (err) return reject(err);
             resolve(this.changes);
         });
     });
@@ -143,6 +220,7 @@ module.exports = {
     getImagesForRun,
     unlinkImageFromRun,
     updateAssetMetrics,
+    updateAssetMetricsById,
     deleteAssetWithFile
 };
 

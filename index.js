@@ -13,6 +13,167 @@ const googleFitService = require('./google_fit_service');
 const app = express();
 const port = 3000;
 
+async function computeDerivedFromIntradayCache(dateString) {
+  try {
+    // Prefer RAW buckets for 1-minute max values.
+    // Prefer processed intraday for averages (it includes filtering).
+    const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
+
+    let rawMaxSpeed = 0;
+    let rawAvgSpeed = 0;
+    let rawMaxPitch = 0;
+    let rawAvgPitch = 0;
+    let rawPoints = 0;
+
+    try {
+      const rawBuckets = await fs.readFile(rawBucketsFile, 'utf8');
+      const buckets = JSON.parse(rawBuckets);
+      if (Array.isArray(buckets) && buckets.length > 0) {
+        rawPoints = buckets.length;
+
+        let sumSpeedAny = 0;
+        let countSpeedAny = 0;
+        let sumPitchAny = 0;
+        let countPitchAny = 0;
+        let maxSpeedAny = 0;
+        let maxPitchAny = 0;
+
+        let sumSpeedRun = 0;
+        let countSpeedRun = 0;
+        let sumPitchRun = 0;
+        let countPitchRun = 0;
+        let maxSpeedRun = 0;
+        let maxPitchRun = 0;
+
+        for (const bucket of buckets) {
+          let bucketSteps = 0;
+          let bucketDistance = 0;
+          let bucketIsRun = false;
+
+          for (const ds of bucket.dataset || []) {
+            const sourceId = ds.dataSourceId || '';
+
+            if (sourceId.includes('activity.segment')) {
+              for (const p of ds.point || []) {
+                for (const v of p.value || []) {
+                  if (v.intVal === 8) bucketIsRun = true;
+                }
+              }
+            }
+
+            if (sourceId.includes('activity.summary')) {
+              for (const p of ds.point || []) {
+                const typeVal = p.value && p.value[0] ? p.value[0].intVal : null;
+                if (typeVal === 8) bucketIsRun = true;
+              }
+            }
+
+            for (const p of ds.point || []) {
+              for (const v of p.value || []) {
+                if (sourceId.includes('step_count')) bucketSteps += (v.intVal || 0);
+                if (sourceId.includes('distance')) bucketDistance += (v.fpVal || 0);
+              }
+            }
+          }
+
+          if (bucketSteps > 0) {
+            if (bucketSteps > maxPitchAny) maxPitchAny = bucketSteps;
+            sumPitchAny += bucketSteps;
+            countPitchAny++;
+
+            if (bucketIsRun) {
+              if (bucketSteps > maxPitchRun) maxPitchRun = bucketSteps;
+              sumPitchRun += bucketSteps;
+              countPitchRun++;
+            }
+          }
+
+          if (bucketDistance > 0) {
+            const speed = Number((bucketDistance * 0.06).toFixed(1));
+            if (Number.isFinite(speed) && speed > 0) {
+              if (speed > maxSpeedAny) maxSpeedAny = speed;
+              sumSpeedAny += speed;
+              countSpeedAny++;
+
+              if (bucketIsRun) {
+                if (speed > maxSpeedRun) maxSpeedRun = speed;
+                sumSpeedRun += speed;
+                countSpeedRun++;
+              }
+            }
+          }
+        }
+
+        const avgPitchAny = countPitchAny > 0 ? Math.round(sumPitchAny / countPitchAny) : 0;
+        const avgSpeedAny = countSpeedAny > 0 ? Number((sumSpeedAny / countSpeedAny).toFixed(1)) : 0;
+
+        const avgPitchRun = countPitchRun > 0 ? Math.round(sumPitchRun / countPitchRun) : 0;
+        const avgSpeedRun = countSpeedRun > 0 ? Number((sumSpeedRun / countSpeedRun).toFixed(1)) : 0;
+
+        rawMaxSpeed = maxSpeedRun > 0 ? maxSpeedRun : maxSpeedAny;
+        rawAvgSpeed = avgSpeedRun > 0 ? avgSpeedRun : avgSpeedAny;
+        rawMaxPitch = maxPitchRun > 0 ? maxPitchRun : maxPitchAny;
+        rawAvgPitch = avgPitchRun > 0 ? avgPitchRun : avgPitchAny;
+      }
+    } catch {
+      // ignore and fall back below
+    }
+
+    const intradayFile = path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`);
+
+    let intradayAvgSpeed = 0;
+    let intradayAvgPitch = 0;
+    let intradayMaxSpeed = 0;
+    let intradayMaxPitch = 0;
+    let intradayPoints = 0;
+
+    try {
+      const raw = await fs.readFile(intradayFile, 'utf8');
+      const points = JSON.parse(raw);
+      if (Array.isArray(points) && points.length > 0) {
+        intradayPoints = points.length;
+        let sumSpeed = 0;
+        let countSpeed = 0;
+        let sumPitch = 0;
+        let countPitch = 0;
+
+        for (const p of points) {
+          const speed = Number(p?.speed);
+          if (Number.isFinite(speed) && speed > intradayMaxSpeed) intradayMaxSpeed = speed;
+          if (Number.isFinite(speed) && speed > 0) {
+            sumSpeed += speed;
+            countSpeed++;
+          }
+
+          const steps = Number(p?.steps);
+          if (Number.isFinite(steps) && steps > 0) {
+            if (steps > intradayMaxPitch) intradayMaxPitch = steps;
+            sumPitch += steps;
+            countPitch++;
+          }
+        }
+
+        intradayAvgSpeed = countSpeed > 0 ? Number((sumSpeed / countSpeed).toFixed(1)) : 0;
+        intradayAvgPitch = countPitch > 0 ? Math.round(sumPitch / countPitch) : 0;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (rawPoints === 0 && intradayPoints === 0) return null;
+
+    return {
+      json_avg_speed: intradayAvgSpeed > 0 ? intradayAvgSpeed : rawAvgSpeed,
+      json_max_speed: rawMaxSpeed > 0 ? Number(rawMaxSpeed.toFixed(1)) : Number(intradayMaxSpeed.toFixed(1)),
+      json_avg_pitch: rawAvgPitch > 0 ? rawAvgPitch : intradayAvgPitch,
+      json_max_pitch: rawMaxPitch > 0 ? rawMaxPitch : intradayMaxPitch,
+      json_points: rawPoints > 0 ? rawPoints : intradayPoints
+    };
+  } catch {
+    return null;
+  }
+}
+
 // --- Security & Config ---
 // 全オリジン許可 (スマホからの接続をスムーズに)
 app.use(cors({ origin: true, credentials: true }));
@@ -29,7 +190,12 @@ app.get('/api/runs', async (req, res) => {
   try {
     const rawRuns = await repo.getAllRuns();
 
-    const formattedRuns = rawRuns.map(row => ({
+    const includeDerived = String(req.query.includeDerived || '') === '1';
+
+    const formattedRuns = await Promise.all(rawRuns.map(async (row) => {
+      const derived = includeDerived ? await computeDerivedFromIntradayCache(row.date) : null;
+
+      return ({
       id: row.id,
       date: row.date,
       // Next版が必要とするデータのみ
@@ -37,10 +203,14 @@ app.get('/api/runs', async (req, res) => {
       avg_heart_rate: row.hr_avg ?? 0,
       max_stride: row.max_stride ?? 0,
       max_heart_rate: row.hr_max ?? 0,
+      avg_cadence: row.avg_cadence ?? 0,
+      max_cadence: row.max_cadence ?? 0,
       avg_speed: row.avg_speed ?? 0,
       max_speed: row.max_speed ?? 0,
+      ...(derived || {}),
       images: row.images || [],
       message: row.message || '' // AIアドバイス
+      });
     }));
 
     res.json(formattedRuns);
@@ -192,6 +362,19 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const result = await visionService.analyzeImage(filename);
     console.log("Analysis Result:", result);
 
+    // Persist avg_speed into image_assets even if date inference fails.
+    // (daily_summary still requires result.date.)
+    const parsedAvgSpeed = Number.parseFloat(result?.avg_speed);
+    let computedAvgSpeed = Number.isFinite(parsedAvgSpeed) ? parsedAvgSpeed : 0;
+    if (computedAvgSpeed <= 0 && result?.total_distance_km > 0 && result?.total_time) {
+      const parts = String(result.total_time).split(':').map(Number);
+      let hours = 0;
+      if (parts.length === 3) hours = parts[0] + parts[1] / 60 + parts[2] / 3600;
+      else if (parts.length === 2) hours = parts[0] / 60 + parts[1] / 3600;
+      if (hours > 0) computedAvgSpeed = parseFloat((result.total_distance_km / hours).toFixed(1));
+    }
+    result.avg_speed = computedAvgSpeed;
+
     // 2. 日付が取れたらGoogle Fitから正確なデータを取得してDBに保存
     if (result.date) {
 
@@ -242,9 +425,23 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg
           : (result.avg_heart_rate || 0);
 
+      // --- CADENCE / PITCH (User Request) ---
+      // Avg Cadence: Priority Vision > Fit > Existing
+      const finalAvgCadence = (result.avg_cadence > 0) ? result.avg_cadence
+        : (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence
+          : (existingSummary && existingSummary.avg_cadence > 0) ? existingSummary.avg_cadence
+            : 0;
+
+      // Max Cadence: Priority Fit (1-min max) > Vision > Existing
+      const finalMaxCadence = (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence
+        : (result.max_cadence > 0) ? result.max_cadence
+          : (existingSummary && existingSummary.max_cadence > 0) ? existingSummary.max_cadence
+            : 0;
+
       // --- SPEED CALCULATION (User Request) ---
-      // Avg Speed: Priority Vision > Calculated > Fit
-      let finalAvgSpeed = result.avg_speed || 0;
+      // Avg Speed: Priority JSON(cache) > Vision > Calculated
+      const derivedSpeed = await computeDerivedFromIntradayCache(result.date);
+      let finalAvgSpeed = (derivedSpeed && derivedSpeed.json_avg_speed > 0) ? derivedSpeed.json_avg_speed : (result.avg_speed || 0);
       if (finalAvgSpeed === 0 && result.total_distance_km > 0 && result.total_time) {
         // Calculate from Vision data if missing
         const parts = result.total_time.split(':').map(Number);
@@ -258,14 +455,18 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // Max Speed: Priority Fit (1-min max) > Vision
       const finalMaxSpeed = (fitMetrics.max_speed > 0) ? fitMetrics.max_speed : (result.max_speed || 0);
 
+      // Persist computed speeds into asset metrics (image_assets) as well.
+      result.avg_speed = finalAvgSpeed;
+      result.max_speed = finalMaxSpeed;
+
       await repo.saveDailySummary({
         date: result.date,
         max_stride: safeMaxStride,
         avg_stride: safeAvgStride,
         hr_max: safeMaxHR,
         hr_avg: safeAvgHR,
-        avg_cadence: (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence : (result.avg_cadence || 0),
-        max_cadence: (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence : (result.max_cadence || 0),
+        avg_cadence: finalAvgCadence,
+        max_cadence: finalMaxCadence,
         avg_speed: finalAvgSpeed,
         max_speed: finalMaxSpeed,
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
@@ -285,8 +486,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_stride_cm: safeMaxStride, // Use Safe Value
           avg_heart_rate: safeAvgHR,
           max_heart_rate: safeMaxHR,    // Use Safe Value
-          avg_cadence: fitMetrics.avg_cadence || 0,
-          max_cadence: fitMetrics.max_cadence || 0,
+          avg_cadence: finalAvgCadence,
+          max_cadence: finalMaxCadence,
           avg_speed: finalAvgSpeed,     // Add Speed
           max_speed: finalMaxSpeed      // Add Speed
         }, [req.file.path]);
@@ -297,8 +498,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           avg_stride: safeAvgStride, // Use Safe Value
           hr_max: safeMaxHR,         // Use Safe Value
           hr_avg: safeAvgHR,         // Use Safe Value
-          avg_cadence: (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence : (result.avg_cadence || 0),
-          max_cadence: (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence : (result.max_cadence || 0),
+          avg_cadence: finalAvgCadence,
+          max_cadence: finalMaxCadence,
           avg_speed: finalAvgSpeed,
           max_speed: finalMaxSpeed,
           message: advice // Update with advice
@@ -313,9 +514,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
 
     // 3. アセット情報更新
-    if (result.date) {
-      await imageRepo.updateAssetMetrics(filename, result);
-    }
+    await imageRepo.updateAssetMetricsById(assetId, result);
 
     res.json({ success: true, data: result });
   } catch (err) {

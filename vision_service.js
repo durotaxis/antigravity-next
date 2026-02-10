@@ -12,7 +12,7 @@ if (!API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
 
 
@@ -84,6 +84,7 @@ Specific Instructions:
 - **Heart Rate:** Look for the Heart Icon (❤️) or graph summary.
 - **Cadence / Pitch:** Look for steps per minute (SPM). This might be labeled as "Cadence", "Pitch", or "ピッチ".
 - **Stride:** Look for stride length (Avg/Max). If Max is not numeric but visible on graph, estimate it.
+- **Speed:** Look for speed (km/h) or pace (min/km). If pace, convert to speed if possible, otherwise use null.
 - **Values:** If a value is not clearly visible, use null.
 
 Required Fields:
@@ -93,9 +94,12 @@ Required Fields:
 - total_time (string, e.g. "01:23:45")
 - avg_heart_rate (number)
 - max_heart_rate (number)
+- avg_speed (number)
+- max_speed (number)
 - avg_stride_cm (number)
 - max_stride_cm (number)
 - avg_cadence (number)
+- max_cadence (number)
 `;
 
         const result = await model.generateContent([dynamicPrompt, imagePart]);
@@ -112,6 +116,12 @@ Required Fields:
             console.log(`Calculated Stride: ${data.avg_stride_cm} cm`);
         }
 
+        // Post-Processing: Cadence Calculation (Fallback)
+        if (data.step_count && data.total_time && (!data.avg_cadence || data.avg_cadence === 0)) {
+            data.avg_cadence = calculateCadence(data.step_count, data.total_time);
+            console.log(`Calculated Avg Cadence: ${data.avg_cadence} spm`);
+        }
+
 
         return data;
 
@@ -123,5 +133,34 @@ Required Fields:
 
 module.exports = {
     analyzeImage,
-    calculateStride
+    calculateStride,
+    calculateCadence
 };
+
+/**
+ * Calculate Average Cadence from Steps and Time
+ * @param {number} steps
+ * @param {string} timeStr "HH:MM:SS" or "MM:SS"
+ */
+function calculateCadence(steps, timeStr) {
+    if (!steps || !timeStr) return 0;
+
+    // Parse time string to minutes
+    const parts = timeStr.split(':').map(Number);
+    let minutes = 0;
+
+    if (parts.length === 3) {
+        // HH:MM:SS
+        minutes = parts[0] * 60 + parts[1] + parts[2] / 60;
+    } else if (parts.length === 2) {
+        // MM:SS
+        minutes = parts[0] + parts[1] / 60;
+    } else {
+        return 0;
+    }
+
+    if (minutes === 0) return 0;
+
+    // spm = steps / minutes
+    return Math.round(steps / minutes);
+}

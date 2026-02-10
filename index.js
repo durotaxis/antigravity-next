@@ -37,6 +37,8 @@ app.get('/api/runs', async (req, res) => {
       avg_heart_rate: row.hr_avg ?? 0,
       max_stride: row.max_stride ?? 0,
       max_heart_rate: row.hr_max ?? 0,
+      avg_speed: row.avg_speed ?? 0,
+      max_speed: row.max_speed ?? 0,
       images: row.images || [],
       message: row.message || '' // AIアドバイス
     }));
@@ -240,14 +242,32 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg
           : (result.avg_heart_rate || 0);
 
+      // --- SPEED CALCULATION (User Request) ---
+      // Avg Speed: Priority Vision > Calculated > Fit
+      let finalAvgSpeed = result.avg_speed || 0;
+      if (finalAvgSpeed === 0 && result.total_distance_km > 0 && result.total_time) {
+        // Calculate from Vision data if missing
+        const parts = result.total_time.split(':').map(Number);
+        let hours = 0;
+        if (parts.length === 3) hours = parts[0] + parts[1] / 60 + parts[2] / 3600;
+        else if (parts.length === 2) hours = parts[0] / 60 + parts[1] / 3600;
+
+        if (hours > 0) finalAvgSpeed = parseFloat((result.total_distance_km / hours).toFixed(1));
+      }
+
+      // Max Speed: Priority Fit (1-min max) > Vision
+      const finalMaxSpeed = (fitMetrics.max_speed > 0) ? fitMetrics.max_speed : (result.max_speed || 0);
+
       await repo.saveDailySummary({
         date: result.date,
         max_stride: safeMaxStride,
         avg_stride: safeAvgStride,
         hr_max: safeMaxHR,
         hr_avg: safeAvgHR,
-        avg_cadence: fitMetrics.avg_cadence || 0,
-        max_cadence: fitMetrics.max_cadence || 0,
+        avg_cadence: (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence : (result.avg_cadence || 0),
+        max_cadence: (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence : (result.max_cadence || 0),
+        avg_speed: finalAvgSpeed,
+        max_speed: finalMaxSpeed,
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
@@ -261,9 +281,14 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           step_count: result.step_count,
           total_distance_km: result.total_distance_km,
           calories_kcal: result.calories_kcal,
-          avg_stride_cm: safeAvgStride, // Use Safe Value
-          avg_heart_rate: safeAvgHR,     // Use Safe Value
-          avg_cadence: fitMetrics.avg_cadence || 0
+          avg_stride_cm: safeAvgStride,
+          max_stride_cm: safeMaxStride, // Use Safe Value
+          avg_heart_rate: safeAvgHR,
+          max_heart_rate: safeMaxHR,    // Use Safe Value
+          avg_cadence: fitMetrics.avg_cadence || 0,
+          max_cadence: fitMetrics.max_cadence || 0,
+          avg_speed: finalAvgSpeed,     // Add Speed
+          max_speed: finalMaxSpeed      // Add Speed
         }, [req.file.path]);
 
         await repo.saveDailySummary({
@@ -272,8 +297,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           avg_stride: safeAvgStride, // Use Safe Value
           hr_max: safeMaxHR,         // Use Safe Value
           hr_avg: safeAvgHR,         // Use Safe Value
-          avg_cadence: fitMetrics.avg_cadence || 0,
-          max_cadence: fitMetrics.max_cadence || 0,
+          avg_cadence: (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence : (result.avg_cadence || 0),
+          max_cadence: (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence : (result.max_cadence || 0),
+          avg_speed: finalAvgSpeed,
+          max_speed: finalMaxSpeed,
           message: advice // Update with advice
         });
         console.log("Advice Saved.");

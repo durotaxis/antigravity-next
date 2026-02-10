@@ -18,6 +18,8 @@ type Run = {
   max_stride?: number; // Updated: consistent naming
   avg_heart_rate: number;
   max_heart_rate?: number; // Updated: consistent naming with API
+  avg_speed?: number; // New
+  max_speed?: number; // New
   message?: string;
   images: { id: number; url: string; alt?: string }[];
 };
@@ -193,25 +195,25 @@ export default function Home() {
 
               {/* ストライドと心拍数 (Avg / Max) */}
               {/* ストライドと心拍数 (Max Top / Avg Bottom) */}
-              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-50 text-center">
+              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-gray-50 text-center">
 
                 {/* Stride Column */}
                 <div>
-                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2">Stride (cm)</span>
-                  <div className="flex flex-col items-center gap-1">
-                    {/* Display Max if exists AND valid (HR > 100, Stride <= 300) */}
-                    {run.max_stride !== undefined && run.max_stride !== null && run.max_stride <= 300 && (run.max_heart_rate || 0) > 100 ? (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Max</span>
-                        <span className="font-bold text-gray-900 text-lg leading-none">
-                          {run.max_stride}
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Avg</span>
-                      <span className="font-bold text-gray-700 text-lg leading-none">
-                        {run.avg_stride ? run.avg_stride : '-'}
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2 leading-tight">
+                    <span className="block">Stride</span>
+                    <span className="block">(cm)</span>
+                  </span>
+                  <div className="flex flex-col items-stretch gap-1">
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span className="text-[10px] text-gray-400 font-medium w-7 shrink-0 text-left">Max</span>
+                      <span className="font-bold text-gray-900 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.max_stride !== undefined && run.max_stride !== null && run.max_stride > 0 && run.max_stride <= 300 ? run.max_stride : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span className="text-[10px] text-gray-400 font-medium w-7 shrink-0 text-left">Avg</span>
+                      <span className="font-bold text-gray-700 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.avg_stride !== undefined && run.avg_stride !== null ? run.avg_stride : '-'}
                       </span>
                     </div>
                   </div>
@@ -219,21 +221,47 @@ export default function Home() {
 
                 {/* Heart Rate Column */}
                 <div className="border-l border-gray-50">
-                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2">Heart Rate (bpm)</span>
-                  <div className="flex flex-col items-center gap-1">
-                    {/* Display Max if exists (even if 0) */}
-                    {run.max_heart_rate !== undefined && run.max_heart_rate !== null && (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Max</span>
-                        <span className="font-bold text-red-700 text-lg leading-none">
-                          {run.max_heart_rate}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[10px] text-gray-400 w-6 text-right font-medium">Avg</span>
-                      <span className="font-bold text-red-500 text-lg leading-none">
-                        {run.avg_heart_rate ? run.avg_heart_rate : '-'}
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2 leading-tight">
+                    <span className="block">Heart Rate</span>
+                    <span className="block">(bpm)</span>
+                  </span>
+                  <div className="flex flex-col items-stretch gap-1">
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Max</span>
+                      <span className="font-bold text-red-700 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.max_heart_rate !== undefined && run.max_heart_rate !== null ? run.max_heart_rate : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Avg</span>
+                      <span className="font-bold text-red-500 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.avg_heart_rate !== undefined && run.avg_heart_rate !== null ? run.avg_heart_rate : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Speed Column (New) */}
+                <div className="border-l border-gray-50">
+                  <span className="block text-xs uppercase tracking-wide text-gray-400 mb-2 leading-tight">
+                    <span className="block">Speed</span>
+                    <span className="block">(km/h)</span>
+                  </span>
+                  <div className="flex flex-col items-stretch gap-1">
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Max</span>
+                      <span className="font-bold text-indigo-700 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.max_speed !== undefined && run.max_speed !== null ? run.max_speed.toFixed(1) : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 min-h-[22px] w-full">
+                      <span aria-hidden="true" className="w-7 shrink-0" />
+                      <span className="sr-only">Avg</span>
+                      <span className="font-bold text-indigo-500 text-lg leading-none tabular-nums flex-1 text-right">
+                        {run.avg_speed !== undefined && run.avg_speed !== null ? run.avg_speed.toFixed(1) : '-'}
                       </span>
                     </div>
                   </div>

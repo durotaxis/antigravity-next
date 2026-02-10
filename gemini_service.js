@@ -48,7 +48,9 @@ async function generateAdvice(metrics, imagePaths = []) {
             avgHR: metrics.avg_heart_rate,
             maxHR: metrics.max_heart_rate || metrics.avg_heart_rate,
             avgCadence: metrics.avg_cadence,
-            maxCadence: metrics.max_cadence || metrics.avg_cadence
+            maxCadence: metrics.max_cadence || metrics.avg_cadence,
+            avgSpeed: metrics.avg_speed || 0,
+            maxSpeed: metrics.max_speed || 0
         };
         return await generateCoachAdvice(stats, imagePaths);
     } catch (e) {
@@ -71,6 +73,7 @@ async function generateCoachAdvice(stats, imagePaths = []) {
             2. ピークパフォーマンス（最大値）のセグメントにおいて、ストライドとピッチのどちらが速度維持（あるいは心拍数への反応）に寄与しているか。
             3. 最大ピッチ（例：180spm超）が記録されている場合、その瞬間の爆発的な出力を認め、単なる「平均ピッチの向上」といった的外れな助言を避けること。
             4. 画像がある場合は、そこから得られる視覚的情報の洞察を1点追加すること。
+            5. 【新規】最大速度（${stats.maxSpeed}km/h）のコンテキストを評価して下さい。現在のストライドとピッチでこの速度が出ている効率性について。
             提供されたデータの速度レベルを考慮し、100文字〜150文字程度の日本語で分析を提示してください。
             「身長の1.11〜1.13倍」はあくまでトップレベルの最大目標値であることを踏まえ、現在の速度におけるストライドの妥当性を洞察してください。
 
@@ -79,6 +82,7 @@ async function generateCoachAdvice(stats, imagePaths = []) {
             ストライド: 平均 ${stats.avgStride}cm / 最大 ${stats.maxStride}cm
             ピッチ: 平均 ${stats.avgCadence || '不明'}spm / 最大 ${stats.maxCadence || '不明'}spm
             心拍数: 平均 ${stats.avgHR}bpm / 最大 ${stats.maxHR}bpm
+            速度: 平均 ${stats.avgSpeed}km/h / 最大 ${stats.maxSpeed}km/h
         `;
 
         const parts = [prompt];

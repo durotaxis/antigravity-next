@@ -5,6 +5,51 @@ const path = require('path');
 const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 const TOKEN_PATH = path.join(__dirname, 'token.json');
 
+async function fetchIntradayBuckets(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const rawCacheFile = path.join(CACHE_DIR, `raw_buckets_${dateString}.json`);
+
+    try {
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+        const rawCached = await fs.readFile(rawCacheFile, 'utf8');
+        const buckets = JSON.parse(rawCached);
+        console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit)`);
+        return buckets;
+    } catch (err) {
+        console.log(`[GoogleFit] Raw cache miss for ${dateString}, calling API...`);
+    }
+
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+
+    const date = new Date(dateString);
+    const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
+    const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
+    const bucketDuration = 60 * 1000;
+
+    const requestBody = {
+        aggregateBy: [
+            { dataTypeName: 'com.google.step_count.delta' },
+            { dataTypeName: 'com.google.distance.delta' },
+            { dataTypeName: 'com.google.heart_rate.bpm' },
+            { dataTypeName: 'com.google.activity.segment' }
+        ],
+        bucketByTime: { durationMillis: bucketDuration },
+        startTimeMillis: startTimeMillis,
+        endTimeMillis: endTimeMillis
+    };
+
+    const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
+    const buckets = response.data.bucket || [];
+
+    if (buckets.length > 0) {
+        await fs.writeFile(rawCacheFile, JSON.stringify(buckets, null, 2));
+        console.log(`[GoogleFit] Saved RAW data to cache: ${rawCacheFile}`);
+    }
+
+    return buckets;
+}
+
 /**
  * Authenticate with Google Fit API
  */
@@ -152,6 +197,35 @@ async function getDailyMetrics(dateString) {
         let filteredAvgStride = 0;
         let filteredAvgCadence = 0;
         let realMaxCadence = 0;
+        let realMaxSpeed = 0;
+
+        // Max Speed should be based on the per-minute distance deltas (unfiltered),
+        // otherwise strict chart filtering can incorrectly produce 0.
+        let unfilteredMaxSpeed = 0;
+        try {
+            const buckets = await fetchIntradayBuckets(dateString);
+            buckets.forEach(bucket => {
+                let bucketDistance = 0;
+                (bucket.dataset || []).forEach(ds => {
+                    const sourceId = ds.dataSourceId || '';
+                    if (!sourceId.includes('distance')) return;
+                    if (ds.point && ds.point.length > 0) {
+                        ds.point.forEach(p => {
+                            (p.value || []).forEach(v => { bucketDistance += (v.fpVal || 0); });
+                        });
+                    }
+                });
+
+                if (bucketDistance > 0) {
+                    // 1-minute bucket assumption: speed(km/h) = distance(m) * 0.06
+                    const speed = parseFloat((bucketDistance * 0.06).toFixed(1));
+                    if (speed > unfilteredMaxSpeed) unfilteredMaxSpeed = speed;
+                }
+            });
+        } catch (e) {
+            // Non-fatal: fallback to chart-derived max speed.
+            console.warn('[Metrics] Failed to compute unfiltered max speed:', e.message);
+        }
 
         if (intradayData && intradayData.length > 0) {
             // calculate averages from valid points only
@@ -167,6 +241,7 @@ async function getDailyMetrics(dateString) {
                 if (d.heartRate > realMaxHR) realMaxHR = d.heartRate;
                 if (d.stride > realMaxStride) realMaxStride = d.stride;
                 if (d.steps > realMaxCadence) realMaxCadence = d.steps;
+                if (d.speed > realMaxSpeed) realMaxSpeed = d.speed;
 
                 // Accumulate for Average
                 if (d.heartRate > 0) {
@@ -205,6 +280,8 @@ async function getDailyMetrics(dateString) {
             console.log(`[Metrics] No Intraday data found. Max values will be 0.`);
         }
 
+        if (unfilteredMaxSpeed > realMaxSpeed) realMaxSpeed = unfilteredMaxSpeed;
+
         // Use filtered averages if available, otherwise fallback to raw 24h aggregate
         const finalAvgHR = (filteredAvgHR > 0) ? filteredAvgHR : Math.round(avgHR);
         const finalAvgStride = (filteredAvgStride > 0) ? filteredAvgStride : parseFloat(avgStride.toFixed(1));
@@ -220,7 +297,8 @@ async function getDailyMetrics(dateString) {
             avg_stride_cm: finalAvgStride,
             max_stride_cm: parseFloat(realMaxStride.toFixed(1)),
             avg_cadence: filteredAvgCadence,
-            max_cadence: realMaxCadence
+            max_cadence: realMaxCadence,
+            max_speed: parseFloat(realMaxSpeed.toFixed(1))
         };
 
     } catch (err) {
@@ -333,63 +411,20 @@ function calculateSMA(data, windowSize) {
  * @param {string} dateString 'YYYY-MM-DD'
  */
 async function getIntradayMetrics(dateString) {
-    // --- CACHING LOGIC (Two Layers) ---
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
-    const rawCacheFile = path.join(CACHE_DIR, `raw_buckets_${dateString}.json`);
     const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
 
-    let buckets = null;
-
+    let buckets;
     try {
-        await fs.mkdir(CACHE_DIR, { recursive: true });
-        // Layer 1: Try Raw Buckets (Best for development/refinement)
-        const rawCached = await fs.readFile(rawCacheFile, 'utf8');
-        buckets = JSON.parse(rawCached);
-        console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit)`);
+        buckets = await fetchIntradayBuckets(dateString);
     } catch (err) {
-        console.log(`[GoogleFit] Raw cache miss for ${dateString}, calling API...`);
-    }
-
-    // --- API FETCH (Only if no raw cache) ---
-    if (!buckets) {
+        console.error('Intraday API Error:', err.message);
+        // If API fails, try falling back to the processed cache if it exists
         try {
-            const auth = await authorize();
-            const fitness = google.fitness({ version: 'v1', auth });
-
-            const date = new Date(dateString);
-            const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
-            const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
-            const bucketDuration = 60 * 1000;
-
-            const requestBody = {
-                aggregateBy: [
-                    { dataTypeName: 'com.google.step_count.delta' },
-                    { dataTypeName: 'com.google.distance.delta' },
-                    { dataTypeName: 'com.google.heart_rate.bpm' },
-                    { dataTypeName: 'com.google.activity.segment' }
-                ],
-                bucketByTime: { durationMillis: bucketDuration },
-                startTimeMillis: startTimeMillis,
-                endTimeMillis: endTimeMillis
-            };
-
-            const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
-            buckets = response.data.bucket || [];
-
-            // Save RAW data for future re-processing
-            if (buckets.length > 0) {
-                await fs.writeFile(rawCacheFile, JSON.stringify(buckets, null, 2));
-                console.log(`[GoogleFit] Saved RAW data to cache: ${rawCacheFile}`);
-            }
-        } catch (err) {
-            console.error('Intraday API Error:', err.message);
-            // If API fails, try falling back to the processed cache if it exists
-            try {
-                const finalCached = await fs.readFile(finalCacheFile, 'utf8');
-                return JSON.parse(finalCached);
-            } catch (e) {
-                return [];
-            }
+            const finalCached = await fs.readFile(finalCacheFile, 'utf8');
+            return JSON.parse(finalCached);
+        } catch (e) {
+            return [];
         }
     }
 
@@ -433,12 +468,23 @@ async function getIntradayMetrics(dateString) {
         let stride = 0;
         if (steps > 0) stride = (distance * 100) / steps;
 
+        // Speed Calculation (km/h)
+        // distance (m) -> km / 1000
+        // time (1 min) -> hour / 60
+        // speed = (distance/1000) / (1/60) = (distance * 60) / 1000 = distance * 0.06
+        // NOTE: This assumes 1-minute buckets!
+        let speed = 0;
+        if (distance > 0) {
+            speed = parseFloat((distance * 0.06).toFixed(1));
+        }
+
         // HYBRID FILTER LOGIC
         const isHighIntensity = heartRate > 100;
         if ((steps > 0 || heartRate > 0) && isTicWatch && (isRunningActivity || isHighIntensity)) {
             chartData.push({
                 time, steps, distance: parseFloat(distance.toFixed(1)),
                 stride: parseFloat(stride.toFixed(1)), heartRate: Math.round(heartRate),
+                speed, // Add speed
                 source: 'ticwatch'
             });
         }

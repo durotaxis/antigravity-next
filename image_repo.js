@@ -105,18 +105,20 @@ function updateAssetMetrics(storedFilename, metrics) {
                 steps = ?, 
                 total_distance = ?, 
                 total_time = ?, 
+                avg_speed = ?,
                 avg_heart_rate = ?, 
                 calories = ?, 
                 avg_stride = ?
             WHERE stored_filename = ?
         `;
         const params = [
-            metrics.step_count || null,
-            metrics.total_distance_km || null,
-            metrics.total_time || null,
-            metrics.avg_heart_rate || null,
-            metrics.calories_kcal || null,
-            metrics.avg_stride_cm || null,
+            metrics.step_count ?? null,
+            metrics.total_distance_km ?? null,
+            metrics.total_time ?? null,
+            metrics.avg_speed ?? null,
+            metrics.avg_heart_rate ?? null,
+            metrics.calories_kcal ?? null,
+            metrics.avg_stride_cm ?? null,
             storedFilename
         ];
 

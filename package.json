@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "cross-env NODE_ENV=test jest"
+    "test": "cross-env NODE_ENV=test jest",
+    "reauth:fit": "node tools/fit_auth/reauth_fit.js"
   },
   "keywords": [],
   "author": "",

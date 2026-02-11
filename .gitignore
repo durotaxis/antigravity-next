@@ -54,3 +54,4 @@ _確定申告/
 node_modules/
 inbox/
 public/assets/store/
+storage/cache/

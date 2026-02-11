@@ -119,7 +119,6 @@ async function getInboxFiles() {
  */
 async function importSelectedFiles(filenames, runId) {
     const results = [];
-
     for (const file of filenames) {
         try {
             const inboxPath = path.join(INBOX_DIR, file);
@@ -161,6 +160,25 @@ async function importSelectedFiles(filenames, runId) {
             try {
                 const existingSummary = await repo.getDailySummary(runId);
                 if (!existingSummary) {
+                    // Ensure intraday cache exists only when summary is missing
+                    try {
+                        const cacheDir = path.join(__dirname, 'storage', 'cache');
+                        const rawCacheFile = path.join(cacheDir, `raw_buckets_${runId}.json`);
+                        const intradayCacheFile = path.join(cacheDir, `intraday_${runId}.json`);
+
+                        let hasRaw = true;
+                        let hasIntraday = true;
+                        try { await fs.access(rawCacheFile); } catch { hasRaw = false; }
+                        try { await fs.access(intradayCacheFile); } catch { hasIntraday = false; }
+
+                        if (!hasRaw || !hasIntraday) {
+                            console.log(`  -> Cache missing for ${runId}. Building intraday cache...`);
+                            await googleFitService.getIntradayMetrics(runId);
+                        }
+                    } catch (cacheErr) {
+                        console.warn(`  -> Cache build failed for ${runId}: ${cacheErr.message}`);
+                    }
+
                     console.log(`  -> No Daily Summary for ${runId}. Fetching from Google Fit...`);
                     const fitData = await googleFitService.getDailyMetrics(runId);
 

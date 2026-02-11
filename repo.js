@@ -214,13 +214,47 @@ function getAllRuns() {
 /**
  * Delete a run by ID (rowid)
  */
-function deleteRun(id) {
+function deleteRunByDate(date) {
     return new Promise((resolve, reject) => {
+        if (!date) return resolve(0);
+
+        const runId = date;
+        const deleteImagesSql = 'DELETE FROM run_images WHERE run_id = ?';
+        db.run(deleteImagesSql, [runId], (err) => {
+            if (err) console.error("Error deleting linked images:", err); // Log but continue
+
+            const deleteRunSql = 'DELETE FROM daily_summary WHERE date = ?';
+            db.run(deleteRunSql, [runId], function (err) {
+                if (err) {
+                    console.error('Error in deleteRunByDate:', err);
+                    return reject(err);
+                }
+                resolve(this.changes);
+            });
+        });
+    });
+}
+
+function deleteRun(idOrDate) {
+    return new Promise((resolve, reject) => {
+        const idStr = String(idOrDate ?? '').trim();
+        if (!idStr) return resolve(0);
+
+        const idNum = Number(idStr);
+        const isRowId = Number.isFinite(idNum) && idNum > 0 && String(idNum) === idStr;
+
+        if (!isRowId) {
+            return deleteRunByDate(idStr).then(resolve, reject);
+        }
+
         // 1. Get the date (run_id) first to delete linked images
         const checkSql = 'SELECT date FROM daily_summary WHERE rowid = ?';
-        db.get(checkSql, [id], (err, row) => {
+        db.get(checkSql, [idNum], (err, row) => {
             if (err) return reject(err);
-            if (!row) return resolve(0); // Not found
+            if (!row) {
+                // Fallback: treat id as date if rowid lookup failed
+                return deleteRunByDate(idStr).then(resolve, reject);
+            }
 
             const runId = row.date;
 
@@ -231,7 +265,7 @@ function deleteRun(id) {
 
                 // 3. Delete the run itself
                 const deleteRunSql = 'DELETE FROM daily_summary WHERE rowid = ?';
-                db.run(deleteRunSql, [id], function (err) {
+                db.run(deleteRunSql, [idNum], function (err) {
                     if (err) {
                         console.error('Error in deleteRun:', err);
                         return reject(err);

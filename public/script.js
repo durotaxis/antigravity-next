@@ -39,8 +39,13 @@ async function loadData() {
             const ctx = document.getElementById('strideChart').getContext('2d');
             ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-            // Reset AI Advice
-            document.getElementById('ai-advice').innerHTML = 'Rest & Recovery is important. No analysis for today.';
+            // Reset Daily Message (Rest Day)
+            const restMessageContainer = document.getElementById('daily-message-container');
+            const restMessageText = document.getElementById('daily-message-text');
+            if (restMessageContainer && restMessageText) {
+                restMessageContainer.style.display = 'block';
+                restMessageText.textContent = 'Rest & Recovery is important. No analysis for today.';
+            }
             return;
         }
 

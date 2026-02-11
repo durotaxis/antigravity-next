@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const { authenticate } = require('@google-cloud/local-auth');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -60,12 +61,43 @@ async function authorize() {
         const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
         const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 
-        const token = await fs.readFile(TOKEN_PATH);
-        oAuth2Client.setCredentials(JSON.parse(token));
-        return oAuth2Client;
+        try {
+            const token = await fs.readFile(TOKEN_PATH);
+            oAuth2Client.setCredentials(JSON.parse(token));
+            return oAuth2Client;
+        } catch (err) {
+            if (err && err.code !== 'ENOENT') {
+                throw err;
+            }
+        }
+
+        // No token yet. Trigger local auth flow and persist token.json.
+        const client = await authenticate({
+            keyfilePath: CREDENTIALS_PATH,
+            scopes: [
+                'https://www.googleapis.com/auth/fitness.activity.read',
+                'https://www.googleapis.com/auth/fitness.location.read',
+                'https://www.googleapis.com/auth/fitness.body.read',
+                'https://www.googleapis.com/auth/fitness.heart_rate.read'
+            ],
+            authOptions: { access_type: 'offline', prompt: 'consent' }
+        });
+        await fs.writeFile(TOKEN_PATH, JSON.stringify(client.credentials));
+        return client;
     } catch (error) {
         console.error('Error loading client secret or token:', error);
         throw new Error('Google Fit Authentication Failed');
+    }
+}
+
+async function deleteTokenFile() {
+    try {
+        await fs.unlink(TOKEN_PATH);
+        console.warn('[GoogleFit] token.json deleted due to invalid_grant');
+    } catch (err) {
+        if (err && err.code !== 'ENOENT') {
+            console.warn(`[GoogleFit] Failed to delete token.json: ${err.message}`);
+        }
     }
 }
 
@@ -302,6 +334,11 @@ async function getDailyMetrics(dateString) {
         };
 
     } catch (err) {
+        const apiMsg = err?.response?.data?.error?.message || err?.message || '';
+        if (apiMsg.includes('invalid_grant')) {
+            await deleteTokenFile();
+            throw new Error('Google Fit token expired. token.json deleted. Re-auth required.');
+        }
         if (err.response && err.response.data && err.response.data.error) {
             console.error('API Error Message:', err.response.data.error.message);
             console.error('API Error Code:', err.response.data.error.code);
@@ -418,7 +455,13 @@ async function getIntradayMetrics(dateString) {
     try {
         buckets = await fetchIntradayBuckets(dateString);
     } catch (err) {
-        console.error('Intraday API Error:', err.message);
+        const apiMsg = err?.response?.data?.error?.message || err?.message || '';
+        if (apiMsg.includes('invalid_grant')) {
+            await deleteTokenFile();
+            console.error('Intraday API Error: invalid_grant (token.json deleted)');
+        } else {
+            console.error('Intraday API Error:', err.message);
+        }
         // If API fails, try falling back to the processed cache if it exists
         try {
             const finalCached = await fs.readFile(finalCacheFile, 'utf8');

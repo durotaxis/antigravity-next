@@ -37,8 +37,8 @@ export default function EfficiencyChart({ runs }: Props) {
   const chartData = sortedRuns.map(run => {
     // User requested RAW daily summary max values
     // Using max_heart_rate from API (or hr_max if passed that way)
-    let displayHr = run.max_heart_rate || run.hr_max || 0;
-    let displayStride = run.max_stride || 0;
+    let displayHr = run.max_heart_rate || run.hr_max || run.avg_heart_rate || 0;
+    let displayStride = run.max_stride || run.avg_stride || 0;
 
     // Apply Filters (Matching Old Screen Logic)
     // 1. Invalid Stride > 300cm

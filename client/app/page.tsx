@@ -214,7 +214,9 @@ export default function Home() {
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
                       <span className="text-[10px] text-gray-400 font-medium w-7 shrink-0 text-left">Max</span>
                       <span className="font-bold text-gray-900 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.max_stride !== undefined && run.max_stride !== null && run.max_stride > 0 && run.max_stride <= 300 ? run.max_stride : '-'}
+                        {run.max_stride !== undefined && run.max_stride !== null && run.max_stride > 0 && run.max_stride <= 300
+                          ? run.max_stride
+                          : (run.avg_stride !== undefined && run.avg_stride !== null && run.avg_stride > 0 ? run.avg_stride : '-')}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
@@ -237,14 +239,16 @@ export default function Home() {
                       <span aria-hidden="true" className="w-7 shrink-0" />
                       <span className="sr-only">Max</span>
                       <span className="font-bold text-red-700 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.max_heart_rate !== undefined && run.max_heart_rate !== null ? run.max_heart_rate : '-'}
+                        {run.max_heart_rate !== undefined && run.max_heart_rate !== null && run.max_heart_rate > 0
+                          ? run.max_heart_rate
+                          : (run.avg_heart_rate !== undefined && run.avg_heart_rate !== null && run.avg_heart_rate > 0 ? run.avg_heart_rate : '-')}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
                       <span aria-hidden="true" className="w-7 shrink-0" />
                       <span className="sr-only">Avg</span>
                       <span className="font-bold text-red-500 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.avg_heart_rate !== undefined && run.avg_heart_rate !== null ? run.avg_heart_rate : '-'}
+                        {run.avg_heart_rate !== undefined && run.avg_heart_rate !== null && run.avg_heart_rate > 0 ? run.avg_heart_rate : '-'}
                       </span>
                     </div>
                   </div>
@@ -261,14 +265,16 @@ export default function Home() {
                       <span aria-hidden="true" className="w-7 shrink-0" />
                       <span className="sr-only">Max</span>
                       <span className="font-bold text-indigo-700 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.max_speed !== undefined && run.max_speed !== null ? run.max_speed.toFixed(1) : '-'}
+                        {run.max_speed !== undefined && run.max_speed !== null && run.max_speed > 0
+                          ? run.max_speed.toFixed(1)
+                          : (run.avg_speed !== undefined && run.avg_speed !== null && run.avg_speed > 0 ? run.avg_speed.toFixed(1) : '-')}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
                       <span aria-hidden="true" className="w-7 shrink-0" />
                       <span className="sr-only">Avg</span>
                       <span className="font-bold text-indigo-500 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.avg_speed !== undefined && run.avg_speed !== null ? run.avg_speed.toFixed(1) : '-'}
+                        {run.avg_speed !== undefined && run.avg_speed !== null && run.avg_speed > 0 ? run.avg_speed.toFixed(1) : '-'}
                       </span>
                     </div>
                   </div>

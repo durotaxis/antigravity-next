@@ -1,5 +1,6 @@
 const db = require('./db');
 const analysisService = require('./analysis_service');
+const imageRepo = require('./image_repo');
 
 function toNumberOrZero(value) {
     if (value === null || value === undefined || value === '') return 0;
@@ -215,24 +216,49 @@ function getAllRuns() {
  * Delete a run by ID (rowid)
  */
 function deleteRunByDate(date) {
-    return new Promise((resolve, reject) => {
-        if (!date) return resolve(0);
-
+    return (async () => {
+        if (!date) return 0;
         const runId = date;
-        const deleteImagesSql = 'DELETE FROM run_images WHERE run_id = ?';
-        db.run(deleteImagesSql, [runId], (err) => {
-            if (err) console.error("Error deleting linked images:", err); // Log but continue
 
-            const deleteRunSql = 'DELETE FROM daily_summary WHERE date = ?';
-            db.run(deleteRunSql, [runId], function (err) {
-                if (err) {
-                    console.error('Error in deleteRunByDate:', err);
-                    return reject(err);
-                }
-                resolve(this.changes);
+        const all = (sql, params = []) => new Promise((resolve, reject) => {
+            db.all(sql, params, (err, rows) => {
+                if (err) return reject(err);
+                resolve(rows || []);
             });
         });
-    });
+
+        const get = (sql, params = []) => new Promise((resolve, reject) => {
+            db.get(sql, params, (err, row) => {
+                if (err) return reject(err);
+                resolve(row || null);
+            });
+        });
+
+        const run = (sql, params = []) => new Promise((resolve, reject) => {
+            db.run(sql, params, function (err) {
+                if (err) return reject(err);
+                resolve(this.changes || 0);
+            });
+        });
+
+        const assetRows = await all('SELECT asset_id FROM run_images WHERE run_id = ?', [runId]);
+        await run('DELETE FROM run_images WHERE run_id = ?', [runId]);
+        const changes = await run('DELETE FROM daily_summary WHERE date = ?', [runId]);
+
+        // Clean up orphaned assets + files
+        for (const row of assetRows) {
+            const assetId = row.asset_id;
+            if (!assetId) continue;
+            const hasOtherLink = await get('SELECT 1 AS ok FROM run_images WHERE asset_id = ? LIMIT 1', [assetId]);
+            if (!hasOtherLink) {
+                try { await imageRepo.deleteAssetWithFile(assetId); } catch (e) {
+                    console.error('Error deleting orphaned asset:', e.message || e);
+                }
+            }
+        }
+
+        return changes;
+    })();
 }
 
 function deleteRun(idOrDate) {
@@ -256,23 +282,8 @@ function deleteRun(idOrDate) {
                 return deleteRunByDate(idStr).then(resolve, reject);
             }
 
-            const runId = row.date;
-
-            // 2. Delete linked images
-            const deleteImagesSql = 'DELETE FROM run_images WHERE run_id = ?';
-            db.run(deleteImagesSql, [runId], (err) => {
-                if (err) console.error("Error deleting linked images:", err); // Log but continue
-
-                // 3. Delete the run itself
-                const deleteRunSql = 'DELETE FROM daily_summary WHERE rowid = ?';
-                db.run(deleteRunSql, [idNum], function (err) {
-                    if (err) {
-                        console.error('Error in deleteRun:', err);
-                        return reject(err);
-                    }
-                    resolve(this.changes);
-                });
-            });
+            // Delegate to date-based delete to ensure orphan cleanup.
+            deleteRunByDate(row.date).then(resolve, reject);
         });
     });
 }

@@ -361,11 +361,13 @@ function renderChart(data) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Set default date to today if not set or just use the one from HTML
+    // Set default date to today's local date.
     const dateInput = document.getElementById('dateInput');
-    if (!dateInput.value) {
-        dateInput.valueAsDate = new Date();
-    }
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    dateInput.value = `${year}-${month}-${day}`;
 
     loadData();
 

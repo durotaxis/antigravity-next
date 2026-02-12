@@ -421,7 +421,7 @@ async function loadRunHistory() {
                 <td>${run.date}</td>
                 <td class="${run.max_stride > 140 ? 'cell-high' : ''}">${run.max_stride ? run.max_stride.toFixed(1) : '-'} cm</td>
                 <td style="color: #ff4444;">${run.max_heart_rate ? Math.round(run.max_heart_rate) : '-'}</td>
-                <td><button class="btn-primary" style="padding: 4px 10px; font-size: 0.7rem; min-width: auto;" onclick="event.stopPropagation(); deleteRun('${run.id}')">DEL</button></td>
+                <td><button class="btn-primary" style="padding: 4px 10px; font-size: 0.7rem; min-width: auto;" onclick="event.stopPropagation(); deleteRun('${run.id ?? ''}', '${run.date}')">DEL</button></td>
             `;
             tbody.appendChild(tr);
         });
@@ -431,10 +431,18 @@ async function loadRunHistory() {
     }
 }
 
-async function deleteRun(runId) {
+async function deleteRun(runId, runDate) {
     if (!confirm('Are you sure you want to delete this run?')) return;
     try {
-        const res = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+        const rawId = (runId ?? '').toString().trim();
+        const fallbackDate = (runDate ?? '').toString().trim();
+        const target = rawId || fallbackDate;
+        if (!target) {
+            alert('Delete failed: invalid run id');
+            return;
+        }
+
+        const res = await fetch(`/api/runs/${encodeURIComponent(target)}`, { method: 'DELETE' });
         if (res.ok) {
             loadRunHistory(); // Refresh list
         } else {

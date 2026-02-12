@@ -559,15 +559,38 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const fs = require('fs').promises;
     const fileBuffer = await fs.readFile(req.file.path);
     const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const forcedRunId = (req.body && (req.body.runId || req.body.date))
+      ? String(req.body.runId || req.body.date).trim()
+      : '';
 
     const existingAsset = await imageRepo.findAssetByHash(fileHash);
     if (existingAsset) {
       // Multer already stored the file with a random filename; remove it for duplicate uploads.
       await fs.unlink(req.file.path).catch(() => { });
-      return res.status(409).json({
-        error: 'This image has already been uploaded.',
-        code: 'DUPLICATE_UPLOAD',
-        asset_id: existingAsset.asset_id
+
+      // Without run date, duplicate reuse cannot be shown anywhere in UI.
+      if (!forcedRunId) {
+        return res.status(422).json({
+          error: 'Could not determine run date from image. Duplicate image was not linked.',
+          code: 'MISSING_RUN_DATE'
+        });
+      }
+
+      await repo.saveDailySummary({
+        date: forcedRunId,
+        message: null
+      });
+      await imageRepo.linkImageToRun(forcedRunId, existingAsset.asset_id);
+
+      return res.json({
+        success: true,
+        data: {
+          duplicate_upload: true,
+          linked_run_id: forcedRunId || null,
+          asset_id: existingAsset.asset_id,
+          stored_filename: existingAsset.stored_filename || null,
+          original_filename: existingAsset.original_filename || originalName
+        }
       });
     }
 
@@ -592,18 +615,28 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
 
     if (ocrFailed) {
-      // Persist whatever we have (mostly NULLs) and return success.
+      // Do not keep image-only records without a run date.
+      if (!forcedRunId) {
+        await imageRepo.deleteAssetWithFile(assetId).catch(() => { });
+        return res.status(422).json({
+          error: 'Could not determine run date from image. Image import was rolled back.',
+          code: 'MISSING_RUN_DATE'
+        });
+      }
+
+      // Ensure the run exists even when OCR fails and date is forced by caller.
+      await repo.saveDailySummary({
+        date: forcedRunId,
+        message: null
+      });
+
+      result.date = forcedRunId;
       await imageRepo.updateAssetMetricsById(assetId, result);
 
-      // Optional: caller can provide runId/date to link even when OCR fails.
-      const forcedRunId = (req.body && (req.body.runId || req.body.date)) ? String(req.body.runId || req.body.date).trim() : '';
-      if (forcedRunId) {
-        try {
-          await imageRepo.linkImageToRun(forcedRunId, assetId);
-          result.date = forcedRunId;
-        } catch (linkErr) {
-          console.error("Link Failed (ignored):", linkErr && linkErr.message ? linkErr.message : linkErr);
-        }
+      try {
+        await imageRepo.linkImageToRun(forcedRunId, assetId);
+      } catch (linkErr) {
+        console.error("Link Failed (ignored):", linkErr && linkErr.message ? linkErr.message : linkErr);
       }
 
       return res.json({
@@ -617,8 +650,21 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Persist avg_speed into image_assets even if date inference fails.
-    // (daily_summary still requires result.date.)
+    // If OCR did not produce date, fallback to caller-provided runId/date.
+    if (!result.date && forcedRunId) {
+      result.date = forcedRunId;
+    }
+
+    // Prevent image-only registration without a matching daily summary key.
+    if (!result.date) {
+      await imageRepo.deleteAssetWithFile(assetId).catch(() => { });
+      return res.status(422).json({
+        error: 'Could not determine run date from image. Image import was rolled back.',
+        code: 'MISSING_RUN_DATE'
+      });
+    }
+
+    // Persist avg_speed into image_assets.
     const parsedAvgSpeed = Number.parseFloat(result?.avg_speed);
     let computedAvgSpeed = Number.isFinite(parsedAvgSpeed) ? parsedAvgSpeed : 0;
     if (computedAvgSpeed <= 0 && result?.total_distance_km > 0 && result?.total_time) {

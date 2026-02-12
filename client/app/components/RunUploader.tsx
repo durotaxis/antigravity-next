@@ -21,8 +21,8 @@ export default function RunUploader() {
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
-                if (res.status === 409 && errData?.code === 'DUPLICATE_UPLOAD') {
-                    alert('同じ画像は既にアップロード済みです。');
+                if (res.status === 422 && errData?.code === 'MISSING_RUN_DATE') {
+                    alert('画像から日付を特定できなかったため、取り込みはキャンセルしました。');
                     setIsUploading(false);
                     e.target.value = '';
                     return;
@@ -33,8 +33,16 @@ export default function RunUploader() {
             const data = await res.json();
             console.log('Analysis success:', data);
 
+            if (data?.data?.duplicate_upload) {
+                alert('同じ画像は既に取り込み済みです。既存データを再利用しました。');
+                setIsUploading(false);
+                e.target.value = '';
+                window.location.reload();
+                return;
+            }
+
             if (data?.data?.ocr_failed) {
-                alert('OCRに失敗しましたが、画像の取り込みは完了しました。回復後に再度お試し下さい。');
+                alert('OCRに失敗しましたが、画像の取り込みは完了しました。回復後に再度お試しください。');
                 setIsUploading(false);
                 e.target.value = '';
                 return;
@@ -48,7 +56,6 @@ export default function RunUploader() {
             const message = err instanceof Error ? err.message : 'Unknown error';
             alert(`Analysis failed: ${message}`);
             setIsUploading(false);
-            // Clear the input
             e.target.value = '';
         }
     };

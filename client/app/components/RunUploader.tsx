@@ -21,6 +21,12 @@ export default function RunUploader() {
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
+                if (res.status === 409 && errData?.code === 'DUPLICATE_UPLOAD') {
+                    alert('同じ画像は既にアップロード済みです。');
+                    setIsUploading(false);
+                    e.target.value = '';
+                    return;
+                }
                 throw new Error(errData.error || `Upload failed: ${res.statusText}`);
             }
 
@@ -37,9 +43,10 @@ export default function RunUploader() {
             // Reload to show new data
             window.location.reload();
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Error uploading:', err);
-            alert(`Analysis failed: ${err.message}`);
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            alert(`Analysis failed: ${message}`);
             setIsUploading(false);
             // Clear the input
             e.target.value = '';

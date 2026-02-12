@@ -560,6 +560,17 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const fileBuffer = await fs.readFile(req.file.path);
     const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
+    const existingAsset = await imageRepo.findAssetByHash(fileHash);
+    if (existingAsset) {
+      // Multer already stored the file with a random filename; remove it for duplicate uploads.
+      await fs.unlink(req.file.path).catch(() => { });
+      return res.status(409).json({
+        error: 'This image has already been uploaded.',
+        code: 'DUPLICATE_UPLOAD',
+        asset_id: existingAsset.asset_id
+      });
+    }
+
     const assetId = await imageRepo.createAsset(fileHash, filename, originalName);
 
     // 3. Main Analysis (Gemini)

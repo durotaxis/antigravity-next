@@ -76,15 +76,8 @@ async function loadData() {
             }
         });
 
-        // Use Peak for Summary and AI
         const maxStride = maxStrideVal;
         const maxTime = data[maxIndex].time;
-        // CHANGED: Use HR at the time of Max Stride (avg of window if possible, but here point value is fine as SMA is stride only)
-        // Note: stridesSMA[i] corresponds to window starting at i. 
-        // We should ideally take avg HR of window, or just HR at this point. 
-        // Logic: google_fit_service uses avg HR of window. Here we can approximate with data[maxIndex].heartRate (center of window approx).
-        // Let's use the HR at `maxIndex` as it's the start of the window.
-        // Or better: calculated average of i, i+1, i+2.
         let hrAtMax = 0;
         if (maxIndex < data.length - 2) {
             hrAtMax = Math.round((data[maxIndex].heartRate + data[maxIndex + 1].heartRate + data[maxIndex + 2].heartRate) / 3);
@@ -133,7 +126,6 @@ async function loadData() {
         // --- Call AI Advice ---
         getAdvice(date, maxStride, data);
 
-        // --- NEW: Load Manual Message / Title ---
         loadDailyMessage(date);
 
     } catch (error) {
@@ -395,7 +387,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRunHistory();
 });
 
-// --- NEW: History List Logic ---
 async function loadRunHistory() {
     const tbody = document.querySelector('#historyTable tbody');
     if (!tbody) {
@@ -697,18 +688,10 @@ let lbCurrentSrc = null;
 function openLightbox(src, runId, assetId, hasAnalysis = false) {
     const lightbox = document.getElementById('lightbox');
     const img = document.getElementById('lightboxImg');
-    const analyzeBtn = document.getElementById('lbAnalyzeBtn');
 
     if (lightbox && img) {
         img.src = src;
         lightbox.style.display = 'flex';
-
-        // Update Analyze Button Text
-        if (analyzeBtn) {
-            analyzeBtn.innerHTML = hasAnalysis
-                ? '<span class="lb-btn-icon">竊ｻ</span><span class="lb-btn-text">Re-Analyze</span>'
-                : '<span class="lb-btn-icon">笞｡</span><span class="lb-btn-text">Analyze</span>';
-        }
 
         // LOCK SCROLL
         document.body.style.overflow = 'hidden';
@@ -755,53 +738,6 @@ document.getElementById('lbUnlinkBtn')?.addEventListener('click', () => {
     }
 });
 
-// Analyze Button Logic
-// document.getElementById('lbAnalyzeBtn')?.addEventListener('click', async () => {
-//     if (!lbCurrentSrc) return;
-// 
-    // Extract filename from URL (e.g. /assets/store/xyz.png -> xyz.png)
-//     const filename = lbCurrentSrc.split('/').pop();
-//     const btn = document.getElementById('lbAnalyzeBtn');
-//     const originalHTML = btn.innerHTML;
-// 
-//     try {
-//         btn.innerHTML = '<span class="lb-btn-icon">竢ｳ</span><span class="lb-btn-text">Analyzing...</span>';
-//         btn.disabled = true;
-// 
-//         const res = await fetch('/api/_analyze-vision', {
-//             method: 'POST',
-//             headers: { 'Content-Type': 'application/json' },
-//             body: JSON.stringify({ filename })
-//         });
-// 
-//         const json = await res.json();
-// 
-//         if (!json.success) {
-//             throw new Error(json.error || 'Analysis failed');
-//         }
-// 
-//         const data = json.data;
-//         const msg = `Analysis Result:
-// Date: ${data.date || 'N/A'}
-// Steps: ${data.step_count || 'N/A'}
-// Distance: ${data.total_distance_km ? data.total_distance_km + 'km' : 'N/A'}
-// Stride: ${data.avg_stride_cm ? data.avg_stride_cm + 'cm' : 'N/A'}
-// Heart Rate: ${data.avg_heart_rate || 'N/A'}
-// Calories: ${data.calories_kcal || 'N/A'} kcal
-// Time: ${data.total_time || 'N/A'}`;
-// 
-//         alert(msg);
-        // location.reload(); // Reload if we want to reflect changes immediately (optional as per improved flow)
-// 
-// 
-//         alert('Analysis Failed: ' + err.message);
-//     } finally {
-//         btn.innerHTML = originalHTML;
-//         btn.disabled = false;
-//     }
-// });
-// 
-// --- NEW: Load Daily Message ---
 async function loadDailyMessage(date) {
     const container = document.getElementById('daily-message-container');
     const textSpan = document.getElementById('daily-message-text');

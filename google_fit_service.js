@@ -323,11 +323,6 @@ async function getDailyMetrics(dateString) {
             if (countStride > 0) filteredAvgStride = parseFloat((sumStride / countStride).toFixed(1));
             if (countCadence > 0) filteredAvgCadence = Math.round(sumCadence / countCadence);
 
-            // Debug Logging
-            console.log(`[Metric Debug] CountStride=${countStride}, SumStride=${sumStride}`);
-            console.log(`[Metric Debug] RealMaxStride=${realMaxStride}, FilteredAvgStride=${filteredAvgStride}`);
-            console.log(`[Metric Debug] MaxCadence=${realMaxCadence}, AvgCadence=${filteredAvgCadence}`);
-
             // Sanity Check: If Max is 0 but Avg > 0, something is wrong with the loop or data types
             if (realMaxStride === 0 && filteredAvgStride > 0) {
                 console.warn('[Metric Warning] Max Stride is 0 but Avg is positive! Force updating Max to at least Avg.');

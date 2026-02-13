@@ -18,3 +18,31 @@ This file tracks legacy code paths that should be removed after migration.
 ## Source Of Truth
 - `tools/metrics_cli` must follow: `C:\work\antigravity-next-clean\tools\metrics_cli`
 - If differences exist in this repo, overwrite from the path above.
+- `metrics_form_casha.py` is not used as source of truth.
+
+## Test Sources
+- Runtime uses no dedicated app test source under `tests/` (directory is currently empty).
+- `check-models.js` is retained only for manual Gemini API connectivity/model listing checks.
+- `check-db.js` was debug-only DB write/read verification and has been removed.
+
+## Correction Sources
+- `backfill_daily_summary_from_cache.js`: rebuilds `daily_summary` metrics from intraday cache.
+- `backfill_daily_summary_from_images.js`: backfills `daily_summary` from OCR image assets.
+- `backfill_daily_summary_avg_speed.js`: backfills missing `daily_summary.avg_speed`.
+- `backfill_daily_summary_cadence.js`: backfills missing cadence fields in `daily_summary`.
+- `recompute_daily_summary_avg_speed_from_cache.js`: recomputes average speed from cache for incorrect rows.
+- `recompute_daily_summary_stride_from_cache.js`: recomputes stride from cache for incorrect rows.
+- `backfill_max_speed.js`: fills missing/zero max speed (cache-first, optional API backfill).
+- `backfill_image_assets_avg_speed.js`: fills missing avg speed on image assets.
+- `fill_speed_nulls.js`: normalization script to replace NULL speed with 0.
+- `add_speed_columns.js`, `add_avg_speed_to_image_assets.js`: one-time schema migration scripts.
+
+## Change History
+- 2026-02-13:
+  - Restored `GEMINI_RATE_LIMIT_MESSAGE` to user-facing Japanese message.
+  - Removed legacy lightbox Analyze button from `public/index.html`.
+  - Removed legacy `_analyze-vision` commented client logic from `public/script.js`.
+  - Kept legacy route/items tracked only in this document for cleanup visibility.
+  - Removed debug-only metric logs (`[Metric Debug]`) from `google_fit_service.js`.
+  - Removed debug/test utility `check-db.js`.
+  - Added test-source and correction-source documentation in this file.

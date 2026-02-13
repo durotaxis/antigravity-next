@@ -23,10 +23,11 @@ async function getFileHash(filePath) {
  * Parse date from filename (e.g., "Screenshot_20260124-190513.png")
  * Returns YYYY-MM-DD or null
  */
+// Deprecated: unused in current ingest flow.
 function extractDateFromFilename(filename) {
     const raw = String(filename || '');
     const text = raw
-        .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+        .replace(/[�E�E�E�]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
         .replace(/\s+/g, '');
 
     // 1) YYYYMMDD / YYYY-MM-DD / YYYY_MM_DD
@@ -37,13 +38,12 @@ function extractDateFromFilename(filename) {
         const day = Number(match[3]);
         if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
             const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
             return date;
         }
     }
 
-    // 2) Japanese style without year: 10月28日 / 10-28 / 10_28
-    match = text.match(/(\d{1,2})(?:月|[^\d]{1,3})(\d{1,2})(?:日)?/);
+    // 2) Japanese style without year: 10朁E8日 / 10-28 / 10_28
+    match = text.match(/(\d{1,2})(?:朁E[^\d]{1,3})(\d{1,2})(?:日)?/);
     if (match) {
         const month = Number(match[1]);
         const day = Number(match[2]);
@@ -51,7 +51,6 @@ function extractDateFromFilename(filename) {
             const now = new Date();
             const y = month > (now.getMonth() + 1) ? (now.getFullYear() - 1) : now.getFullYear();
             const date = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
             return date;
         }
     }
@@ -64,12 +63,10 @@ function extractDateFromFilename(filename) {
         const year = Number(match[3]);
         if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
             const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
             return date;
         }
     }
 
-    console.log(`[ImageService] Failed to extract date from ${filename}`);
     return null;
 }
 
@@ -81,7 +78,6 @@ async function importFromInbox() {
         const files = await fs.readdir(INBOX_DIR);
         const results = [];
 
-        console.log(`Scanning Inbox: ${INBOX_DIR}`);
 
         for (const file of files) {
             if (file.startsWith('.')) continue; // skip hidden files
@@ -91,7 +87,6 @@ async function importFromInbox() {
 
             if (!fileStats.isFile()) continue;
 
-            console.log(`Processing: ${file}`);
 
             // 1. Calculate Hash
             const hash = await getFileHash(inboxPath);
@@ -106,7 +101,7 @@ async function importFromInbox() {
                 // New Asset: Copy to store and create DB record
                 // We use copyFile instead of rename to keep inbox intact for safety until confirmed (can be changed to rename)
                 // User requested "Inbox is Read-Only" in prompt details? 
-                // -> "INBOX_DIR: ユーザーが画像を手動で投入するフォルダ（システムはRead-Only）"
+                // -> "INBOX_DIR: ユーザーが画像を手動で投�Eするフォルダ�E�シスチE��はRead-Only�E�E
                 // Wait, if system is Read-only for Inbox, we CANNOT delete/move files. 
                 // Implementation Plan said "Delete from inbox (or archive)".
                 // Let's CLARIFY: "System is Read-Only" usually means system doesn't mess with user's files?
@@ -117,9 +112,7 @@ async function importFromInbox() {
                 await fs.copyFile(inboxPath, storePath);
                 const assetId = await imageRepo.createAsset(hash, storedFilename, file);
                 asset = { asset_id: assetId, file_hash: hash };
-                console.log(`  -> New Asset Created: ${assetId}`);
             } else {
-                console.log(`  -> Duplicate Asset Found: ${asset.asset_id}`);
             }
 
             // 3. Link to Run (Skipping filename-based linking per user request)
@@ -169,7 +162,6 @@ async function importSelectedFiles(filenames, runId) {
                 continue;
             }
 
-            console.log(`Importing selected: ${file} for Run: ${runId}`);
 
             // 1. Calculate Hash
             const hash = await getFileHash(inboxPath);
@@ -185,14 +177,12 @@ async function importSelectedFiles(filenames, runId) {
                 await fs.copyFile(inboxPath, storePath);
                 const assetId = await imageRepo.createAsset(hash, storedFilename, file);
                 asset = { asset_id: assetId, file_hash: hash };
-                console.log(`  -> New Asset Created: ${assetId}`);
             }
 
             // 3. Link to Run
             await imageRepo.linkImageToRun(runId, asset.asset_id);
-            console.log(`  -> Linked to Run: ${runId}`);
 
-            // ★ Auto-create Daily Summary if missing (for Selected Import)
+            // ☁EAuto-create Daily Summary if missing (for Selected Import)
             // runId is the date string here
             try {
                 const existingSummary = await repo.getDailySummary(runId);
@@ -209,18 +199,15 @@ async function importSelectedFiles(filenames, runId) {
                         try { await fs.access(intradayCacheFile); } catch { hasIntraday = false; }
 
                         if (!hasRaw || !hasIntraday) {
-                            console.log(`  -> Cache missing for ${runId}. Building intraday cache...`);
                             await googleFitService.getIntradayMetrics(runId);
                         }
                     } catch (cacheErr) {
                         console.warn(`  -> Cache build failed for ${runId}: ${cacheErr.message}`);
                     }
 
-                    console.log(`  -> No Daily Summary for ${runId}. Fetching from Google Fit...`);
                     const fitData = await googleFitService.getDailyMetrics(runId);
 
                     if (fitData && fitData.step_count > 0) {
-                        console.log(`  -> Fit Data Found: ${fitData.step_count} steps. Generating Advice...`);
                         const advice = await geminiService.generateAdvice(fitData);
 
                         const summaryData = {
@@ -233,7 +220,6 @@ async function importSelectedFiles(filenames, runId) {
                         };
 
                         await repo.saveDailySummary(summaryData);
-                        console.log(`  -> ✨ Daily Summary Auto-created with AI Advice!`);
                     }
                 }
             } catch (summErr) {
@@ -255,6 +241,6 @@ module.exports = {
     importFromInbox,
     getInboxFiles,
     importSelectedFiles,
-    extractDateFromFilename,
+    // extractDateFromFilename,
     INBOX_DIR // Exporting for direct file serving if needed
 };

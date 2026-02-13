@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function RunUploader() {
     const [isUploading, setIsUploading] = useState(false);
@@ -27,7 +28,7 @@ export default function RunUploader() {
         formData.append('date', runDate);
 
         try {
-            const res = await fetch('http://192.168.3.153:3000/api/analyze', {
+            const res = await fetch(`${API_BASE}/api/analyze`, {
                 method: 'POST',
                 body: formData,
             });
@@ -44,7 +45,6 @@ export default function RunUploader() {
             }
 
             const data = await res.json();
-            console.log('Analysis success:', data);
 
             if (data?.data?.duplicate_upload) {
                 alert('同じ画像は既に取り込み済みです。既存データを再利用しました。');

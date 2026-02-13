@@ -6,6 +6,7 @@ import EfficiencyChart from './EfficiencyChart';
 import ImageGrid from './components/ImageGrid';
 import RunUploader from './components/RunUploader';
 import Lightbox from './components/Lightbox';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // データの型定義
 type Run = {
@@ -63,7 +64,7 @@ export default function Home() {
 
   // Express (Port 3000) からデータを取得
   useEffect(() => {
-    fetch('http://192.168.3.153:3000/api/runs?includeDerived=1')
+    fetch(`${API_BASE}/api/runs?includeDerived=1`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -98,7 +99,7 @@ export default function Home() {
 
     try {
       // NOTE: run_imagesテーブルは date を run_id として使用しているため、APIには date を渡す必要がある
-      const res = await fetch(`http://192.168.3.153:3000/api/runs/${runDate}/images/${assetId}`, {
+      const res = await fetch(`${API_BASE}/api/runs/${runDate}/images/${assetId}`, {
         method: 'DELETE',
       });
 
@@ -181,7 +182,7 @@ export default function Home() {
                     if (!confirm('Are you sure you want to delete this record? This cannot be undone.')) return;
 
                     try {
-                      const res = await fetch(`http://192.168.3.153:3000/api/runs/${run.id}`, { method: 'DELETE' });
+                      const res = await fetch(`${API_BASE}/api/runs/${run.id}`, { method: 'DELETE' });
                       if (res.ok) {
                         window.location.reload();
                       } else {

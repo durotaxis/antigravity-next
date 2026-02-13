@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -12,7 +12,7 @@ const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
-const GEMINI_RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
+const GEMINI_RATE_LIMIT_MESSAGE = "RATE_LIMITED";
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -374,7 +374,7 @@ async function computeDailySummaryFromCache(dateString) {
 }
 
 // --- Security & Config ---
-// 全オリジン許可 (スマホからの接続をスムーズに)
+// 蜈ｨ繧ｪ繝ｪ繧ｸ繝ｳ險ｱ蜿ｯ (繧ｹ繝槭・縺九ｉ縺ｮ謗･邯壹ｒ繧ｹ繝繝ｼ繧ｺ縺ｫ)
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
@@ -383,21 +383,31 @@ const model = null; // Removed generic init
 
 // --- API Controller ---
 
-// 1. Get All Runs (シンプル・イズ・ベスト)
-// DBにある事実（日付、ストライド、心拍数、画像）だけを返します
+// 1. Get All Runs (繧ｷ繝ｳ繝励Ν繝ｻ繧､繧ｺ繝ｻ繝吶せ繝・
+// DB縺ｫ縺ゅｋ莠句ｮ滂ｼ域律莉倥√せ繝医Λ繧､繝峨∝ｿ・牛謨ｰ縲∫判蜒擾ｼ峨□縺代ｒ霑斐＠縺ｾ縺・
 app.get('/api/runs', async (req, res) => {
   try {
     const rawRuns = await repo.getAllRuns();
+    const imageBaseUrl = process.env.PUBLIC_API_ORIGIN || `${req.protocol}://${req.get('host')}`;
 
     const includeDerived = String(req.query.includeDerived || '') === '1';
 
     const formattedRuns = await Promise.all(rawRuns.map(async (row) => {
       const derived = includeDerived ? await computeDerivedFromIntradayCache(row.date) : null;
+      const images = Array.isArray(row.images)
+        ? row.images.map((img) => {
+            const rawUrl = String(img?.url || '').trim();
+            if (!rawUrl) return img;
+            if (/^https?:\/\//i.test(rawUrl)) return img;
+            const normalized = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+            return { ...img, url: `${imageBaseUrl}${normalized}` };
+          })
+        : [];
 
       return ({
       id: row.id,
       date: row.date,
-      // Next版が必要とするデータのみ
+      // Next迚医′蠢・ｦ√→縺吶ｋ繝・・繧ｿ縺ｮ縺ｿ
       step_count: row.step_count ?? 0,
       total_distance_km: row.total_distance_km ?? 0,
       total_time: row.total_time ?? null,
@@ -411,8 +421,8 @@ app.get('/api/runs', async (req, res) => {
       avg_speed: row.avg_speed ?? 0,
       max_speed: row.max_speed ?? 0,
       ...(derived || {}),
-      images: row.images || [],
-      message: row.message || '' // AIアドバイス
+      images,
+      message: row.message || '' // AI繧｢繝峨ヰ繧､繧ｹ
       });
     }));
 
@@ -468,7 +478,8 @@ app.get('/api/stride', async (req, res) => {
     }
 
     // Keep daily_summary in sync with intraday source-of-truth.
-    if (Array.isArray(chartData) && chartData.length > 0) {
+    // Deprecated: write side-effect in GET is disabled.
+    /* if (Array.isArray(chartData) && chartData.length > 0) {
       let sumStride = 0, countStride = 0, maxStride = 0;
       let sumHr = 0, countHr = 0, maxHr = 0;
       let sumCad = 0, countCad = 0, maxCad = 0;
@@ -526,7 +537,7 @@ app.get('/api/stride', async (req, res) => {
         avg_speed: (!existing || !(Number(existing.avg_speed) > 0)) ? nextAvgSpeed : null,
         max_speed: (!existing || !(Number(existing.max_speed) > 0)) ? nextMaxSpeed : null
       });
-    }
+    } */
 
     res.json(chartData);
   } catch (err) {
@@ -535,14 +546,14 @@ app.get('/api/stride', async (req, res) => {
   }
 });
 
-// 3. Update Daily Summary (手動修正など)
+// 3. Update Daily Summary (謇句虚菫ｮ豁｣縺ｪ縺ｩ)
 app.post('/api/daily', async (req, res) => {
   try {
     const { date, max_stride, avg_stride, hr_max, hr_avg, message } = req.body;
 
     if (!date) return res.status(400).json({ error: 'Date is required' });
 
-    // キャメルケース/スネークケースの揺れを吸収
+    // 繧ｭ繝｣繝｡繝ｫ繧ｱ繝ｼ繧ｹ/繧ｹ繝阪・繧ｯ繧ｱ繝ｼ繧ｹ縺ｮ謠ｺ繧後ｒ蜷ｸ蜿・
     const data = {
       date,
       max_stride: max_stride ?? req.body.maxStride,
@@ -558,7 +569,7 @@ app.post('/api/daily', async (req, res) => {
   }
 });
 
-// --- File & Image Management (Inbox機能) ---
+// --- File & Image Management (Inbox讖溯・) ---
 
 app.get('/api/inbox/files', async (req, res) => {
   try {
@@ -605,7 +616,7 @@ app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
     const { assetId } = req.params;
     // Completely remove valid asset (User requested physical delete)
     const changes = await imageRepo.deleteAssetWithFile(assetId);
-    console.log(`Deleted Asset ${assetId}: ${changes} records removed.`);
+    
     res.json({ success: true });
   } catch (err) {
     console.error("Delete Error:", err);
@@ -627,15 +638,15 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// 画像アップロード -> Gemini解析 -> DB保存
+// 逕ｻ蜒上い繝・・繝ｭ繝ｼ繝・-> Gemini隗｣譫・-> DB菫晏ｭ・
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file' });
     const filename = req.file.filename;
     const originalName = req.file.originalname;
-    console.log(`Processing: ${filename}`);
+    
 
-    // 1. Asset作成 (Hash & Deduplication)
+    // 1. Asset菴懈・ (Hash & Deduplication)
     const fs = require('fs').promises;
     const fileBuffer = await fs.readFile(req.file.path);
     const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
@@ -678,13 +689,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
     // 3. Main Analysis (Gemini)
     // If OCR fails, we still ingest the image and create/link the asset without crashing the request.
-    console.log(`Analyzing: ${filename} (Gemini)`);
+    
     let result = {};
     let ocrFailed = false;
     try {
       const analyzed = await visionService.analyzeImage(filename);
       result = analyzed && typeof analyzed === 'object' ? analyzed : {};
-      console.log("Analysis Result:", result);
+      
     } catch (ocrErr) {
       ocrFailed = true;
       console.error("OCR Failed (continuing import):", ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
@@ -756,10 +767,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
     result.avg_speed = computedAvgSpeed;
 
-    // 2. 日付が取れたらGoogle Fitから正確なデータを取得してDBに保存
+    // 2. 譌･莉倥′蜿悶ｌ縺溘ｉGoogle Fit縺九ｉ豁｣遒ｺ縺ｪ繝・・繧ｿ繧貞叙蠕励＠縺ｦDB縺ｫ菫晏ｭ・
     if (result.date) {
 
-      // ★ Optimization: Check if summary already exists before calling Fit API
+      // 笘・Optimization: Check if summary already exists before calling Fit API
       const existingSummary = await repo.getDailySummary(result.date);
       const cacheMetrics = await computeDailySummaryFromCache(result.date);
 
@@ -782,10 +793,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // We always attempt to fetch fresh metrics during analysis to ensure the Dashboard (DB)
       // matches the latest filtering/smoothing logic in google_fit_service.
       try {
-        console.log(`Refreshing Google Fit metrics for ${result.date}...`);
+        
         const fitData = null; // prefer local JSON cache to avoid API requests
         if (fitData) {
-          console.log("Updated Fit Metrics:", fitData);
+          
           fitMetrics = fitData;
         }
       } catch (fitErr) {
@@ -888,11 +899,11 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
-      // ★ Generate Advice (Async update)
+      // 笘・Generate Advice (Async update)
       try {
-        console.log("Generating Advice for", result.date);
+        
 
-        // ★ FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
+        // 笘・FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
         const advice = await geminiService.generateAdvice({
           date: result.date,
           step_count: summaryStepCount,
@@ -931,16 +942,16 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_speed: finalMaxSpeed,
           message: adviceToSave // Update with advice
         });
-        console.log("Advice Saved.");
+        
       } catch (adviceErr) {
         console.error("Advice Gen Failed:", adviceErr.message);
       }
 
-      // 画像をRunに紐付け
+      // 逕ｻ蜒上ｒRun縺ｫ邏蝉ｻ倥￠
       await imageRepo.linkImageToRun(result.date, assetId);
     }
 
-    // 3. アセット情報更新
+    // 3. 繧｢繧ｻ繝・ヨ諠・ｱ譖ｴ譁ｰ
     await imageRepo.updateAssetMetricsById(assetId, result);
 
     res.json({ success: true, data: result });
@@ -973,7 +984,7 @@ app.post('/api/advice', async (req, res) => {
       maxCadence
     }, imagePaths);
 
-    // DBにアドバイスを保存
+    // DB縺ｫ繧｢繝峨ヰ繧､繧ｹ繧剃ｿ晏ｭ・
     await repo.saveDailySummary({
       date,
       max_stride: maxStride,
@@ -999,12 +1010,10 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 
 // --- Server Start ---
 if (require.main === module) {
-  // スマホからアクセス可能にする (0.0.0.0)
+  // 繧ｹ繝槭・縺九ｉ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ (0.0.0.0)
   app.listen(port, '0.0.0.0', () => {
-    console.log(`--- AntiGravity Engine ONLINE (Port: ${port}) ---`);
-    console.log(`- API Ready: http://192.168.3.153:${port}`);
-    console.log(`- Mobile App: Use Port 3001`);
   });
 }
 
 module.exports = app;
+

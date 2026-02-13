@@ -32,24 +32,25 @@ export const api = {
         }
     },
 
-    /**
-     * Trigger Vision Analysis for a specific image
-     */
-    analyzeVision: async (filename: string): Promise<ApiResponse<VisionAnalysisData>> => {
-        try {
-            const res = await fetch(`${API_BASE}/api/_analyze-vision`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ filename }),
-            });
-            return await handleResponse<ApiResponse<VisionAnalysisData>>(res);
-        } catch (error) {
-            console.error('Vision analysis failed:', error);
-            throw error;
-        }
-    },
+    // /**
+    //  * Trigger Vision Analysis for a specific image
+    //  * Deprecated: legacy route is disabled.
+    //  */
+    // analyzeVision: async (filename: string): Promise<ApiResponse<VisionAnalysisData>> => {
+    //     try {
+    //         const res = await fetch(`${API_BASE}/api/_analyze-vision`, {
+    //             method: 'POST',
+    //             headers: {
+    //                 'Content-Type': 'application/json',
+    //             },
+    //             body: JSON.stringify({ filename }),
+    //         });
+    //         return await handleResponse<ApiResponse<VisionAnalysisData>>(res);
+    //     } catch (error) {
+    //         console.error('Vision analysis failed:', error);
+    //         throw error;
+    //     }
+    // },
 
     /**
      * Fetch list of images for a specific date

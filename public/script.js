@@ -1,4 +1,4 @@
-const WR_STRIDE = 200.0;
+﻿const WR_STRIDE = 200.0;
 
 async function loadData() {
     const dateInput = document.getElementById('dateInput');
@@ -397,7 +397,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- NEW: History List Logic ---
 async function loadRunHistory() {
-    console.log("Loading Run History..."); // Debug
     const tbody = document.querySelector('#historyTable tbody');
     if (!tbody) {
         console.error("History Table Body not found!");
@@ -408,7 +407,6 @@ async function loadRunHistory() {
         const res = await fetch('/api/runs');
         if (!res.ok) throw new Error('API Failed');
         const runs = await res.json();
-        console.log("Runs fetched:", runs.length); // Debug
 
         tbody.innerHTML = '';
 
@@ -419,7 +417,6 @@ async function loadRunHistory() {
             const tr = document.createElement('tr');
             tr.style.cursor = 'pointer';
             tr.onclick = () => {
-                console.log("Clicked run:", run.date);
                 document.getElementById('dateInput').value = run.date;
                 loadData(); // Load chart for this date
 
@@ -517,11 +514,11 @@ async function checkAndRenderImages(date) {
                     overlayHTML = `
                         <div class="results-overlay">
                             <div class="analysis-tag time">
-                                <span class="icon">⏱�E�E/span>
+                                <span class="icon">TIME</span>
                                 <span>${img.total_time}</span>
                             </div>
                             <div class="analysis-tag distance">
-                                <span class="icon">📏</span>
+                                <span class="icon">DIST</span>
                                 <span>${distDisplay}</span>
                             </div>
                         </div>
@@ -531,7 +528,7 @@ async function checkAndRenderImages(date) {
                 card.innerHTML = `
                     <img src="${imgUrl}" alt="Run Image">
                     ${overlayHTML}
-                    <div class="delete-btn" title="Remove Link">🗑�E�E/div>
+                    <div class="delete-btn" title="Remove Link">DEL</div>
                 `;
 
                 // Lightbox Trigger (on image click)
@@ -587,12 +584,10 @@ async function openInboxModal(date) {
     importBtn.textContent = 'Import Selected';
 
     try {
-        console.log('Fetching inbox files...');
         const res = await fetch('/api/inbox/files');
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
         const files = await res.json();
-        console.log('Inbox files received:', files);
 
         grid.innerHTML = '';
 
@@ -711,8 +706,8 @@ function openLightbox(src, runId, assetId, hasAnalysis = false) {
         // Update Analyze Button Text
         if (analyzeBtn) {
             analyzeBtn.innerHTML = hasAnalysis
-                ? '<span class="lb-btn-icon">↻</span><span class="lb-btn-text">Re-Analyze</span>'
-                : '<span class="lb-btn-icon">⚡</span><span class="lb-btn-text">Analyze</span>';
+                ? '<span class="lb-btn-icon">竊ｻ</span><span class="lb-btn-text">Re-Analyze</span>'
+                : '<span class="lb-btn-icon">笞｡</span><span class="lb-btn-text">Analyze</span>';
         }
 
         // LOCK SCROLL
@@ -748,7 +743,6 @@ document.getElementById('lightbox')?.addEventListener('click', (e) => {
 });
 
 document.getElementById('lbUnlinkBtn')?.addEventListener('click', () => {
-    console.log('Unlink clicked. Context:', lbCurrentRunId, lbCurrentAssetId);
     if (lbCurrentRunId && lbCurrentAssetId) {
         if (confirm('Delete this image from run?')) {
             unlinkImage(lbCurrentRunId, lbCurrentAssetId).then(() => {
@@ -762,51 +756,51 @@ document.getElementById('lbUnlinkBtn')?.addEventListener('click', () => {
 });
 
 // Analyze Button Logic
-document.getElementById('lbAnalyzeBtn')?.addEventListener('click', async () => {
-    if (!lbCurrentSrc) return;
-
+// document.getElementById('lbAnalyzeBtn')?.addEventListener('click', async () => {
+//     if (!lbCurrentSrc) return;
+// 
     // Extract filename from URL (e.g. /assets/store/xyz.png -> xyz.png)
-    const filename = lbCurrentSrc.split('/').pop();
-    const btn = document.getElementById('lbAnalyzeBtn');
-    const originalHTML = btn.innerHTML;
-
-    try {
-        btn.innerHTML = '<span class="lb-btn-icon">⏳</span><span class="lb-btn-text">Analyzing...</span>';
-        btn.disabled = true;
-
-        const res = await fetch('/api/_analyze-vision', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename })
-        });
-
-        const json = await res.json();
-
-        if (!json.success) {
-            throw new Error(json.error || 'Analysis failed');
-        }
-
-        const data = json.data;
-        const msg = `Analysis Result:
-Date: ${data.date || 'N/A'}
-Steps: ${data.step_count || 'N/A'}
-Distance: ${data.total_distance_km ? data.total_distance_km + 'km' : 'N/A'}
-Stride: ${data.avg_stride_cm ? data.avg_stride_cm + 'cm' : 'N/A'}
-Heart Rate: ${data.avg_heart_rate || 'N/A'}
-Calories: ${data.calories_kcal || 'N/A'} kcal
-Time: ${data.total_time || 'N/A'}`;
-
-        alert(msg);
+//     const filename = lbCurrentSrc.split('/').pop();
+//     const btn = document.getElementById('lbAnalyzeBtn');
+//     const originalHTML = btn.innerHTML;
+// 
+//     try {
+//         btn.innerHTML = '<span class="lb-btn-icon">竢ｳ</span><span class="lb-btn-text">Analyzing...</span>';
+//         btn.disabled = true;
+// 
+//         const res = await fetch('/api/_analyze-vision', {
+//             method: 'POST',
+//             headers: { 'Content-Type': 'application/json' },
+//             body: JSON.stringify({ filename })
+//         });
+// 
+//         const json = await res.json();
+// 
+//         if (!json.success) {
+//             throw new Error(json.error || 'Analysis failed');
+//         }
+// 
+//         const data = json.data;
+//         const msg = `Analysis Result:
+// Date: ${data.date || 'N/A'}
+// Steps: ${data.step_count || 'N/A'}
+// Distance: ${data.total_distance_km ? data.total_distance_km + 'km' : 'N/A'}
+// Stride: ${data.avg_stride_cm ? data.avg_stride_cm + 'cm' : 'N/A'}
+// Heart Rate: ${data.avg_heart_rate || 'N/A'}
+// Calories: ${data.calories_kcal || 'N/A'} kcal
+// Time: ${data.total_time || 'N/A'}`;
+// 
+//         alert(msg);
         // location.reload(); // Reload if we want to reflect changes immediately (optional as per improved flow)
-
-
-        alert('Analysis Failed: ' + err.message);
-    } finally {
-        btn.innerHTML = originalHTML;
-        btn.disabled = false;
-    }
-});
-
+// 
+// 
+//         alert('Analysis Failed: ' + err.message);
+//     } finally {
+//         btn.innerHTML = originalHTML;
+//         btn.disabled = false;
+//     }
+// });
+// 
 // --- NEW: Load Daily Message ---
 async function loadDailyMessage(date) {
     const container = document.getElementById('daily-message-container');
@@ -833,4 +827,5 @@ async function loadDailyMessage(date) {
         container.style.display = 'none';
     }
 }
+
 

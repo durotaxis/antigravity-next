@@ -181,7 +181,7 @@ function getAllRuns() {
                     run.images.push({
                         id: row.asset_id,
                         // バックエンド(3000)のアセットへの絶対パス
-                        url: `http://192.168.3.153:3000/assets/store/${row.stored_filename}`,
+                        url: `/assets/store/${row.stored_filename}`,
                         alt: row.original_filename || 'Run Image'
                     });
                 }
@@ -208,12 +208,6 @@ function getAllRuns() {
             });
 
             // デバッグ用: ターミナルにデータサンプルを表示
-            if (hydratedRuns.length > 0) {
-                console.log("--- DEBUG: Latest Run Data ---");
-                console.log(JSON.stringify(hydratedRuns[0], null, 2));
-                console.log("------------------------------");
-            }
-
             resolve(hydratedRuns);
         });
     });

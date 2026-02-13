@@ -31,9 +31,25 @@ type Run = {
   images: { id: number; url: string; alt?: string }[];
 };
 
+type ApiRun = Partial<Run> & {
+  total_distance_km?: number;
+  total_time?: string;
+  step_count?: number;
+  hr_avg?: number;
+  hr_max?: number;
+};
+
 export default function Home() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const formatSpeed = (value: number | undefined) => {
+    if (value === undefined || value === null || value <= 0) return '-';
+    return new Intl.NumberFormat('ja-JP', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
 
   // Lightbox用の状態管理
   const [lightboxData, setLightboxData] = useState<{ url: string; assetId: number; runId: number; runDate: string } | null>(null);
@@ -51,7 +67,19 @@ export default function Home() {
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          setRuns(data);
+          const normalizedRuns: Run[] = (data as ApiRun[]).map((run) => ({
+            ...run,
+            id: Number(run.id ?? 0),
+            date: String(run.date ?? ''),
+            distance: Number(run.total_distance_km ?? run.distance ?? 0),
+            time: run.total_time ?? run.time ?? '00:00:00',
+            steps: Number(run.step_count ?? run.steps ?? 0),
+            avg_heart_rate: Number(run.avg_heart_rate ?? run.hr_avg ?? 0),
+            max_heart_rate: Number(run.max_heart_rate ?? run.hr_max ?? 0),
+            avg_stride: Number(run.avg_stride ?? 0),
+            images: Array.isArray(run.images) ? run.images : []
+          }));
+          setRuns(normalizedRuns);
           setError(null);
         } else {
           console.error("API Error:", data);
@@ -216,7 +244,7 @@ export default function Home() {
                       <span className="font-bold text-gray-900 text-lg leading-none tabular-nums flex-1 text-right">
                         {run.max_stride !== undefined && run.max_stride !== null && run.max_stride > 0 && run.max_stride <= 300
                           ? run.max_stride
-                          : (run.avg_stride !== undefined && run.avg_stride !== null && run.avg_stride > 0 ? run.avg_stride : '-')}
+                          : '-'}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
@@ -241,7 +269,7 @@ export default function Home() {
                       <span className="font-bold text-red-700 text-lg leading-none tabular-nums flex-1 text-right">
                         {run.max_heart_rate !== undefined && run.max_heart_rate !== null && run.max_heart_rate > 0
                           ? run.max_heart_rate
-                          : (run.avg_heart_rate !== undefined && run.avg_heart_rate !== null && run.avg_heart_rate > 0 ? run.avg_heart_rate : '-')}
+                          : '-'}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
@@ -266,15 +294,15 @@ export default function Home() {
                       <span className="sr-only">Max</span>
                       <span className="font-bold text-indigo-700 text-lg leading-none tabular-nums flex-1 text-right">
                         {run.max_speed !== undefined && run.max_speed !== null && run.max_speed > 0
-                          ? run.max_speed.toFixed(1)
-                          : (run.avg_speed !== undefined && run.avg_speed !== null && run.avg_speed > 0 ? run.avg_speed.toFixed(1) : '-')}
+                          ? formatSpeed(run.max_speed)
+                          : '-'}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-h-[22px] w-full">
                       <span aria-hidden="true" className="w-7 shrink-0" />
                       <span className="sr-only">Avg</span>
                       <span className="font-bold text-indigo-500 text-lg leading-none tabular-nums flex-1 text-right">
-                        {run.avg_speed !== undefined && run.avg_speed !== null && run.avg_speed > 0 ? run.avg_speed.toFixed(1) : '-'}
+                        {formatSpeed(run.avg_speed)}
                       </span>
                     </div>
                   </div>
@@ -307,14 +335,7 @@ export default function Home() {
               </div>
 
               {/* 画像グリッド (本番データ) */}
-              {(run.json_avg_speed || run.json_max_speed || run.json_avg_pitch || run.json_max_pitch) ? (
-                <div className="mt-3 text-[10px] text-gray-400 flex justify-between">
-                  <span className="uppercase tracking-wide">JSON calc</span>
-                  <span className="tabular-nums text-right">
-                    Speed avg {run.json_avg_speed !== undefined && run.json_avg_speed !== null ? run.json_avg_speed.toFixed(1) : '-'} max {run.json_max_speed !== undefined && run.json_max_speed !== null ? run.json_max_speed.toFixed(1) : '-'} / Pitch avg {run.json_avg_pitch ?? '-'} max {run.json_max_pitch ?? '-'}
-                  </span>
-                </div>
-              ) : null}
+              
 
               <div className="mt-6 border-t border-gray-50 pt-4">
                 <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Analysis Images</p>

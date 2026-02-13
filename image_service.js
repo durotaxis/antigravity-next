@@ -24,14 +24,51 @@ async function getFileHash(filePath) {
  * Returns YYYY-MM-DD or null
  */
 function extractDateFromFilename(filename) {
-    // Regex for "20260124" or "2026-01-24" or "2026_01_24"
-    // Try YYYY[-_]?MM[-_]?DD
-    const match = filename.match(/(\d{4})[-_]?(\d{2})[-_]?(\d{2})/);
+    const raw = String(filename || '');
+    const text = raw
+        .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+        .replace(/\s+/g, '');
+
+    // 1) YYYYMMDD / YYYY-MM-DD / YYYY_MM_DD
+    let match = text.match(/(\d{4})[-_]?(\d{2})[-_]?(\d{2})/);
     if (match) {
-        const date = `${match[1]}-${match[2]}-${match[3]}`;
-        console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
-        return date;
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
+            return date;
+        }
     }
+
+    // 2) Japanese style without year: 10月28日 / 10-28 / 10_28
+    match = text.match(/(\d{1,2})(?:月|[^\d]{1,3})(\d{1,2})(?:日)?/);
+    if (match) {
+        const month = Number(match[1]);
+        const day = Number(match[2]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const now = new Date();
+            const y = month > (now.getMonth() + 1) ? (now.getFullYear() - 1) : now.getFullYear();
+            const date = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
+            return date;
+        }
+    }
+
+    // 3) DD-MM-YYYY / DD_MM_YYYY
+    match = text.match(/(\d{1,2})[-_](\d{1,2})[-_](\d{4})/);
+    if (match) {
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            console.log(`[ImageService] Extracted Date from ${filename}: ${date}`);
+            return date;
+        }
+    }
+
     console.log(`[ImageService] Failed to extract date from ${filename}`);
     return null;
 }

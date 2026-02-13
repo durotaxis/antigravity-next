@@ -4,14 +4,27 @@ import { useState } from 'react';
 
 export default function RunUploader() {
     const [isUploading, setIsUploading] = useState(false);
+    const [runDate, setRunDate] = useState(() => {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    });
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!runDate) {
+            alert('走行日を選択してください。');
+            e.target.value = '';
+            return;
+        }
 
         setIsUploading(true);
         const formData = new FormData();
         formData.append('image', file);
+        formData.append('date', runDate);
 
         try {
             const res = await fetch('http://192.168.3.153:3000/api/analyze', {
@@ -62,6 +75,17 @@ export default function RunUploader() {
 
     return (
         <div className="mb-6">
+            <div className="mb-3 flex items-center gap-3">
+                <label htmlFor="run-date" className="text-sm font-medium text-gray-600">走行日</label>
+                <input
+                    id="run-date"
+                    type="date"
+                    value={runDate}
+                    onChange={(e) => setRunDate(e.target.value)}
+                    disabled={isUploading}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white"
+                />
+            </div>
             <div className="relative">
                 <label
                     htmlFor="run-upload"

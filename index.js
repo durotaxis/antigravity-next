@@ -163,6 +163,13 @@ async function computeDerivedFromIntradayCache(dateString) {
 
     if (rawPoints === 0 && intradayPoints === 0) return null;
 
+    // Guard against sparse/raw-delayed buckets that can produce false low cadence (e.g. 2-6 spm).
+    // Keep 0 so downstream merge logic can fall back to existing DB values instead of overwriting with noise.
+    if (rawAvgPitch > 0 && rawAvgPitch < 30) rawAvgPitch = 0;
+    if (rawMaxPitch > 0 && rawMaxPitch < 30) rawMaxPitch = 0;
+    if (intradayAvgPitch > 0 && intradayAvgPitch < 30) intradayAvgPitch = 0;
+    if (intradayMaxPitch > 0 && intradayMaxPitch < 30) intradayMaxPitch = 0;
+
     return {
       json_avg_speed: intradayAvgSpeed > 0 ? intradayAvgSpeed : rawAvgSpeed,
       json_max_speed: rawMaxSpeed > 0 ? Number(rawMaxSpeed.toFixed(1)) : Number(intradayMaxSpeed.toFixed(1)),
@@ -447,17 +454,80 @@ app.get('/api/stride', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
+    let chartData = [];
+
     // Prefer local cache to avoid Fit API rate limits.
     try {
       const cacheFile = path.join(__dirname, 'storage', 'cache', `intraday_${date}.json`);
       const raw = await fs.readFile(cacheFile, 'utf8');
       const points = JSON.parse(raw);
-      return res.json(points);
+      chartData = Array.isArray(points) ? points : [];
     } catch {
       // fall back to Fit API
+      chartData = await googleFitService.getIntradayMetrics(date);
     }
 
-    const chartData = await googleFitService.getIntradayMetrics(date);
+    // Keep daily_summary in sync with intraday source-of-truth.
+    if (Array.isArray(chartData) && chartData.length > 0) {
+      let sumStride = 0, countStride = 0, maxStride = 0;
+      let sumHr = 0, countHr = 0, maxHr = 0;
+      let sumCad = 0, countCad = 0, maxCad = 0;
+      let sumSpeed = 0, countSpeed = 0, maxSpeed = 0;
+
+      for (const p of chartData) {
+        const stride = Number(p?.stride);
+        if (Number.isFinite(stride) && stride > 0 && stride <= 300) {
+          sumStride += stride;
+          countStride++;
+          if (stride > maxStride) maxStride = stride;
+        }
+
+        const hr = Number(p?.heartRate);
+        if (Number.isFinite(hr) && hr > 0) {
+          sumHr += hr;
+          countHr++;
+          if (hr > maxHr) maxHr = hr;
+        }
+
+        const cad = Number(p?.steps);
+        if (Number.isFinite(cad) && cad > 0) {
+          sumCad += cad;
+          countCad++;
+          if (cad > maxCad) maxCad = cad;
+        }
+
+        const speed = Number(p?.speed);
+        if (Number.isFinite(speed) && speed > 0) {
+          sumSpeed += speed;
+          countSpeed++;
+          if (speed > maxSpeed) maxSpeed = speed;
+        }
+      }
+
+      const existing = await repo.getDailySummary(String(date));
+      const nextAvgStride = countStride > 0 ? Number((sumStride / countStride).toFixed(1)) : null;
+      const nextMaxStride = maxStride > 0 ? Number(maxStride.toFixed(1)) : null;
+      const nextAvgHr = countHr > 0 ? Math.round(sumHr / countHr) : null;
+      const nextMaxHr = maxHr > 0 ? Math.round(maxHr) : null;
+      const nextAvgCad = countCad > 0 ? Math.round(sumCad / countCad) : null;
+      const nextMaxCad = maxCad > 0 ? maxCad : null;
+      const nextAvgSpeed = countSpeed > 0 ? Number((sumSpeed / countSpeed).toFixed(2)) : null;
+      const nextMaxSpeed = maxSpeed > 0 ? Number(maxSpeed.toFixed(1)) : null;
+
+      // Fill only missing fields; do not override existing daily_summary values here.
+      await repo.saveDailySummary({
+        date: String(date),
+        avg_stride: (!existing || !(Number(existing.avg_stride) > 0)) ? nextAvgStride : null,
+        max_stride: (!existing || !(Number(existing.max_stride) > 0)) ? nextMaxStride : null,
+        hr_avg: (!existing || !(Number(existing.hr_avg) > 0)) ? nextAvgHr : null,
+        hr_max: (!existing || !(Number(existing.hr_max) > 0)) ? nextMaxHr : null,
+        avg_cadence: (!existing || !(Number(existing.avg_cadence) > 0)) ? nextAvgCad : null,
+        max_cadence: (!existing || !(Number(existing.max_cadence) > 0)) ? nextMaxCad : null,
+        avg_speed: (!existing || !(Number(existing.avg_speed) > 0)) ? nextAvgSpeed : null,
+        max_speed: (!existing || !(Number(existing.max_speed) > 0)) ? nextMaxSpeed : null
+      });
+    }
+
     res.json(chartData);
   } catch (err) {
     console.error("Stride API Error:", err);
@@ -513,6 +583,16 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
     const results = await imageService.importSelectedFiles(filenames, runId);
     res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/runs/:runId/images', async (req, res) => {
+  try {
+    const { runId } = req.params;
+    const images = await imageRepo.getImagesForRun(runId);
+    res.json(images || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -713,10 +793,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         // Fallback to existing summary if available
         if (existingSummary) {
           fitMetrics = {
-            avg_heart_rate: existingSummary.avg_heart_rate,
-            max_heart_rate: existingSummary.max_heart_rate,
-            avg_stride_cm: existingSummary.avg_stride_cm,
-            max_stride_cm: existingSummary.max_stride_cm
+            avg_heart_rate: existingSummary.hr_avg,
+            max_heart_rate: existingSummary.hr_max,
+            avg_stride_cm: existingSummary.avg_stride,
+            max_stride_cm: existingSummary.max_stride,
+            avg_cadence: existingSummary.avg_cadence,
+            max_cadence: existingSummary.max_cadence,
+            max_speed: existingSummary.max_speed
           };
         }
       }
@@ -737,17 +820,35 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         : (fitMetrics.avg_heart_rate > 0) ? fitMetrics.avg_heart_rate
           : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg : 0;
 
-      // --- CADENCE / PITCH (User Request) ---
-      // Avg Cadence: Priority Vision > Fit > Existing
-      const finalAvgCadence = (result.avg_cadence > 0) ? result.avg_cadence
-        : (fitMetrics.avg_cadence > 0) ? fitMetrics.avg_cadence
-          : (existingSummary && existingSummary.avg_cadence > 0) ? existingSummary.avg_cadence
-            : 0;
+      // --- CADENCE / PITCH ---
+      // Keep original intent (daily_summary-first) while filling missing values from
+      // OCR/cache/calculation in a deterministic order.
+      const cadenceFromSummary = (() => {
+        const sec = parseHmsToSeconds(summaryTotalTime);
+        if (!(summaryStepCount > 0) || !(sec > 0)) return 0;
+        return Math.round(summaryStepCount / (sec / 60));
+      })();
 
-      // Max Cadence: Priority Fit (1-min max) > Vision > Existing
-      const finalMaxCadence = (fitMetrics.max_cadence > 0) ? fitMetrics.max_cadence
-        : (existingSummary && existingSummary.max_cadence > 0) ? existingSummary.max_cadence
-          : 0;
+      const finalAvgCadence = pickPositive(
+        result.avg_cadence,
+        pickPositive(
+          cacheMetrics.avg_cadence,
+          pickPositive(
+            fitMetrics.avg_cadence,
+            pickPositive(cadenceFromSummary, existingSummary && existingSummary.avg_cadence)
+          )
+        )
+      );
+
+      let finalMaxCadence = pickPositive(
+        fitMetrics.max_cadence,
+        pickPositive(
+          cacheMetrics.max_cadence,
+          pickPositive(result.max_cadence, existingSummary && existingSummary.max_cadence)
+        )
+      );
+      if (finalMaxCadence <= 0 && finalAvgCadence > 0) finalMaxCadence = finalAvgCadence;
+      if (finalMaxCadence > 0 && finalAvgCadence > 0 && finalMaxCadence < finalAvgCadence) finalMaxCadence = finalAvgCadence;
 
       // --- SPEED CALCULATION (User Request) ---
       // Avg Speed: Priority JSON(cache) > Vision > Calculated

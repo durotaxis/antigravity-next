@@ -14,6 +14,61 @@ if (!API_KEY) {
 const genAI = new GoogleGenerativeAI(API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
+function toHalfWidthDigits(value) {
+    return String(value || '').replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
+
+function inferYear(month, currentDate = new Date()) {
+    const currentMonth = currentDate.getMonth() + 1;
+    const currentYear = currentDate.getFullYear();
+    return month > currentMonth ? (currentYear - 1) : currentYear;
+}
+
+function normalizeDate(rawDate, currentDate = new Date()) {
+    if (!rawDate) return null;
+    const text = toHalfWidthDigits(String(rawDate).trim())
+        .replace(/[年.\-]/g, '/')
+        .replace(/[月]/g, '/')
+        .replace(/[日]/g, '')
+        .replace(/\s+/g, '')
+        .replace(/\/+/g, '/');
+
+    // YYYY/MM/DD
+    let m = text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (m) {
+        const y = Number(m[1]);
+        const mo = Number(m[2]);
+        const d = Number(m[3]);
+        if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+            return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+    }
+
+    // MM/DD (infer year)
+    m = text.match(/^(\d{1,2})\/(\d{1,2})$/);
+    if (m) {
+        const mo = Number(m[1]);
+        const d = Number(m[2]);
+        if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+            const y = inferYear(mo, currentDate);
+            return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+    }
+
+    // YYYYMMDD
+    m = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m) {
+        const y = Number(m[1]);
+        const mo = Number(m[2]);
+        const d = Number(m[3]);
+        if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+            return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+    }
+
+    return null;
+}
+
 
 
 /**
@@ -109,6 +164,7 @@ Required Fields:
         // Parse JSON (clean up markdown if present, though prompt says don't use it)
         const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
         const data = JSON.parse(jsonStr);
+        data.date = normalizeDate(data.date, today) || data.date || null;
 
         // Post-Processing: Stride Calculation
         if (data.step_count && data.total_distance_km && (!data.avg_stride_cm || data.avg_stride_cm === 0)) {

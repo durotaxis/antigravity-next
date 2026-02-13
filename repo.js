@@ -8,6 +8,13 @@ function toNumberOrZero(value) {
     return Number.isFinite(num) ? num : 0;
 }
 
+function toPositiveNumberOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return num;
+}
+
 function toTextOrNull(value) {
     if (value === null || value === undefined) return null;
     const text = String(value).trim();
@@ -26,14 +33,15 @@ function saveDailySummary(data) {
         const safeStepCount = toNumberOrZero(step_count);
         const safeTotalDistanceKm = toNumberOrZero(total_distance_km);
         const safeCaloriesKcal = toNumberOrZero(calories_kcal);
-        const safeMaxStride = toNumberOrZero(max_stride);
-        const safeAvgStride = toNumberOrZero(avg_stride);
-        const safeHrAvg = toNumberOrZero(hr_avg);
-        const safeHrMax = toNumberOrZero(hr_max);
-        const safeAvgCadence = toNumberOrZero(avg_cadence);
-        const safeMaxCadence = toNumberOrZero(max_cadence);
-        const safeAvgSpeed = toNumberOrZero(avg_speed);
-        const safeMaxSpeed = toNumberOrZero(max_speed);
+        // Optional running metrics: keep NULL when unknown (do not force 0 on insert).
+        const safeMaxStride = toPositiveNumberOrNull(max_stride);
+        const safeAvgStride = toPositiveNumberOrNull(avg_stride);
+        const safeHrAvg = toPositiveNumberOrNull(hr_avg);
+        const safeHrMax = toPositiveNumberOrNull(hr_max);
+        const safeAvgCadence = toPositiveNumberOrNull(avg_cadence);
+        const safeMaxCadence = toPositiveNumberOrNull(max_cadence);
+        const safeAvgSpeed = toPositiveNumberOrNull(avg_speed);
+        const safeMaxSpeed = toPositiveNumberOrNull(max_speed);
         const safeTotalTime = toTextOrNull(total_time);
 
         const sql = `

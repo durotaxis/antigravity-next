@@ -53,10 +53,10 @@ describe('Integration Tests: API', () => {
         });
     });
 
-    describe('POST /api/analyze-vision', () => {
+    describe('POST /api/_analyze-vision', () => {
         test('should analyze image and return metrics (Mocked Gemini)', async () => {
             const res = await request(app)
-                .post('/api/analyze-vision')
+                .post('/api/_analyze-vision')
                 .send({ filename: TEST_FILE });
 
             expect(res.statusCode).toBe(200);
@@ -70,7 +70,7 @@ describe('Integration Tests: API', () => {
 
         test('should return 400 if filename is missing', async () => {
             const res = await request(app)
-                .post('/api/analyze-vision')
+                .post('/api/_analyze-vision')
                 .send({});
 
             expect(res.statusCode).toBe(400);
@@ -79,7 +79,7 @@ describe('Integration Tests: API', () => {
 
         test('should handle file not found error gracefully', async () => {
             const res = await request(app)
-                .post('/api/analyze-vision')
+                .post('/api/_analyze-vision')
                 .send({ filename: 'non_existent.png' });
 
             // Depends on how error is handled. Code logs error and throws 500
@@ -87,3 +87,4 @@ describe('Integration Tests: API', () => {
         });
     });
 });
+

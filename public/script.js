@@ -44,8 +44,17 @@ async function loadData() {
             const restMessageText = document.getElementById('daily-message-text');
             if (restMessageContainer && restMessageText) {
                 restMessageContainer.style.display = 'block';
-                restMessageText.textContent = 'Rest & Recovery is important. No analysis for today.';
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                const todayStr = `${yyyy}-${mm}-${dd}`;
+                restMessageText.textContent = (date === todayStr)
+                    ? 'Google Fit sync may be delayed. Try again in a few minutes.'
+                    : 'Rest & Recovery is important. No analysis for today.';
             }
+            // Keep image picker available so today's first import can create data.
+            checkAndRenderImages(date);
             return;
         }
 
@@ -130,6 +139,8 @@ async function loadData() {
     } catch (error) {
         console.error(error);
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
+        // Even if stride fetch fails, still allow importing images for the selected date.
+        checkAndRenderImages(date);
     } finally {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = 'RUN ANALYZER';
@@ -455,8 +466,24 @@ async function deleteRun(runId, runDate) {
 
 // --- Image Management Logic ---
 
+function ensurePickerButton(date) {
+    const summarySection = document.getElementById('summary');
+    if (!summarySection) return;
+
+    const existingBtn = document.getElementById('openPickerBtn');
+    if (existingBtn) existingBtn.remove();
+
+    const btn = document.createElement('div');
+    btn.id = 'openPickerBtn';
+    btn.textContent = '+ Select Image from Phone Link';
+    btn.onclick = () => openInboxModal(date);
+    summarySection.appendChild(btn);
+}
+
 async function checkAndRenderImages(date) {
     const summarySection = document.getElementById('summary');
+    if (!summarySection) return;
+
     // Remove existing image container if any
     const existingContainer = document.querySelector('.run-images-container');
     if (existingContainer) existingContainer.remove();
@@ -465,6 +492,7 @@ async function checkAndRenderImages(date) {
 
     try {
         const res = await fetch(`/api/runs/${date}/images`);
+        if (!res.ok) throw new Error(`Failed to fetch images: ${res.status}`);
         const images = await res.json();
 
         // 1. Render Images Container (if images exist)
@@ -489,7 +517,7 @@ async function checkAndRenderImages(date) {
                     overlayHTML = `
                         <div class="results-overlay">
                             <div class="analysis-tag time">
-                                <span class="icon">‚è±Ô∏è</span>
+                                <span class="icon">‚è±ÅEÅE/span>
                                 <span>${img.total_time}</span>
                             </div>
                             <div class="analysis-tag distance">
@@ -503,7 +531,7 @@ async function checkAndRenderImages(date) {
                 card.innerHTML = `
                     <img src="${imgUrl}" alt="Run Image">
                     ${overlayHTML}
-                    <div class="delete-btn" title="Remove Link">üóëÔ∏è</div>
+                    <div class="delete-btn" title="Remove Link">üóëÅEÅE/div>
                 `;
 
                 // Lightbox Trigger (on image click)
@@ -534,15 +562,11 @@ async function checkAndRenderImages(date) {
             summarySection.appendChild(imageContainer);
         }
 
-        // 2. Render Picker Button (Always show to allow adding more)
-        const btn = document.createElement('div');
-        btn.id = 'openPickerBtn';
-        btn.textContent = '+ Select Image from Phone Link';
-        btn.onclick = () => openInboxModal(date);
-        summarySection.appendChild(btn);
-
     } catch (err) {
         console.error('Error fetching images:', err);
+    } finally {
+        // Always show picker even if image API failed.
+        ensurePickerButton(date);
     }
 }
 
@@ -750,7 +774,7 @@ document.getElementById('lbAnalyzeBtn')?.addEventListener('click', async () => {
         btn.innerHTML = '<span class="lb-btn-icon">‚è≥</span><span class="lb-btn-text">Analyzing...</span>';
         btn.disabled = true;
 
-        const res = await fetch('/api/analyze-vision', {
+        const res = await fetch('/api/_analyze-vision', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename })
@@ -809,3 +833,4 @@ async function loadDailyMessage(date) {
         container.style.display = 'none';
     }
 }
+

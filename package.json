@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "cross-env NODE_ENV=test jest",
-    "reauth:fit": "node tools/fit_auth/reauth_fit.js"
+    "reauth:fit": "node tools/fit_auth/reauth_fit.js",
+    "audit:deprecated": "node tools/deprecations_audit.js"
   },
   "keywords": [],
   "author": "",

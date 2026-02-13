@@ -6,6 +6,30 @@ const path = require('path');
 const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 const TOKEN_PATH = path.join(__dirname, 'token.json');
 
+function countActiveBuckets(buckets) {
+    if (!Array.isArray(buckets) || buckets.length === 0) return 0;
+    let active = 0;
+    for (const bucket of buckets) {
+        let hasSignal = false;
+        for (const ds of (bucket.dataset || [])) {
+            const sourceId = String(ds.dataSourceId || '');
+            if (!sourceId.includes('step_count') && !sourceId.includes('distance') && !sourceId.includes('heart_rate') && !sourceId.includes('activity')) continue;
+            for (const p of (ds.point || [])) {
+                for (const v of (p.value || [])) {
+                    if ((Number(v.intVal) || 0) > 0 || (Number(v.fpVal) || 0) > 0) {
+                        hasSignal = true;
+                        break;
+                    }
+                }
+                if (hasSignal) break;
+            }
+            if (hasSignal) break;
+        }
+        if (hasSignal) active++;
+    }
+    return active;
+}
+
 async function fetchIntradayBuckets(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const rawCacheFile = path.join(CACHE_DIR, `raw_buckets_${dateString}.json`);
@@ -14,8 +38,13 @@ async function fetchIntradayBuckets(dateString) {
         await fs.mkdir(CACHE_DIR, { recursive: true });
         const rawCached = await fs.readFile(rawCacheFile, 'utf8');
         const buckets = JSON.parse(rawCached);
-        console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit)`);
-        return buckets;
+        const activeBuckets = countActiveBuckets(buckets);
+        // Guard against stale/incomplete caches that can force false "Rest Day" output.
+        if (activeBuckets >= 5) {
+            console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit, active=${activeBuckets})`);
+            return buckets;
+        }
+        console.warn(`[GoogleFit] RAW cache looks sparse (active=${activeBuckets}). Refreshing from API: ${dateString}`);
     } catch (err) {
         console.log(`[GoogleFit] Raw cache miss for ${dateString}, calling API...`);
     }

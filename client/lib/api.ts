@@ -37,7 +37,7 @@ export const api = {
      */
     analyzeVision: async (filename: string): Promise<ApiResponse<VisionAnalysisData>> => {
         try {
-            const res = await fetch(`${API_BASE}/api/analyze-vision`, {
+            const res = await fetch(`${API_BASE}/api/_analyze-vision`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -110,3 +110,4 @@ export const api = {
         }
     }
 };
+

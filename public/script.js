@@ -182,8 +182,8 @@ async function getAdvice(date, maxStride, data) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 date,
-                maxStride: Math.round(maxStride),
-                avgStride: Math.round(avgStride),
+                maxStride: Number(maxStride.toFixed(1)),
+                avgStride: Number(avgStride.toFixed(1)),
                 maxHR: Math.round(maxHR),
                 avgHR: Math.round(avgHR),
                 avgCadence: Math.round(avgCadence),

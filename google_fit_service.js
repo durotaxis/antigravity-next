@@ -6,6 +6,13 @@ const path = require('path');
 const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 const TOKEN_PATH = path.join(__dirname, 'token.json');
 
+function toLocalDateString(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 function countActiveBuckets(buckets) {
     if (!Array.isArray(buckets) || buckets.length === 0) return 0;
     let active = 0;
@@ -33,51 +40,75 @@ function countActiveBuckets(buckets) {
 async function fetchIntradayBuckets(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const rawCacheFile = path.join(CACHE_DIR, `raw_buckets_${dateString}.json`);
+    const isToday = dateString === toLocalDateString();
+    let cachedBuckets = null;
+    let activeBuckets = 0;
 
     try {
         await fs.mkdir(CACHE_DIR, { recursive: true });
         const rawCached = await fs.readFile(rawCacheFile, 'utf8');
-        const buckets = JSON.parse(rawCached);
-        const activeBuckets = countActiveBuckets(buckets);
+        cachedBuckets = JSON.parse(rawCached);
+        activeBuckets = countActiveBuckets(cachedBuckets);
         // Guard against stale/incomplete caches that can force false "Rest Day" output.
-        if (activeBuckets >= 5) {
+        // For past dates, cache can be trusted. For today, force refresh to avoid stale morning snapshot.
+        if (!isToday && activeBuckets >= 5) {
             console.log(`[GoogleFit] Using RAW data from cache: ${rawCacheFile} (No API Hit, active=${activeBuckets})`);
-            return buckets;
+            return cachedBuckets;
         }
-        console.warn(`[GoogleFit] RAW cache looks sparse (active=${activeBuckets}). Refreshing from API: ${dateString}`);
+        if (isToday && activeBuckets >= 5) {
+            console.log(`[GoogleFit] Today's RAW cache found (active=${activeBuckets}). Refreshing from API: ${dateString}`);
+        } else {
+            console.warn(`[GoogleFit] RAW cache looks sparse (active=${activeBuckets}). Refreshing from API: ${dateString}`);
+        }
     } catch (err) {
         console.log(`[GoogleFit] Raw cache miss for ${dateString}, calling API...`);
     }
 
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
 
-    const date = new Date(dateString);
-    const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
-    const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
-    const bucketDuration = 60 * 1000;
+        const date = new Date(dateString);
+        const startTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).getTime();
+        const endTimeMillis = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).getTime();
+        const bucketDuration = 60 * 1000;
 
-    const requestBody = {
-        aggregateBy: [
-            { dataTypeName: 'com.google.step_count.delta' },
-            { dataTypeName: 'com.google.distance.delta' },
-            { dataTypeName: 'com.google.heart_rate.bpm' },
-            { dataTypeName: 'com.google.activity.segment' }
-        ],
-        bucketByTime: { durationMillis: bucketDuration },
-        startTimeMillis: startTimeMillis,
-        endTimeMillis: endTimeMillis
-    };
+        const requestBody = {
+            aggregateBy: [
+                { dataTypeName: 'com.google.step_count.delta' },
+                { dataTypeName: 'com.google.distance.delta' },
+                { dataTypeName: 'com.google.heart_rate.bpm' },
+                { dataTypeName: 'com.google.activity.segment' }
+            ],
+            bucketByTime: { durationMillis: bucketDuration },
+            startTimeMillis: startTimeMillis,
+            endTimeMillis: endTimeMillis
+        };
 
-    const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
-    const buckets = response.data.bucket || [];
+        const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
+        const buckets = response.data.bucket || [];
+        const nextActive = countActiveBuckets(buckets);
 
-    if (buckets.length > 0) {
-        await fs.writeFile(rawCacheFile, JSON.stringify(buckets, null, 2));
-        console.log(`[GoogleFit] Saved RAW data to cache: ${rawCacheFile}`);
+        if (buckets.length > 0) {
+            await fs.writeFile(rawCacheFile, JSON.stringify(buckets, null, 2));
+            console.log(`[GoogleFit] Saved RAW data to cache: ${rawCacheFile} (active=${nextActive})`);
+        } else {
+            console.warn(`[GoogleFit] API returned empty raw buckets for ${dateString} (today=${isToday}).`);
+        }
+
+        // If API returned no useful buckets, keep prior cache as fallback.
+        if (nextActive <= 0 && cachedBuckets && activeBuckets > 0) {
+            console.warn(`[GoogleFit] Falling back to previous RAW cache for ${dateString} (active=${activeBuckets}).`);
+            return cachedBuckets;
+        }
+        return buckets;
+    } catch (err) {
+        if (cachedBuckets && activeBuckets > 0) {
+            console.warn(`[GoogleFit] API fetch failed for ${dateString}. Falling back to RAW cache (active=${activeBuckets}): ${err.message}`);
+            return cachedBuckets;
+        }
+        throw err;
     }
-
-    return buckets;
 }
 
 /**
@@ -249,7 +280,8 @@ async function getDailyMetrics(dateString) {
         // based on the CLEANED running segments from getIntradayMetrics.
         // This ensures the "Avg HR" and "Avg Stride" on the card match the filtered chart.
 
-        const intradayData = await getIntradayMetrics(dateString);
+        const intraday = await getIntradayMetricsWithMeta(dateString);
+        const intradayData = intraday.data;
         let realMaxHR = 0;
         let realMaxStride = 0;
 
@@ -260,33 +292,8 @@ async function getDailyMetrics(dateString) {
         let realMaxCadence = 0;
         let realMaxSpeed = 0;
 
-        // Max Speed should be based on the per-minute distance deltas (unfiltered),
-        // otherwise strict chart filtering can incorrectly produce 0.
-        let unfilteredMaxSpeed = 0;
-        try {
-            const buckets = await fetchIntradayBuckets(dateString);
-            buckets.forEach(bucket => {
-                let bucketDistance = 0;
-                (bucket.dataset || []).forEach(ds => {
-                    const sourceId = ds.dataSourceId || '';
-                    if (!sourceId.includes('distance')) return;
-                    if (ds.point && ds.point.length > 0) {
-                        ds.point.forEach(p => {
-                            (p.value || []).forEach(v => { bucketDistance += (v.fpVal || 0); });
-                        });
-                    }
-                });
-
-                if (bucketDistance > 0) {
-                    // 1-minute bucket assumption: speed(km/h) = distance(m) * 0.06
-                    const speed = parseFloat((bucketDistance * 0.06).toFixed(1));
-                    if (speed > unfilteredMaxSpeed) unfilteredMaxSpeed = speed;
-                }
-            });
-        } catch (e) {
-            // Non-fatal: fallback to chart-derived max speed.
-            console.warn('[Metrics] Failed to compute unfiltered max speed:', e.message);
-        }
+        // Unfiltered max speed is computed from raw 1-min buckets inside getIntradayMetricsWithMeta.
+        const unfilteredMaxSpeed = intraday.unfilteredMaxSpeed || 0;
 
         if (intradayData && intradayData.length > 0) {
             // calculate averages from valid points only
@@ -467,38 +474,11 @@ function calculateSMA(data, windowSize) {
     return sma;
 }
 
-/**
- * Fetch Intraday Metrics for Chart (15-min buckets)
- * @param {string} dateString 'YYYY-MM-DD'
- */
-async function getIntradayMetrics(dateString) {
-    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
-    const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
-
-    let buckets;
-    try {
-        buckets = await fetchIntradayBuckets(dateString);
-    } catch (err) {
-        const apiMsg = err?.response?.data?.error?.message || err?.message || '';
-        if (apiMsg.includes('invalid_grant')) {
-            await deleteTokenFile();
-            console.error('Intraday API Error: invalid_grant (token.json deleted)');
-        } else {
-            console.error('Intraday API Error:', err.message);
-        }
-        // If API fails, try falling back to the processed cache if it exists
-        try {
-            const finalCached = await fs.readFile(finalCacheFile, 'utf8');
-            return JSON.parse(finalCached);
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // --- PROCESSING (Always runs, can use raw cache or fresh API data) ---
+function processIntradayBuckets(buckets) {
     const chartData = [];
+    let unfilteredMaxSpeed = 0;
 
-    buckets.forEach(bucket => {
+    (buckets || []).forEach(bucket => {
         const timeMillis = parseInt(bucket.startTimeMillis);
         const time = new Date(timeMillis).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
@@ -507,6 +487,7 @@ async function getIntradayMetrics(dateString) {
         let heartRate = 0;
         let isRunningActivity = false;
         let isTicWatch = false;
+        let bucketDistanceAll = 0;
 
         bucket.dataset.forEach(ds => {
             const sourceId = ds.dataSourceId || '';
@@ -524,13 +505,22 @@ async function getIntradayMetrics(dateString) {
                 ds.point.forEach(p => {
                     p.value.forEach(v => {
                         if (sourceId.includes('step_count')) steps += (v.intVal || 0);
-                        if (sourceId.includes('distance')) distance += (v.fpVal || 0);
+                        if (sourceId.includes('distance')) {
+                            const dist = (v.fpVal || 0);
+                            distance += dist;
+                            bucketDistanceAll += dist;
+                        }
                         if (sourceId.includes('heart_rate')) heartRate = (v.fpVal || v.intVal || 0);
                         if (sourceId.includes('activity.segment') && v.intVal === 8) isRunningActivity = true;
                     });
                 });
             }
         });
+
+        if (bucketDistanceAll > 0) {
+            const speedAny = parseFloat((bucketDistanceAll * 0.06).toFixed(1));
+            if (speedAny > unfilteredMaxSpeed) unfilteredMaxSpeed = speedAny;
+        }
 
         let stride = 0;
         if (steps > 0) stride = (distance * 100) / steps;
@@ -557,11 +547,6 @@ async function getIntradayMetrics(dateString) {
         }
     });
 
-    // Save final processed data to cache
-    if (chartData.length > 0) {
-        await fs.writeFile(finalCacheFile, JSON.stringify(chartData, null, 2));
-    }
-
     // Cleaning & Smoothing
     const cleanedData = cleanIntradayData(chartData);
     const strideArray = cleanedData.map(d => d.stride);
@@ -569,11 +554,72 @@ async function getIntradayMetrics(dateString) {
     const smoothedStride = calculateSMA(strideArray, 5);
     const smoothedHR = calculateSMA(hrArray, 5);
 
-    return cleanedData.map((d, i) => ({
+    const smoothedData = cleanedData.map((d, i) => ({
         ...d,
         stride: parseFloat(smoothedStride[i].toFixed(1)),
         heartRate: Math.round(smoothedHR[i])
     }));
+
+    return {
+        chartData,
+        smoothedData,
+        unfilteredMaxSpeed
+    };
+}
+
+async function getIntradayMetricsWithMeta(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
+
+    let buckets;
+    try {
+        buckets = await fetchIntradayBuckets(dateString);
+    } catch (err) {
+        const apiMsg = err?.response?.data?.error?.message || err?.message || '';
+        if (apiMsg.includes('invalid_grant')) {
+            await deleteTokenFile();
+            console.error('Intraday API Error: invalid_grant (token.json deleted)');
+        } else {
+            console.error('Intraday API Error:', err.message);
+        }
+        // If API fails, try falling back to the processed cache if it exists
+        try {
+            const finalCached = await fs.readFile(finalCacheFile, 'utf8');
+            const cached = JSON.parse(finalCached);
+            const cachedMaxSpeed = (cached || []).reduce((max, p) => Math.max(max, Number(p?.speed) || 0), 0);
+            return {
+                data: cached,
+                unfilteredMaxSpeed: cachedMaxSpeed
+            };
+        } catch (e) {
+            return {
+                data: [],
+                unfilteredMaxSpeed: 0
+            };
+        }
+    }
+
+    const processed = processIntradayBuckets(buckets);
+
+    if ((processed.chartData || []).length > 0) {
+        await fs.writeFile(finalCacheFile, JSON.stringify(processed.chartData, null, 2));
+    } else {
+        console.warn(`[GoogleFit] Processed intraday chart data is empty for ${dateString}.`);
+    }
+
+    return {
+        data: processed.smoothedData,
+        unfilteredMaxSpeed: processed.unfilteredMaxSpeed
+    };
+}
+
+/**
+ * Fetch Intraday Metrics for Chart (15-min buckets)
+ * @param {string} dateString 'YYYY-MM-DD'
+ */
+async function getIntradayMetrics(dateString) {
+    const result = await getIntradayMetricsWithMeta(dateString);
+    return result.data;
 }
 
 function sumIntValues(dataset) {

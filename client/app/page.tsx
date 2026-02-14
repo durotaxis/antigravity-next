@@ -78,6 +78,8 @@ export default function Home() {
             avg_heart_rate: Number(run.avg_heart_rate ?? run.hr_avg ?? 0),
             max_heart_rate: Number(run.max_heart_rate ?? run.hr_max ?? 0),
             avg_stride: Number(run.avg_stride ?? 0),
+            avg_speed: Number(run.avg_speed ?? run.json_avg_speed ?? 0),
+            max_speed: Number(run.max_speed ?? run.json_max_speed ?? 0),
             images: Array.isArray(run.images) ? run.images : []
           }));
           setRuns(normalizedRuns);

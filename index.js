@@ -815,7 +815,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         }
       }
 
-      const safeMaxStride = (result.max_stride_cm > 0) ? result.max_stride_cm
+      let safeMaxStride = (result.max_stride_cm > 0) ? result.max_stride_cm
         : (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
           : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride : 0;
 
@@ -967,7 +967,22 @@ app.post('/api/advice', async (req, res) => {
     const { date, avgStride, avgHR, maxStride, maxHR, avgCadence, maxCadence } = req.body;
 
     const cached = await repo.getDailySummary(date);
-    if (cached && cached.message) return res.json({ advice: cached.message });
+    const cacheMetrics = await computeDailySummaryFromCache(date);
+    if (cached && cached.message) {
+      await repo.saveDailySummary({
+        date,
+        max_stride: pickPositive(cacheMetrics && cacheMetrics.max_stride_cm, cached.max_stride),
+        avg_stride: pickPositive(cacheMetrics && cacheMetrics.avg_stride_cm, cached.avg_stride),
+        hr_max: pickPositive(cacheMetrics && cacheMetrics.max_heart_rate, cached.hr_max),
+        hr_avg: pickPositive(cacheMetrics && cacheMetrics.avg_heart_rate, cached.hr_avg),
+        avg_cadence: pickPositive(cacheMetrics && cacheMetrics.avg_cadence, cached.avg_cadence),
+        max_cadence: pickPositive(cacheMetrics && cacheMetrics.max_cadence, cached.max_cadence),
+        avg_speed: pickPositive(cacheMetrics && cacheMetrics.avg_speed, cached.avg_speed),
+        max_speed: pickPositive(cacheMetrics && cacheMetrics.max_speed, cached.max_speed),
+        message: cached.message
+      });
+      return res.json({ advice: cached.message });
+    }
 
     // Fetch images for this run to provide context to Gemini
     const images = await imageRepo.getImagesForRun(date);
@@ -984,15 +999,17 @@ app.post('/api/advice', async (req, res) => {
       maxCadence
     }, imagePaths);
 
-    // DB縺ｫ繧｢繝峨ヰ繧､繧ｹ繧剃ｿ晏ｭ・
+    // Persist message + metrics, preferring cache/intraday source-of-truth.
     await repo.saveDailySummary({
       date,
-      max_stride: maxStride,
-      avg_stride: avgStride,
-      hr_max: maxHR,
-      hr_avg: avgHR,
-      avg_cadence: avgCadence,
-      max_cadence: maxCadence,
+      max_stride: pickPositive(cacheMetrics.max_stride_cm, maxStride),
+      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, avgStride),
+      hr_max: pickPositive(cacheMetrics.max_heart_rate, maxHR),
+      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, avgHR),
+      avg_cadence: pickPositive(cacheMetrics.avg_cadence, avgCadence),
+      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
+      avg_speed: pickPositive(cacheMetrics.avg_speed, 0),
+      max_speed: pickPositive(cacheMetrics.max_speed, 0),
       message: advice
     });
 

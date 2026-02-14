@@ -162,7 +162,6 @@ async function importSelectedFiles(filenames, runId) {
                 continue;
             }
 
-
             // 1. Calculate Hash
             const hash = await getFileHash(inboxPath);
             const ext = path.extname(file).toLowerCase();
@@ -182,12 +181,17 @@ async function importSelectedFiles(filenames, runId) {
             // 3. Link to Run
             await imageRepo.linkImageToRun(runId, asset.asset_id);
 
-            // ☁EAuto-create Daily Summary if missing (for Selected Import)
+            // Auto-create or sync Daily Summary (for Selected Import)
             // runId is the date string here
             try {
                 const existingSummary = await repo.getDailySummary(runId);
-                if (!existingSummary) {
-                    // Ensure intraday cache exists only when summary is missing
+                const needsSpeedSync =
+                    !existingSummary ||
+                    !(Number(existingSummary.avg_speed) > 0) ||
+                    !(Number(existingSummary.max_speed) > 0);
+
+                if (!existingSummary || needsSpeedSync) {
+                    // Ensure intraday cache exists before metric aggregation
                     try {
                         const cacheDir = path.join(__dirname, 'storage', 'cache');
                         const rawCacheFile = path.join(cacheDir, `raw_buckets_${runId}.json`);
@@ -206,16 +210,68 @@ async function importSelectedFiles(filenames, runId) {
                     }
 
                     const fitData = await googleFitService.getDailyMetrics(runId);
+                    const intradayData = await googleFitService.getIntradayMetrics(runId);
+
+                    let intradayAvgSpeed = 0;
+                    let intradayMaxSpeed = 0;
+                    let intradayAvgStride = 0;
+                    let intradayMaxStride = 0;
+                    if (Array.isArray(intradayData) && intradayData.length > 0) {
+                        let sumSpeed = 0;
+                        let countSpeed = 0;
+                        let sumStride = 0;
+                        let countStride = 0;
+                        for (const p of intradayData) {
+                            const speed = Number(p && p.speed);
+                            if (Number.isFinite(speed) && speed > 0) {
+                                sumSpeed += speed;
+                                countSpeed += 1;
+                                if (speed > intradayMaxSpeed) intradayMaxSpeed = speed;
+                            }
+
+                            const stride = Number(p && p.stride);
+                            if (Number.isFinite(stride) && stride > 0 && stride <= 250) {
+                                sumStride += stride;
+                                countStride += 1;
+                                if (stride > intradayMaxStride) intradayMaxStride = stride;
+                            }
+                        }
+                        if (countSpeed > 0) intradayAvgSpeed = Number((sumSpeed / countSpeed).toFixed(1));
+                        if (intradayMaxSpeed > 0) intradayMaxSpeed = Number(intradayMaxSpeed.toFixed(1));
+                        if (countStride > 0) intradayAvgStride = Number((sumStride / countStride).toFixed(1));
+                        if (intradayMaxStride > 0) intradayMaxStride = Number(intradayMaxStride.toFixed(1));
+                    }
 
                     if (fitData && fitData.step_count > 0) {
-                        const advice = await geminiService.generateAdvice(fitData);
+                        const advice = existingSummary
+                            ? existingSummary.message
+                            : await geminiService.generateAdvice(fitData);
+
+                        const finalAvgSpeed = intradayAvgSpeed > 0 ? intradayAvgSpeed : 0;
+                        const finalMaxSpeed = Number(fitData.max_speed) > 0
+                            ? Number(fitData.max_speed)
+                            : intradayMaxSpeed;
+                        const finalAvgStride = intradayAvgStride > 0
+                            ? intradayAvgStride
+                            : (Number(fitData.avg_stride_cm) > 0 ? Number(fitData.avg_stride_cm) : 0);
+                        const finalMaxStride = intradayMaxStride > 0
+                            ? intradayMaxStride
+                            : (Number(fitData.max_stride_cm) > 0 ? Number(fitData.max_stride_cm) : 0);
 
                         const summaryData = {
-                            date: fitData.date,
-                            max_stride: fitData.max_stride_cm,
-                            avg_stride: fitData.avg_stride_cm,
+                            date: fitData.date || runId,
+                            step_count: fitData.step_count,
+                            total_distance_km: fitData.total_distance_km,
+                            total_time: fitData.total_time,
+                            calories_kcal: fitData.calories_kcal,
+                            max_stride: finalMaxStride,
+                            avg_stride: finalAvgStride,
                             hr_avg: fitData.avg_heart_rate,
                             hr_max: fitData.max_heart_rate,
+                            avg_cadence: fitData.avg_cadence,
+                            max_cadence: fitData.max_cadence,
+                            avg_speed: finalAvgSpeed,
+                            max_speed: finalMaxSpeed,
                             message: advice
                         };
 
@@ -236,7 +292,6 @@ async function importSelectedFiles(filenames, runId) {
 
     return results;
 }
-
 module.exports = {
     importFromInbox,
     getInboxFiles,
@@ -244,3 +299,7 @@ module.exports = {
     // extractDateFromFilename,
     INBOX_DIR // Exporting for direct file serving if needed
 };
+
+
+
+

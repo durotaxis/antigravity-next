@@ -46,3 +46,7 @@ This file tracks legacy code paths that should be removed after migration.
   - Removed debug-only metric logs (`[Metric Debug]`) from `google_fit_service.js`.
   - Removed debug/test utility `check-db.js`.
   - Added test-source and correction-source documentation in this file.
+  - Updated old-screen advice save path (`/api/advice`) to sync metrics from cache even when a cached message already exists.
+  - Updated old-screen client send format for stride values from integer rounding to 1-decimal precision.
+  - Fixed speed persistence on old-screen import path so `daily_summary.avg_speed/max_speed` are saved during selected-image import.
+  - Adjusted max-stride persistence to prioritize intraday-derived measured maximum instead of fallback fill from average stride.

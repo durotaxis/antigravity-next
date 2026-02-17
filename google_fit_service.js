@@ -547,18 +547,9 @@ function processIntradayBuckets(buckets) {
         }
     });
 
-    // Cleaning & Smoothing
+    // No smoothing: keep the same series for detail table and metric calculations.
     const cleanedData = cleanIntradayData(chartData);
-    const strideArray = cleanedData.map(d => d.stride);
-    const hrArray = cleanedData.map(d => d.heartRate);
-    const smoothedStride = calculateSMA(strideArray, 5);
-    const smoothedHR = calculateSMA(hrArray, 5);
-
-    const smoothedData = cleanedData.map((d, i) => ({
-        ...d,
-        stride: parseFloat(smoothedStride[i].toFixed(1)),
-        heartRate: Math.round(smoothedHR[i])
-    }));
+    const smoothedData = cleanedData;
 
     return {
         chartData,

@@ -1,9 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+function getApiBase(): string {
+    const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+    if (envBase) return envBase;
+    if (typeof window !== 'undefined') {
+        const { protocol, hostname } = window.location;
+        return `${protocol}//${hostname}:3000`;
+    }
+    return 'http://localhost:3000';
+}
 
 export default function RunUploader() {
+    const API_BASE = getApiBase();
     const [isUploading, setIsUploading] = useState(false);
     const [runDate, setRunDate] = useState(() => {
         const now = new Date();

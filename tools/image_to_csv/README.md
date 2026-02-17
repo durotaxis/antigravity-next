@@ -156,3 +156,21 @@ tesseract --list-langs
 ## ライセンス
 
 MIT License
+
+## API Compatibility Notes
+
+`extract_numbers.py` now outputs both legacy columns and API-compatible columns.
+
+- Legacy columns:
+  - `file_name`, `run_date`, `run_time_range`, `steps`, `active_time`, `distance_km`, `heart_rate_bpm`, `pace_per_km`
+- API-compatible columns:
+  - `date`, `step_count`, `total_distance_km`, `total_time`
+  - `avg_heart_rate`, `max_heart_rate`
+  - `avg_speed`, `max_speed`
+  - `avg_stride_cm`, `max_stride_cm`
+  - `avg_cadence`, `max_cadence`
+
+Notes:
+- `max_*` fields may be blank when screenshots do not expose reliable maxima.
+- `avg_speed` is derived from `pace_per_km` when available.
+- `avg_stride_cm` and `avg_cadence` are derived from distance/steps/time when possible.

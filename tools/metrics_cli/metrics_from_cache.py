@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date as dt_date
 from datetime import timedelta
@@ -138,6 +139,90 @@ class ComputedMetrics:
     max_heart_rate: int
 
 
+def pick_positive(preferred: Any, fallback: Any) -> float:
+    a = safe_number(preferred)
+    if math.isfinite(a) and a > 0:
+        return float(a)
+    b = safe_number(fallback)
+    if math.isfinite(b) and b > 0:
+        return float(b)
+    return 0.0
+
+
+def pick_text(preferred: Any, fallback: Any) -> str:
+    a = "" if preferred is None else str(preferred).strip()
+    if a:
+        return a
+    b = "" if fallback is None else str(fallback).strip()
+    if b:
+        return b
+    return "00:00:00"
+
+
+def load_daily_summary_row(db_path: Path, date: str) -> Optional[dict[str, Any]]:
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+              total_distance_km,
+              total_time,
+              avg_stride,
+              max_stride,
+              hr_avg,
+              hr_max,
+              avg_speed,
+              max_speed,
+              avg_cadence,
+              max_cadence
+            FROM daily_summary
+            WHERE date = ?
+            """,
+            (date,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "total_distance_km": row[0],
+            "total_time": row[1],
+            "avg_stride": row[2],
+            "max_stride": row[3],
+            "hr_avg": row[4],
+            "hr_max": row[5],
+            "avg_speed": row[6],
+            "max_speed": row[7],
+            "avg_cadence": row[8],
+            "max_cadence": row[9],
+        }
+    finally:
+        conn.close()
+
+
+def apply_screen_merge(metrics: ComputedMetrics, summary: Optional[dict[str, Any]]) -> ComputedMetrics:
+    if not summary:
+        return metrics
+    return ComputedMetrics(
+        date=metrics.date,
+        source=f"{metrics.source}+screen_merge",
+        points=metrics.points,
+        running_points=metrics.running_points,
+        distance_km=round(pick_positive(summary.get("total_distance_km"), metrics.distance_km), 2),
+        duration=pick_text(summary.get("total_time"), metrics.duration),
+        avg_speed_kmh=round(pick_positive(summary.get("avg_speed"), metrics.avg_speed_kmh), 1),
+        max_speed_kmh=round(pick_positive(summary.get("max_speed"), metrics.max_speed_kmh), 1),
+        avg_stride_cm=round(pick_positive(summary.get("avg_stride"), metrics.avg_stride_cm), 2),
+        max_stride_cm=round(pick_positive(summary.get("max_stride"), metrics.max_stride_cm), 1),
+        avg_pitch_spm=int(round(pick_positive(summary.get("avg_cadence"), metrics.avg_pitch_spm))),
+        max_pitch_spm=int(round(pick_positive(summary.get("max_cadence"), metrics.max_pitch_spm))),
+        avg_heart_rate=int(round(pick_positive(summary.get("hr_avg"), metrics.avg_heart_rate))),
+        max_heart_rate=int(round(pick_positive(summary.get("hr_max"), metrics.max_heart_rate))),
+    )
+
+
 def fmt_hms(seconds: int) -> str:
     td = timedelta(seconds=max(0, int(seconds)))
     total_seconds = int(td.total_seconds())
@@ -145,6 +230,309 @@ def fmt_hms(seconds: int) -> str:
     m = (total_seconds % 3600) // 60
     s = total_seconds % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def parse_hms_to_seconds(hms: str) -> int:
+    if not hms:
+        return 0
+    parts = [p.strip() for p in str(hms).strip().split(":")]
+    nums: list[int] = []
+    for p in parts:
+        if not p:
+            return 0
+        try:
+            nums.append(int(p))
+        except ValueError:
+            return 0
+    if len(nums) == 3:
+        return max(0, nums[0] * 3600 + nums[1] * 60 + nums[2])
+    if len(nums) == 2:
+        return max(0, nums[0] * 60 + nums[1])
+    return 0
+
+
+def compute_derived_from_cache(raw_buckets: list[dict[str, Any]], intraday_points: list[dict[str, Any]]) -> Optional[dict[str, float]]:
+    raw_max_speed = 0.0
+    raw_avg_speed = 0.0
+    raw_max_pitch = 0
+    raw_avg_pitch = 0
+    raw_points = 0
+
+    if raw_buckets:
+        raw_points = len(raw_buckets)
+        sum_speed_any = 0.0
+        count_speed_any = 0
+        sum_pitch_any = 0
+        count_pitch_any = 0
+        max_speed_any = 0.0
+        max_pitch_any = 0
+
+        sum_speed_run = 0.0
+        count_speed_run = 0
+        sum_pitch_run = 0
+        count_pitch_run = 0
+        max_speed_run = 0.0
+        max_pitch_run = 0
+
+        for bucket in raw_buckets:
+            bucket_steps = 0
+            bucket_distance = 0.0
+            bucket_is_run = False
+
+            for ds in bucket.get("dataset", []) or []:
+                source_id = str(ds.get("dataSourceId") or "")
+                if "activity.segment" in source_id:
+                    for p in ds.get("point", []) or []:
+                        for v in p.get("value", []) or []:
+                            if v.get("intVal") == 8:
+                                bucket_is_run = True
+
+                if "activity.summary" in source_id:
+                    for p in ds.get("point", []) or []:
+                        values = p.get("value", []) or []
+                        if values and values[0].get("intVal") == 8:
+                            bucket_is_run = True
+
+                for p in ds.get("point", []) or []:
+                    for v in p.get("value", []) or []:
+                        if "step_count" in source_id:
+                            bucket_steps += int(v.get("intVal") or 0)
+                        if "distance" in source_id:
+                            bucket_distance += float(v.get("fpVal") or 0)
+
+            if bucket_steps > 0:
+                max_pitch_any = max(max_pitch_any, bucket_steps)
+                sum_pitch_any += bucket_steps
+                count_pitch_any += 1
+                if bucket_is_run:
+                    max_pitch_run = max(max_pitch_run, bucket_steps)
+                    sum_pitch_run += bucket_steps
+                    count_pitch_run += 1
+
+            if bucket_distance > 0:
+                speed = round(bucket_distance * 0.06, 1)
+                if speed > 0:
+                    max_speed_any = max(max_speed_any, speed)
+                    sum_speed_any += speed
+                    count_speed_any += 1
+                    if bucket_is_run:
+                        max_speed_run = max(max_speed_run, speed)
+                        sum_speed_run += speed
+                        count_speed_run += 1
+
+        avg_pitch_any = int(round(sum_pitch_any / count_pitch_any)) if count_pitch_any > 0 else 0
+        avg_speed_any = round(sum_speed_any / count_speed_any, 1) if count_speed_any > 0 else 0.0
+        avg_pitch_run = int(round(sum_pitch_run / count_pitch_run)) if count_pitch_run > 0 else 0
+        avg_speed_run = round(sum_speed_run / count_speed_run, 1) if count_speed_run > 0 else 0.0
+
+        raw_max_speed = max_speed_run if max_speed_run > 0 else max_speed_any
+        raw_avg_speed = avg_speed_run if avg_speed_run > 0 else avg_speed_any
+        raw_max_pitch = max_pitch_run if max_pitch_run > 0 else max_pitch_any
+        raw_avg_pitch = avg_pitch_run if avg_pitch_run > 0 else avg_pitch_any
+
+    intraday_avg_speed = 0.0
+    intraday_avg_pitch = 0
+    intraday_max_speed = 0.0
+    intraday_max_pitch = 0
+    intraday_points_count = 0
+
+    if intraday_points:
+        intraday_points_count = len(intraday_points)
+        sum_speed = 0.0
+        count_speed = 0
+        sum_pitch = 0
+        count_pitch = 0
+
+        for p in intraday_points:
+            speed = safe_number(p.get("speed"))
+            if math.isfinite(speed) and speed > intraday_max_speed:
+                intraday_max_speed = float(speed)
+            if math.isfinite(speed) and speed > 0:
+                sum_speed += float(speed)
+                count_speed += 1
+
+            steps = int(p.get("steps") or 0)
+            if steps > 0:
+                intraday_max_pitch = max(intraday_max_pitch, steps)
+                sum_pitch += steps
+                count_pitch += 1
+
+        intraday_avg_speed = round(sum_speed / count_speed, 1) if count_speed > 0 else 0.0
+        intraday_avg_pitch = int(round(sum_pitch / count_pitch)) if count_pitch > 0 else 0
+
+    if raw_points == 0 and intraday_points_count == 0:
+        return None
+
+    if 0 < raw_avg_pitch < 30:
+        raw_avg_pitch = 0
+    if 0 < raw_max_pitch < 30:
+        raw_max_pitch = 0
+    if 0 < intraday_avg_pitch < 30:
+        intraday_avg_pitch = 0
+    if 0 < intraday_max_pitch < 30:
+        intraday_max_pitch = 0
+
+    return {
+        "json_avg_speed": intraday_avg_speed if intraday_avg_speed > 0 else raw_avg_speed,
+        "json_max_speed": round(raw_max_speed, 1) if raw_max_speed > 0 else round(intraday_max_speed, 1),
+        "json_avg_pitch": raw_avg_pitch if raw_avg_pitch > 0 else intraday_avg_pitch,
+        "json_max_pitch": raw_max_pitch if raw_max_pitch > 0 else intraday_max_pitch,
+        "json_points": raw_points if raw_points > 0 else intraday_points_count,
+    }
+
+
+def compute_from_cache_logic(date: str, raw_buckets: list[dict[str, Any]], intraday_points: list[dict[str, Any]]) -> Optional[ComputedMetrics]:
+    derived = compute_derived_from_cache(raw_buckets, intraday_points)
+    if not derived:
+        return None
+
+    out: dict[str, Any] = {
+        "step_count": 0,
+        "total_distance_km": 0.0,
+        "total_time": None,
+        "calories_kcal": 0.0,
+        "avg_stride_cm": 0.0,
+        "max_stride_cm": 0.0,
+        "avg_heart_rate": 0,
+        "max_heart_rate": 0,
+        "avg_speed": float(derived.get("json_avg_speed") or 0),
+        "max_speed": float(derived.get("json_max_speed") or 0),
+        "avg_cadence": int(derived.get("json_avg_pitch") or 0),
+        "max_cadence": int(derived.get("json_max_pitch") or 0),
+    }
+
+    if raw_buckets:
+        any_totals = {"steps": 0, "distance_m": 0.0, "active_sec": 0, "points_distance": 0}
+        run_totals = {"steps": 0, "distance_m": 0.0, "active_sec": 0, "points_distance": 0}
+
+        for bucket in raw_buckets:
+            datasets = bucket.get("dataset", []) or []
+            if not datasets:
+                continue
+
+            bucket_steps = 0
+            bucket_distance = 0.0
+            bucket_is_run = False
+
+            for ds in datasets:
+                dsid = str(ds.get("dataSourceId") or "")
+                points = ds.get("point", []) or []
+                if not points:
+                    continue
+
+                if "activity.segment" in dsid or "activity.summary" in dsid:
+                    for p in points:
+                        v = (p.get("value") or [{}])[0]
+                        t = safe_number(v.get("intVal"))
+                        if math.isfinite(t) and int(t) == 8:
+                            bucket_is_run = True
+                    continue
+
+                if "step_count.delta" in dsid:
+                    for p in points:
+                        v = (p.get("value") or [{}])[0]
+                        n = safe_number(v.get("intVal"))
+                        if math.isfinite(n) and n > 0:
+                            bucket_steps += int(n)
+                    continue
+
+                if "distance.delta" in dsid:
+                    for p in points:
+                        v = (p.get("value") or [{}])[0]
+                        n = safe_number(v.get("fpVal"))
+                        if math.isfinite(n) and n > 0:
+                            bucket_distance += float(n)
+                    continue
+
+                if "calories.expended" in dsid:
+                    for p in points:
+                        v = (p.get("value") or [{}])[0]
+                        n = safe_number(v.get("fpVal"))
+                        if math.isfinite(n) and n > 0:
+                            out["calories_kcal"] += float(n)
+                    continue
+
+            if bucket_steps > 0:
+                any_totals["steps"] += bucket_steps
+            if bucket_distance > 0:
+                any_totals["distance_m"] += bucket_distance
+                any_totals["points_distance"] += 1
+            if bucket_distance > 0 or bucket_steps > 0:
+                any_totals["active_sec"] += 60
+
+            if bucket_is_run:
+                if bucket_steps > 0:
+                    run_totals["steps"] += bucket_steps
+                if bucket_distance > 0:
+                    run_totals["distance_m"] += bucket_distance
+                    run_totals["points_distance"] += 1
+                if bucket_distance > 0 or bucket_steps > 0:
+                    run_totals["active_sec"] += 60
+
+        use_run = run_totals["distance_m"] > 0 and run_totals["active_sec"] >= 60
+        picked = run_totals if use_run else any_totals
+
+        out["step_count"] = int(round(picked["steps"]))
+        out["total_distance_km"] = round(float(picked["distance_m"]) / 1000.0, 2)
+        seconds = picked["active_sec"] if picked["active_sec"] > 0 else picked["points_distance"] * 60
+        out["total_time"] = fmt_hms(seconds) if seconds > 0 else None
+
+    if intraday_points:
+        sum_stride = 0.0
+        count_stride = 0
+        max_stride = 0.0
+        sum_hr = 0.0
+        count_hr = 0
+        max_hr = 0.0
+
+        for p in intraday_points:
+            stride = safe_number(p.get("stride"))
+            if math.isfinite(stride) and 0 < stride <= 250:
+                stride_val = float(stride)
+                sum_stride += stride_val
+                count_stride += 1
+                max_stride = max(max_stride, stride_val)
+
+            hr = safe_number(p.get("heartRate"))
+            if math.isfinite(hr) and hr > 0:
+                hr_val = float(hr)
+                sum_hr += hr_val
+                count_hr += 1
+                max_hr = max(max_hr, hr_val)
+
+        out["avg_stride_cm"] = round(sum_stride / count_stride, 1) if count_stride > 0 else 0.0
+        out["max_stride_cm"] = round(max_stride, 1) if max_stride > 0 else 0.0
+        out["avg_heart_rate"] = int(round(sum_hr / count_hr)) if count_hr > 0 else 0
+        out["max_heart_rate"] = int(round(max_hr)) if max_hr > 0 else 0
+
+        if not out["total_time"]:
+            out["total_time"] = fmt_hms(len(intraday_points) * 60)
+
+    if out["avg_speed"] <= 0 and out["total_distance_km"] > 0 and out["total_time"]:
+        hours = parse_hms_to_seconds(str(out["total_time"])) / 3600.0
+        if hours > 0:
+            out["avg_speed"] = round(float(out["total_distance_km"]) / hours, 1)
+
+    calories = safe_number(out["calories_kcal"])
+    out["calories_kcal"] = round(calories) if math.isfinite(calories) and calories > 0 else 0
+
+    points_count = int(derived.get("json_points") or 0)
+    return ComputedMetrics(
+        date=date,
+        source="cache_logic_js_parity",
+        points=points_count,
+        running_points=points_count,
+        distance_km=round(float(out["total_distance_km"]), 2),
+        duration=str(out["total_time"] or "00:00:00"),
+        avg_speed_kmh=round(float(out["avg_speed"] or 0), 1),
+        max_speed_kmh=round(float(out["max_speed"] or 0), 1),
+        avg_stride_cm=round(float(out["avg_stride_cm"] or 0), 2),
+        max_stride_cm=round(float(out["max_stride_cm"] or 0), 1),
+        avg_pitch_spm=int(out["avg_cadence"] or 0),
+        max_pitch_spm=int(out["max_cadence"] or 0),
+        avg_heart_rate=int(out["avg_heart_rate"] or 0),
+        max_heart_rate=int(out["max_heart_rate"] or 0),
+    )
 
 
 def compute_from_raw_buckets(date: str, buckets: list[dict[str, Any]]) -> ComputedMetrics:
@@ -256,6 +644,8 @@ def compute_from_intraday_points(date: str, points: list[dict[str, Any]]) -> Com
     sum_distance_m = 0.0
     sum_steps = 0
     max_stride_cm = 0.0
+    sum_stride_cm = 0.0
+    count_stride_cm = 0
 
     max_heart_rate = 0
     sum_heart_rate = 0
@@ -284,11 +674,21 @@ def compute_from_intraday_points(date: str, points: list[dict[str, Any]]) -> Com
         if math.isfinite(dist) and dist > 0:
             sum_distance_m += float(dist)
 
-        # Track maximum stride length (cm) if both distance and steps are present
-        if steps > 0 and math.isfinite(dist) and dist > 0:
+        # Prefer explicit per-point stride from intraday cache (same source used by app chart/details).
+        stride_val = safe_number(p.get("stride"))
+        if math.isfinite(stride_val) and 0 < stride_val <= 250:
+            stride_cm = float(stride_val)
+            if stride_cm > max_stride_cm:
+                max_stride_cm = stride_cm
+            sum_stride_cm += stride_cm
+            count_stride_cm += 1
+        elif steps > 0 and math.isfinite(dist) and dist > 0:
+            # Fallback only when stride field is unavailable.
             stride_cm = float(dist) * 100.0 / steps
             if stride_cm > max_stride_cm:
                 max_stride_cm = stride_cm
+            sum_stride_cm += stride_cm
+            count_stride_cm += 1
 
         heart_rate = int(p.get("heartRate") or 0)
         if heart_rate > 0:
@@ -306,7 +706,7 @@ def compute_from_intraday_points(date: str, points: list[dict[str, Any]]) -> Com
     distance_km = round(sum_distance_m / 1000.0, 2)
     avg_speed_fallback = round((distance_km / hours), 1) if avg_speed <= 0 and hours > 0 and distance_km > 0 else avg_speed
 
-    avg_stride = round((sum_distance_m * 100.0 / sum_steps), 1) if sum_steps > 0 and sum_distance_m > 0 else 0.0
+    avg_stride = round((sum_stride_cm / count_stride_cm), 1) if count_stride_cm > 0 else 0.0
 
     avg_heart_rate = int(round(sum_heart_rate / count_heart_rate)) if count_heart_rate > 0 else 0
 
@@ -336,6 +736,8 @@ def main() -> int:
     parser.add_argument("--from", dest="date_from", default="", help="Start date YYYY-MM-DD (inclusive)")
     parser.add_argument("--to", dest="date_to", default="", help="End date YYYY-MM-DD (inclusive)")
     parser.add_argument("--cache-dir", default="", help="Cache dir containing raw_buckets_*.json / intraday_*.json")
+    parser.add_argument("--daily-db", default="", help="Path to daily.db for screen-logic merge")
+    parser.add_argument("--pure-logic", action="store_true", help="Disable daily_summary screen merge")
     parser.add_argument("--skip-missing", action="store_true", help="Skip dates with missing cache files instead of failing")
     parser.add_argument("--json", action="store_true", help="Output JSON only")
     parser.add_argument("--csv", action="store_true", help="Output CSV to stdout")
@@ -364,7 +766,10 @@ def main() -> int:
         if repo_root is None:
             raise SystemExit("Could not locate repo root (missing storage/cache). Use --cache-dir.")
         cache_dir = repo_root / "storage" / "cache"
-
+    if args.daily_db:
+        daily_db = Path(args.daily_db).expanduser().resolve()
+    else:
+        daily_db = (repo_root / "daily.db") if "repo_root" in locals() else (Path.cwd() / "daily.db")
     if not selected_dates:
         # Auto-detect latest date from cache directory
         latest_date = find_latest_date(cache_dir)
@@ -391,22 +796,26 @@ def main() -> int:
         raw_path = cache_dir / f"raw_buckets_{date}.json"
         intraday_path = cache_dir / f"intraday_{date}.json"
 
-        metrics: Optional[ComputedMetrics] = None
+        raw_buckets: list[dict[str, Any]] = []
+        intraday_points: list[dict[str, Any]] = []
         if raw_path.exists():
-            buckets = read_json(raw_path)
-            if isinstance(buckets, list):
-                metrics = compute_from_raw_buckets(date, buckets)
-        if metrics is None and intraday_path.exists():
-            points = read_json(intraday_path)
-            if isinstance(points, list):
-                metrics = compute_from_intraday_points(date, points)
+            raw_data = read_json(raw_path)
+            if isinstance(raw_data, list):
+                raw_buckets = raw_data
+        if intraday_path.exists():
+            intraday_data = read_json(intraday_path)
+            if isinstance(intraday_data, list):
+                intraday_points = intraday_data
 
+        metrics = compute_from_cache_logic(date, raw_buckets, intraday_points)
         if metrics is None:
             if args.skip_missing:
                 print(f"Warning: No cache found for {date}, skipping...")
                 continue
             else:
                 raise SystemExit(f"No cache found for {date} in {cache_dir}")
+        if not args.pure_logic:
+            metrics = apply_screen_merge(metrics, load_daily_summary_row(daily_db, date))
         all_metrics.append(metrics)
 
     if not all_metrics:

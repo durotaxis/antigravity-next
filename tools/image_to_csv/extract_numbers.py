@@ -11,6 +11,20 @@ Target fields:
 - distance_km
 - heart_rate_bpm
 - pace_per_km (MM:SS)
+
+API-compatible fields (extended):
+- date
+- step_count
+- total_distance_km
+- total_time
+- avg_heart_rate
+- max_heart_rate
+- avg_speed
+- max_speed
+- avg_stride_cm
+- max_stride_cm
+- avg_cadence
+- max_cadence
 """
 
 from __future__ import annotations
@@ -41,6 +55,18 @@ class RunMetrics:
     distance_km: str
     heart_rate_bpm: str
     pace_per_km: str
+    date: str
+    step_count: str
+    total_distance_km: str
+    total_time: str
+    avg_heart_rate: str
+    max_heart_rate: str
+    avg_speed: str
+    max_speed: str
+    avg_stride_cm: str
+    max_stride_cm: str
+    avg_cadence: str
+    max_cadence: str
 
     def to_row(self) -> dict[str, str]:
         return {
@@ -52,6 +78,18 @@ class RunMetrics:
             "distance_km": self.distance_km,
             "heart_rate_bpm": self.heart_rate_bpm,
             "pace_per_km": self.pace_per_km,
+            "date": self.date,
+            "step_count": self.step_count,
+            "total_distance_km": self.total_distance_km,
+            "total_time": self.total_time,
+            "avg_heart_rate": self.avg_heart_rate,
+            "max_heart_rate": self.max_heart_rate,
+            "avg_speed": self.avg_speed,
+            "max_speed": self.max_speed,
+            "avg_stride_cm": self.avg_stride_cm,
+            "max_stride_cm": self.max_stride_cm,
+            "avg_cadence": self.avg_cadence,
+            "max_cadence": self.max_cadence,
         }
 
 
@@ -194,6 +232,71 @@ def extract_pace_per_km(text: str) -> str:
     return ""
 
 
+def parse_int_str(value: str) -> Optional[int]:
+    if not value:
+        return None
+    raw = value.replace(",", "").strip()
+    if not raw.isdigit():
+        return None
+    return int(raw)
+
+
+def parse_float_str(value: str) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return float(value.strip())
+    except Exception:
+        return None
+
+
+def active_time_to_hhmmss(active_time: str) -> str:
+    if not active_time:
+        return ""
+    m = re.match(r"^\s*(\d{1,3}):([0-5]\d)\s*$", active_time)
+    if not m:
+        return ""
+    minutes = int(m.group(1))
+    seconds = int(m.group(2))
+    return f"00:{minutes:02d}:{seconds:02d}"
+
+
+def pace_to_speed_kmh(pace_per_km: str) -> str:
+    if not pace_per_km:
+        return ""
+    m = re.match(r"^\s*(\d{1,2}):([0-5]\d)\s*$", pace_per_km)
+    if not m:
+        return ""
+    pace_min = int(m.group(1)) + int(m.group(2)) / 60.0
+    if pace_min <= 0:
+        return ""
+    speed = 60.0 / pace_min
+    return f"{speed:.1f}"
+
+
+def derive_stride_cm(distance_km: str, steps: str) -> str:
+    d = parse_float_str(distance_km)
+    s = parse_int_str(steps)
+    if not d or not s or s <= 0:
+        return ""
+    stride = (d * 100000.0) / float(s)
+    return f"{stride:.1f}"
+
+
+def derive_avg_cadence(steps: str, active_time: str) -> str:
+    s = parse_int_str(steps)
+    if s is None or s <= 0:
+        return ""
+    m = re.match(r"^\s*(\d{1,3}):([0-5]\d)\s*$", active_time or "")
+    if not m:
+        return ""
+    minutes = int(m.group(1)) + int(m.group(2)) / 60.0
+    if minutes <= 0:
+        return ""
+    cad = s / minutes
+    return str(int(round(cad)))
+
+
 def extract_metrics(
     image_path: Path,
     language: str,
@@ -206,15 +309,39 @@ def extract_metrics(
         tessdata_dir=tessdata_dir,
         fast_mode=fast_mode,
     )
+    run_date = extract_run_date(text, image_path)
+    steps = extract_steps(text)
+    active_time = extract_active_time(text)
+    distance_km = extract_distance_km(text)
+    heart_rate_bpm = extract_heart_rate_bpm(text)
+    pace_per_km = extract_pace_per_km(text)
+
+    total_time = active_time_to_hhmmss(active_time)
+    avg_speed = pace_to_speed_kmh(pace_per_km)
+    avg_stride_cm = derive_stride_cm(distance_km, steps)
+    avg_cadence = derive_avg_cadence(steps, active_time)
+
     return RunMetrics(
         file_name=image_path.name,
-        run_date=extract_run_date(text, image_path),
+        run_date=run_date,
         run_time_range=extract_time_range(text),
-        steps=extract_steps(text),
-        active_time=extract_active_time(text),
-        distance_km=extract_distance_km(text),
-        heart_rate_bpm=extract_heart_rate_bpm(text),
-        pace_per_km=extract_pace_per_km(text),
+        steps=steps,
+        active_time=active_time,
+        distance_km=distance_km,
+        heart_rate_bpm=heart_rate_bpm,
+        pace_per_km=pace_per_km,
+        date=run_date,
+        step_count=steps,
+        total_distance_km=distance_km,
+        total_time=total_time,
+        avg_heart_rate=heart_rate_bpm,
+        max_heart_rate="",
+        avg_speed=avg_speed,
+        max_speed="",
+        avg_stride_cm=avg_stride_cm,
+        max_stride_cm="",
+        avg_cadence=avg_cadence,
+        max_cadence="",
     )
 
 
@@ -244,6 +371,18 @@ def write_csv(rows: list[RunMetrics], output_path: Path) -> None:
                 "distance_km",
                 "heart_rate_bpm",
                 "pace_per_km",
+                "date",
+                "step_count",
+                "total_distance_km",
+                "total_time",
+                "avg_heart_rate",
+                "max_heart_rate",
+                "avg_speed",
+                "max_speed",
+                "avg_stride_cm",
+                "max_stride_cm",
+                "avg_cadence",
+                "max_cadence",
             ],
         )
         writer.writeheader()

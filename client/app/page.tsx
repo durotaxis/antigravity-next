@@ -6,7 +6,17 @@ import EfficiencyChart from './EfficiencyChart';
 import ImageGrid from './components/ImageGrid';
 import RunUploader from './components/RunUploader';
 import Lightbox from './components/Lightbox';
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import LegacyStrideChart from './components/LegacyStrideChart';
+import LegacyMinuteDetail from './components/LegacyMinuteDetail';
+function getApiBase(): string {
+  const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+  if (envBase) return envBase;
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:3000`;
+  }
+  return 'http://localhost:3000';
+}
 
 // データの型定義
 type Run = {
@@ -41,8 +51,12 @@ type ApiRun = Partial<Run> & {
 };
 
 export default function Home() {
+  const API_BASE = getApiBase();
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [legacyChartDate, setLegacyChartDate] = useState<string | null>(null);
+  const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
+  const [heightCm, setHeightCm] = useState<string>('');
 
   const formatSpeed = (value: number | undefined) => {
     if (value === undefined || value === null || value <= 0) return '-';
@@ -61,6 +75,8 @@ export default function Home() {
   };
 
   const closeLightbox = () => setLightboxData(null);
+  const closeLegacyChart = () => setLegacyChartDate(null);
+  const closeLegacyDetail = () => setLegacyDetailDate(null);
 
   // Express (Port 3000) からデータを取得
   useEffect(() => {
@@ -93,7 +109,31 @@ export default function Home() {
         console.error('Fetch error:', err);
         setError('Failed to fetch data');
       });
+  }, [API_BASE]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('profile.height_cm');
+      if (stored) setHeightCm(stored);
+    } catch {
+      // ignore localStorage failures
+    }
   }, []);
+
+  const handleSaveHeight = () => {
+    const v = Number(heightCm);
+    if (!Number.isFinite(v) || v < 100 || v > 250) {
+      alert('身長は 100〜250 cm で入力してください');
+      return;
+    }
+    const rounded = String(Math.round(v));
+    try {
+      localStorage.setItem('profile.height_cm', rounded);
+      setHeightCm(rounded);
+    } catch {
+      alert('身長の保存に失敗しました');
+    }
+  };
 
   // 画像削除ハンドラ
   const handleDeleteImage = async (runId: number, runDate: string, assetId: number) => {
@@ -141,11 +181,48 @@ export default function Home() {
           }
         }}
       />
+      {legacyChartDate && (
+        <LegacyStrideChart
+          date={legacyChartDate}
+          apiBase={API_BASE}
+          onClose={closeLegacyChart}
+        />
+      )}
+      {legacyDetailDate && (
+        <LegacyMinuteDetail
+          date={legacyDetailDate}
+          apiBase={API_BASE}
+          onClose={closeLegacyDetail}
+        />
+      )}
 
       <header className="mb-8">
         <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight mb-6">
           🏃‍♂️ AntiGravity <span className="text-blue-600">Next</span>
         </h1>
+
+        <div className="mb-4 bg-white border border-gray-100 rounded-lg p-3 flex items-center gap-2">
+          <label htmlFor="height-cm" className="text-sm text-gray-600 font-medium">
+            身長(cm)
+          </label>
+          <input
+            id="height-cm"
+            type="number"
+            min={100}
+            max={250}
+            step={1}
+            value={heightCm}
+            onChange={(e) => setHeightCm(e.target.value)}
+            className="w-24 px-2 py-1 rounded border border-gray-200 text-sm"
+            placeholder="170"
+          />
+          <button
+            onClick={handleSaveHeight}
+            className="px-3 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700"
+          >
+            保存
+          </button>
+        </div>
 
         {/* Upload Component */}
         <RunUploader />
@@ -175,7 +252,21 @@ export default function Home() {
                 <span className="text-sm font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded">
                   {run.date}
                 </span>
-                <span className="text-xs text-gray-300">ID: {run.id}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setLegacyChartDate(run.date)}
+                    className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-100"
+                  >
+                    Chart
+                  </button>
+                  <button
+                    onClick={() => setLegacyDetailDate(run.date)}
+                    className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-100"
+                  >
+                    Detail
+                  </button>
+                  <span className="text-xs text-gray-300">ID: {run.id}</span>
+                </div>
 
                 {/* 削除ボタン (Trash Icon) */}
                 <button

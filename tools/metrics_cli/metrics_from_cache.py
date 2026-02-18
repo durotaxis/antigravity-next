@@ -8,6 +8,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 from dataclasses import asdict, dataclass
 from datetime import date as dt_date
 from datetime import timedelta
@@ -535,6 +536,76 @@ def compute_from_cache_logic(date: str, raw_buckets: list[dict[str, Any]], intra
     )
 
 
+def _resolve_ocr_imports() -> bool:
+    image_to_csv_dir = (Path(__file__).resolve().parent.parent / "image_to_csv").resolve()
+    if not image_to_csv_dir.is_dir():
+        return False
+    path_str = str(image_to_csv_dir)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
+    return True
+
+
+def find_ocr_image_for_date(date: str, ocr_image_dir: Path) -> Optional[Path]:
+    # Phone Link format: Screenshot_YYYYMMDD-HHMMSS.png
+    compact = date.replace("-", "")
+    candidates: list[Path] = []
+    for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
+        candidates.extend(ocr_image_dir.glob(f"Screenshot_{compact}-*{ext}"))
+    if not candidates:
+        return None
+    # Use latest capture on that day.
+    return sorted(candidates)[-1]
+
+
+def extract_ocr_record_for_date(
+    date: str,
+    ocr_image_dir: Path,
+    language: str,
+    tessdata_dir: Optional[Path],
+    fast_mode: bool,
+) -> Optional[dict[str, Any]]:
+    if not _resolve_ocr_imports():
+        return None
+    image_path = find_ocr_image_for_date(date, ocr_image_dir)
+    if image_path is None:
+        return None
+
+    try:
+        from ocr_adapter import detect_tesseract_cmd, run_ocr  # type: ignore
+        from metrics_builder import build_run_metrics  # type: ignore
+        import pytesseract  # type: ignore
+    except Exception:
+        return None
+
+    cmd = detect_tesseract_cmd()
+    if not cmd:
+        return None
+    pytesseract.pytesseract.tesseract_cmd = cmd
+
+    text = run_ocr(image_path, language=language, tessdata_dir=tessdata_dir, fast_mode=fast_mode)
+    metrics = build_run_metrics(image_path, text)
+    metrics_row = metrics.to_row()
+    # JSON merge view: derive avg_speed from pace with 2-decimal precision (e.g. 06:50 -> 8.78).
+    try:
+        pace = str(metrics_row.get("pace_per_km") or "").strip()
+        m = re.match(r"^\s*(\d{1,2}):([0-5]\d)\s*$", pace)
+        if m:
+            minutes = int(m.group(1)) + int(m.group(2)) / 60.0
+            if minutes > 0:
+                metrics_row["avg_speed"] = f"{(60.0 / minutes):.2f}"
+        elif metrics_row.get("avg_speed"):
+            v = float(str(metrics_row.get("avg_speed") or "").strip())
+            metrics_row["avg_speed"] = f"{v:.2f}"
+    except Exception:
+        pass
+    return {
+        "image_file": image_path.name,
+        "metrics": metrics_row,
+        "text": text,
+    }
+
+
 def compute_from_raw_buckets(date: str, buckets: list[dict[str, Any]]) -> ComputedMetrics:
     run_distance_m = 0.0
     run_steps = 0
@@ -742,6 +813,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Output JSON only")
     parser.add_argument("--csv", action="store_true", help="Output CSV to stdout")
     parser.add_argument("--output", default="", help="Write output to file instead of stdout")
+    parser.add_argument("--merge-ocr", action="store_true", help="Merge OCR result into JSON output")
+    parser.add_argument("--ocr-image-dir", default="", help="Directory containing Phone Link screenshots")
+    parser.add_argument("--ocr-language", default="jpn+eng", help="OCR language, e.g. jpn+eng")
+    parser.add_argument("--ocr-fast", action="store_true", help="Fast OCR mode")
+    parser.add_argument("--ocr-tessdata-dir", default="", help="Optional tessdata path for OCR")
     args = parser.parse_args()
 
     if args.json and args.csv:
@@ -792,6 +868,9 @@ def main() -> int:
     selected_dates = deduped
 
     all_metrics: list[ComputedMetrics] = []
+    merged_payload: list[dict[str, Any]] = []
+    ocr_dir = Path(args.ocr_image_dir).expanduser().resolve() if args.ocr_image_dir else None
+    ocr_tessdata = Path(args.ocr_tessdata_dir).expanduser().resolve() if args.ocr_tessdata_dir else None
     for date in selected_dates:
         raw_path = cache_dir / f"raw_buckets_{date}.json"
         intraday_path = cache_dir / f"intraday_{date}.json"
@@ -817,6 +896,17 @@ def main() -> int:
         if not args.pure_logic:
             metrics = apply_screen_merge(metrics, load_daily_summary_row(daily_db, date))
         all_metrics.append(metrics)
+        if args.merge_ocr:
+            ocr_record = None
+            if ocr_dir and ocr_dir.exists():
+                ocr_record = extract_ocr_record_for_date(
+                    date=date,
+                    ocr_image_dir=ocr_dir,
+                    language=args.ocr_language,
+                    tessdata_dir=ocr_tessdata,
+                    fast_mode=args.ocr_fast,
+                )
+            merged_payload.append({"metrics": asdict(metrics), "ocr": ocr_record})
 
     if not all_metrics:
         raise SystemExit("No data found for the specified dates.")
@@ -837,8 +927,12 @@ def main() -> int:
             return 0
 
         if args.json:
-            payload = [asdict(m) for m in all_metrics]
-            print(json.dumps(payload if len(payload) > 1 else payload[0], ensure_ascii=False), file=out)
+            if args.merge_ocr:
+                payload = merged_payload
+                print(json.dumps(payload if len(payload) > 1 else payload[0], ensure_ascii=True), file=out)
+            else:
+                payload = [asdict(m) for m in all_metrics]
+                print(json.dumps(payload if len(payload) > 1 else payload[0], ensure_ascii=True), file=out)
             return 0
 
         for m in all_metrics:

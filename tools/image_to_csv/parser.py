@@ -1,0 +1,101 @@
+﻿from __future__ import annotations
+
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+
+def infer_date_from_filename(image_path: Path) -> Optional[str]:
+    m = re.search(r"(\d{4})(\d{2})(\d{2})[-_]\d{6}", image_path.name)
+    if not m:
+        return None
+    y, mo, d = m.groups()
+    return f"{y}-{mo}-{d}"
+
+
+def extract_run_date(text: str, image_path: Path) -> str:
+    fallback = infer_date_from_filename(image_path)
+    # 2月12日 or 2 / 12
+    m = re.search(r"(?P<m>\d{1,2})\s*(?:月|/)\s*(?P<d>\d{1,2})\s*(?:日)?", text)
+    if m:
+        month = int(m.group("m"))
+        day = int(m.group("d"))
+        if fallback:
+            year = int(fallback[:4])
+        else:
+            year = datetime.fromtimestamp(image_path.stat().st_mtime).year
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    return fallback or ""
+
+
+def extract_time_range(text: str) -> str:
+    m = re.search(
+        r"(?P<sh>[01]?\d|2[0-3])\s*(?:時|:)\s*(?P<sm>[0-5]\d)\s*(?:分)?\s*(?:[~\-〜ー一]?\s*)"
+        r"(?P<eh>[01]?\d|2[0-3])\s*(?:時|:)\s*(?P<em>[0-5]\d)",
+        text,
+    )
+    if m:
+        return f"{int(m.group('sh')):02d}:{m.group('sm')}-{int(m.group('eh')):02d}:{m.group('em')}"
+
+    times = re.findall(r"([01]?\d|2[0-3]):([0-5]\d)", text)
+    if len(times) >= 2:
+        t1 = f"{int(times[0][0]):02d}:{times[0][1]}"
+        t2 = f"{int(times[1][0]):02d}:{times[1][1]}"
+        return f"{t1}-{t2}"
+    return ""
+
+
+def extract_steps(text: str) -> str:
+    # Prefer values near shoe/icon OCR noise ('$' is commonly recognized from the shoe icon).
+    icon_hits = re.findall(r"[$¥]\s*(\d{1,3}(?:,\d{3})+)", text)
+    if icon_hits:
+        values = [int(x.replace(",", "")) for x in icon_hits]
+        filtered = [v for v in values if 200 <= v <= 50000]
+        if filtered:
+            return str(filtered[0])
+
+    comma_nums = re.findall(r"\b\d{1,3}(?:,\d{3})+\b", text)
+    if comma_nums:
+        values = [int(x.replace(",", "")) for x in comma_nums]
+        filtered = [v for v in values if 200 <= v <= 50000]
+        if filtered:
+            # OCR variants may include a spurious prefixed digit (e.g. 85,501 vs 5,501).
+            return str(min(filtered))
+
+    plain_nums = re.findall(r"\b\d{4,6}\b", text)
+    values = [int(x) for x in plain_nums if 200 <= int(x) <= 50000]
+    return str(max(values)) if values else ""
+
+
+def extract_active_time(text: str) -> str:
+    m = re.search(r"(\d{1,3})\s*分\s*([0-5]?\d)\s*秒", text)
+    if m:
+        return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+
+    mmss = re.findall(r"\b([0-9]{1,3}):([0-5]\d)\b", text)
+    if not mmss:
+        return ""
+    best_m, best_s = max(((int(mm), int(ss)) for mm, ss in mmss), key=lambda x: (x[0], x[1]))
+    return f"{best_m:02d}:{best_s:02d}"
+
+
+def extract_distance_km(text: str) -> str:
+    km_values = re.findall(r"\b(\d+(?:\.\d+)?)\s*km\b", text, flags=re.IGNORECASE)
+    if not km_values:
+        return ""
+    values = [float(v) for v in km_values]
+    return f"{max(values):.2f}"
+
+
+def extract_heart_rate_bpm(text: str) -> str:
+    m = re.search(r"\b(\d{2,3})\s*bpm\b", text, flags=re.IGNORECASE)
+    return m.group(1) if m else ""
+
+
+def extract_pace_per_km(text: str) -> str:
+    m = re.search(r"\b([0-2]?\d:[0-5]\d)\s*/\s*km\b", text, flags=re.IGNORECASE)
+    if not m:
+        return ""
+    mm, ss = m.group(1).split(":")
+    return f"{int(mm):02d}:{ss}"

@@ -174,3 +174,20 @@ Notes:
 - `max_*` fields may be blank when screenshots do not expose reliable maxima.
 - `avg_speed` is derived from `pace_per_km` when available.
 - `avg_stride_cm` and `avg_cadence` are derived from distance/steps/time when possible.
+
+## Module Structure
+
+OCR batch logic has been split into reusable modules.
+
+- `extract_numbers.py`
+  - CLI entrypoint and orchestration only.
+- `ocr_adapter.py`
+  - Tesseract call, image preprocess, OCR text normalization.
+- `parser.py`
+  - Extracts raw fields from OCR text (date, steps, distance, pace, etc.).
+- `metrics_builder.py`
+  - Converts parsed fields into API-compatible metrics (`avg_stride_cm`, `avg_cadence`, etc.).
+- `io_utils.py`
+  - Image collection and CSV writing.
+- `models.py`
+  - `RunMetrics` dataclass and CSV schema.

@@ -5,7 +5,7 @@ const path = require('path');
 const repo = require('./repo');
 const imageRepo = require('./image_repo');
 const imageService = require('./image_service');
-const visionService = require('./vision_service');
+const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
 const googleFitService = require('./google_fit_service');
@@ -693,7 +693,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     let result = {};
     let ocrFailed = false;
     try {
-      const analyzed = await visionService.analyzeImage(filename);
+      const analyzed = await ocrComponent.analyzeScreenOcr(filename);
       result = analyzed && typeof analyzed === 'object' ? analyzed : {};
       
     } catch (ocrErr) {
@@ -958,6 +958,26 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch OCR Mock (componentized entry point)
+app.post('/api/analyze/batch/mock', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+    if (items.length === 0) {
+      return res.status(400).json({ error: 'items is required (array)' });
+    }
+
+    const batchResult = await ocrComponent.analyzeBatchMock(items);
+    return res.json({
+      success: true,
+      mode: 'batch-mock',
+      ...batchResult
+    });
+  } catch (err) {
+    console.error("Batch Mock Error:", err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

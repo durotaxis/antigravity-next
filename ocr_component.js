@@ -8,6 +8,14 @@ function normalizeStoredFilename(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function toBool(value, defaultValue = false) {
+  if (value === undefined || value === null) return defaultValue;
+  const text = String(value).trim().toLowerCase();
+  if (text === '1' || text === 'true' || text === 'yes' || text === 'on') return true;
+  if (text === '0' || text === 'false' || text === 'no' || text === 'off') return false;
+  return defaultValue;
+}
+
 function formatDate(value) {
   if (!value) return null;
   const text = String(value).trim();
@@ -43,8 +51,8 @@ function pickItemMode(item = {}, job = {}) {
   const raw = String(item.mode || '').toLowerCase().trim();
   if (raw === 'vision' || raw === 'mock') return raw;
 
-  if (item.useVision === true) return 'vision';
-  if (job.use_vision_default === true) return 'vision';
+  if (toBool(item.useVision, false)) return 'vision';
+  if (toBool(job.use_vision_default, false)) return 'vision';
   return 'mock';
 }
 
@@ -78,8 +86,8 @@ async function analyzeBatchJob(payload = {}) {
 
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i] || {};
+    const mode = pickItemMode(item, job);
     try {
-      const mode = pickItemMode(item, job);
       let data;
       const requestedFilename = item.filename ? String(item.filename).trim() : null;
       const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
@@ -110,11 +118,12 @@ async function analyzeBatchJob(payload = {}) {
         item_id: item.item_id || item.itemId || null,
         index: i,
         ok: false,
-        mode: 'vision',
+        mode,
         input: {
           filename: item.filename || null,
           runId: item.runId || item.run_id || null,
-          date: item.date || null
+          date: item.date || null,
+          requested_mode: mode
         },
         error: error && error.message ? String(error.message) : 'Batch OCR mock failed'
       });

@@ -1057,6 +1057,7 @@ app.post('/api/analyze/batch', async (req, res) => {
     const payload = req.body && typeof req.body === 'object' ? req.body : {};
     const items = Array.isArray(payload.items) ? payload.items : [];
     const persist = toBool(payload.persist, false);
+    const requireVisionForPersist = toBool(payload.require_vision_for_persist, false);
     if (items.length === 0) {
       return res.status(400).json({ error: 'items is required (array)' });
     }
@@ -1072,6 +1073,15 @@ app.post('/api/analyze/batch', async (req, res) => {
             item_id: row && (row.item_id || null),
             ok: false,
             reason: 'OCR_FAILED'
+          });
+          continue;
+        }
+        if (requireVisionForPersist && row.mode !== 'vision') {
+          persistResults.push({
+            item_id: row.item_id || null,
+            ok: false,
+            reason: 'MOCK_NOT_ALLOWED',
+            mode: row.mode
           });
           continue;
         }

@@ -171,6 +171,98 @@ input[type="date"]:focus {
     transform: translateY(0);
 }
 
+.batch-toolbar {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.batch-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.batch-input {
+    width: 100%;
+    min-height: 120px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: rgba(15, 23, 42, 0.6);
+    color: var(--text-primary);
+    padding: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    resize: vertical;
+    outline: none;
+}
+
+.batch-input:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.batch-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.batch-load-btn {
+    margin-left: auto;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    min-width: auto;
+}
+
+.batch-image-picker {
+    margin-bottom: 10px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 10px;
+    min-height: 44px;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.batch-image-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    background: rgba(15, 23, 42, 0.85);
+    color: #cfe8ff;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+}
+
+.batch-image-item input {
+    accent-color: #38bdf8;
+}
+
+.batch-result {
+    margin-top: 12px;
+    background: rgba(2, 6, 23, 0.9);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 12px;
+    color: #cbd5e1;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 240px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+}
+
 /* Summary Section */
 .summary-grid {
     display: grid;

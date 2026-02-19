@@ -28,6 +28,34 @@
         <section class="controls glass-card">
             <input type="date" id="dateInput">
             <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
+            <label class="batch-toggle">
+                <input type="checkbox" id="geminiToggle" checked>
+                <span>Use Gemini API</span>
+            </label>
+        </section>
+
+        <section class="glass-card">
+            <h3 style="margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
+                Batch OCR
+            </h3>
+            <div class="batch-toolbar">
+                <label class="batch-toggle">
+                    <input type="checkbox" id="batchPersistToggle" checked>
+                    <span>Persist to DB</span>
+                </label>
+                <label class="batch-toggle">
+                    <input type="checkbox" id="batchVisionToggle" checked>
+                    <span>Use Vision (Python OCR)</span>
+                </label>
+                <button id="batchLoadImagesBtn" class="btn-primary batch-load-btn" type="button">LOAD IMAGES</button>
+            </div>
+            <div id="batchImagePicker" class="batch-image-picker">No images loaded yet.</div>
+            <textarea id="batchFilenamesInput" class="batch-input"
+                placeholder="Optional: one stored filename per line (manual input)&#10;Example:&#10;upload_04a5cee87050.png"></textarea>
+            <div class="batch-actions">
+                <button id="runBatchBtn" class="btn-primary">RUN BATCH</button>
+            </div>
+            <pre id="batchResult" class="batch-result">Batch result will appear here.</pre>
         </section>
 
         <section>

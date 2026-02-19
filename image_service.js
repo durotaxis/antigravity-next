@@ -147,7 +147,8 @@ async function getInboxFiles() {
 /**
  * Import specific selected files from Inbox to Store and link to runId
  */
-async function importSelectedFiles(filenames, runId) {
+async function importSelectedFiles(filenames, runId, options = {}) {
+    const skipAdvice = options && options.skipAdvice === true;
     const results = [];
     for (const file of filenames) {
         try {
@@ -245,7 +246,7 @@ async function importSelectedFiles(filenames, runId) {
                     if (fitData && fitData.step_count > 0) {
                         const advice = existingSummary
                             ? existingSummary.message
-                            : await geminiService.generateAdvice(fitData);
+                            : (skipAdvice ? null : await geminiService.generateAdvice(fitData));
 
                         const finalAvgSpeed = intradayAvgSpeed > 0 ? intradayAvgSpeed : 0;
                         const finalMaxSpeed = Number(fitData.max_speed) > 0

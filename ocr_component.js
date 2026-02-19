@@ -1,4 +1,8 @@
 const visionService = require('./vision_service');
+const path = require('path');
+const fs = require('fs').promises;
+
+const STORE_DIR = path.join(__dirname, 'public/assets/store');
 
 function formatDate(value) {
   if (!value) return null;
@@ -31,40 +35,70 @@ async function analyzeScreenOcr(filename) {
   return visionService.analyzeImage(filename);
 }
 
-async function analyzeBatchMock(items = []) {
+function pickItemMode(item = {}, job = {}) {
+  const raw = String(item.mode || '').toLowerCase().trim();
+  if (raw === 'vision' || raw === 'mock') return raw;
+
+  if (item.useVision === true) return 'vision';
+  if (job.use_vision_default === true) return 'vision';
+  return 'mock';
+}
+
+async function fileExistsInStore(filename) {
+  if (!filename) return false;
+  const full = path.join(STORE_DIR, String(filename));
+  try {
+    await fs.access(full);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function analyzeBatchJob(payload = {}) {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const job = payload.job && typeof payload.job === 'object' ? payload.job : {};
+  const startedAt = new Date().toISOString();
   const results = [];
 
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.length; i += 1) {
     const item = items[i] || {};
     try {
-      const useVision = item.useVision === true;
+      const mode = pickItemMode(item, job);
       let data;
+      const requestedFilename = item.filename ? String(item.filename) : null;
+      const hasFile = await fileExistsInStore(requestedFilename);
+      const useVision = mode === 'vision' && hasFile;
 
-      if (useVision && item.filename) {
-        data = await analyzeScreenOcr(String(item.filename));
+      if (useVision && requestedFilename) {
+        data = await analyzeScreenOcr(requestedFilename);
       } else {
         data = buildMockOcrResult(item, i);
       }
 
       results.push({
+        item_id: item.item_id || item.itemId || null,
         index: i,
         ok: true,
         mode: useVision ? 'vision' : 'mock',
         input: {
-          filename: item.filename || null,
-          runId: item.runId || null,
-          date: item.date || null
+          filename: requestedFilename,
+          runId: item.runId || item.run_id || null,
+          date: item.date || null,
+          requested_mode: mode,
+          fallback_reason: !useVision && mode === 'vision' ? 'FILE_NOT_FOUND' : null
         },
         data
       });
     } catch (error) {
       results.push({
+        item_id: item.item_id || item.itemId || null,
         index: i,
         ok: false,
         mode: 'vision',
         input: {
           filename: item.filename || null,
-          runId: item.runId || null,
+          runId: item.runId || item.run_id || null,
           date: item.date || null
         },
         error: error && error.message ? String(error.message) : 'Batch OCR mock failed'
@@ -75,6 +109,12 @@ async function analyzeBatchMock(items = []) {
   const success = results.filter(r => r.ok).length;
   const failed = results.length - success;
   return {
+    job: {
+      job_id: job.job_id || payload.job_id || `mock-${Date.now()}`,
+      source: job.source || 'manual',
+      started_at: startedAt,
+      finished_at: new Date().toISOString()
+    },
     total: results.length,
     success,
     failed,
@@ -82,7 +122,12 @@ async function analyzeBatchMock(items = []) {
   };
 }
 
+async function analyzeBatchMock(items = []) {
+  return analyzeBatchJob({ job: { source: 'legacy-mock' }, items });
+}
+
 module.exports = {
   analyzeScreenOcr,
-  analyzeBatchMock
+  analyzeBatchMock,
+  analyzeBatchJob
 };

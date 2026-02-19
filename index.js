@@ -213,6 +213,78 @@ function pickText(preferred, fallback) {
   return b.length > 0 ? b : null;
 }
 
+function toBool(value, defaultValue = false) {
+  if (value === undefined || value === null) return defaultValue;
+  const text = String(value).trim().toLowerCase();
+  if (text === '1' || text === 'true' || text === 'yes' || text === 'on') return true;
+  if (text === '0' || text === 'false' || text === 'no' || text === 'off') return false;
+  return defaultValue;
+}
+
+function resolveBatchRunDate(batchItem) {
+  const runId = batchItem && batchItem.input && batchItem.input.runId ? String(batchItem.input.runId).trim() : '';
+  if (runId) return runId;
+
+  const inputDate = batchItem && batchItem.input && batchItem.input.date ? String(batchItem.input.date).trim() : '';
+  if (inputDate) return inputDate;
+
+  const dataDate = batchItem && batchItem.data && batchItem.data.date ? String(batchItem.data.date).trim() : '';
+  return dataDate || '';
+}
+
+async function persistBatchItem(batchItem) {
+  const runDate = resolveBatchRunDate(batchItem);
+  if (!runDate) {
+    return { ok: false, reason: 'MISSING_RUN_DATE' };
+  }
+
+  const data = (batchItem && batchItem.data && typeof batchItem.data === 'object') ? batchItem.data : {};
+  const summary = {
+    date: runDate,
+    step_count: Number(data.step_count || 0),
+    total_distance_km: Number(data.total_distance_km || 0),
+    total_time: data.total_time || null,
+    calories_kcal: Number(data.calories_kcal || 0),
+    max_stride: Number(data.max_stride_cm || 0),
+    avg_stride: Number(data.avg_stride_cm || 0),
+    hr_max: Number(data.max_heart_rate || 0),
+    hr_avg: Number(data.avg_heart_rate || 0),
+    avg_cadence: Number(data.avg_cadence || 0),
+    max_cadence: Number(data.max_cadence || 0),
+    avg_speed: Number(data.avg_speed || 0),
+    max_speed: Number(data.max_speed || 0),
+    message: null
+  };
+
+  await repo.saveDailySummary(summary);
+
+  const storedFilename = batchItem && batchItem.input && batchItem.input.filename
+    ? String(batchItem.input.filename).trim()
+    : '';
+
+  if (!storedFilename) {
+    return { ok: true, persisted_date: runDate, linked_asset: false };
+  }
+
+  const asset = await imageRepo.findAssetByStoredFilename(storedFilename);
+  if (!asset || !asset.asset_id) {
+    return { ok: true, persisted_date: runDate, linked_asset: false, reason: 'ASSET_NOT_FOUND' };
+  }
+
+  await imageRepo.updateAssetMetricsById(asset.asset_id, {
+    step_count: summary.step_count,
+    total_distance_km: summary.total_distance_km,
+    total_time: summary.total_time,
+    avg_speed: summary.avg_speed,
+    avg_heart_rate: summary.hr_avg,
+    calories_kcal: summary.calories_kcal,
+    avg_stride_cm: summary.avg_stride
+  });
+  await imageRepo.linkImageToRun(runDate, asset.asset_id);
+
+  return { ok: true, persisted_date: runDate, linked_asset: true, asset_id: asset.asset_id };
+}
+
 async function computeDailySummaryFromCache(dateString) {
   const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
   const intradayFile = path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`);
@@ -592,7 +664,8 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     const { runId } = req.params;
     const { filenames } = req.body;
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
-    const results = await imageService.importSelectedFiles(filenames, runId);
+    const skipAdvice = toBool(req.body && req.body.skipAdvice, false);
+    const results = await imageService.importSelectedFiles(filenames, runId, { skipAdvice });
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -604,6 +677,18 @@ app.get('/api/runs/:runId/images', async (req, res) => {
     const { runId } = req.params;
     const images = await imageRepo.getImagesForRun(runId);
     res.json(images || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/images/candidates', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!date) return res.status(400).json({ error: 'date is required' });
+
+    const candidates = await imageRepo.getBatchCandidatesForDate(date);
+    res.json(candidates || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -653,6 +738,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const forcedRunId = (req.body && (req.body.runId || req.body.date))
       ? String(req.body.runId || req.body.date).trim()
       : '';
+    const skipAdvice = toBool(req.body && req.body.skipAdvice, toBool(process.env.SKIP_ADVICE_GENERATION, false));
 
     const existingAsset = await imageRepo.findAssetByHash(fileHash);
     if (existingAsset) {
@@ -900,7 +986,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       });
 
       // 笘・Generate Advice (Async update)
-      try {
+      if (!skipAdvice) {
+        try {
         
 
         // 笘・FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
@@ -943,8 +1030,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           message: adviceToSave // Update with advice
         });
         
-      } catch (adviceErr) {
-        console.error("Advice Gen Failed:", adviceErr.message);
+        } catch (adviceErr) {
+          console.error("Advice Gen Failed:", adviceErr.message);
+        }
       }
 
       // 逕ｻ蜒上ｒRun縺ｫ邏蝉ｻ倥￠
@@ -961,14 +1049,76 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
   }
 });
 
-// Batch OCR Mock (componentized entry point)
-app.post('/api/analyze/batch/mock', async (req, res) => {
+// Batch OCR (componentized entry point)
+app.post('/api/analyze/batch', async (req, res) => {
   try {
-    const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const persist = toBool(payload.persist, false);
     if (items.length === 0) {
       return res.status(400).json({ error: 'items is required (array)' });
     }
 
+    const batchResult = await ocrComponent.analyzeBatchJob(payload);
+    let persisted = null;
+
+    if (persist) {
+      const persistResults = [];
+      for (const row of batchResult.results || []) {
+        if (!row || !row.ok) {
+          persistResults.push({
+            item_id: row && (row.item_id || null),
+            ok: false,
+            reason: 'OCR_FAILED'
+          });
+          continue;
+        }
+
+        try {
+          const one = await persistBatchItem(row);
+          persistResults.push({
+            item_id: row.item_id || null,
+            ...one
+          });
+        } catch (persistErr) {
+          persistResults.push({
+            item_id: row.item_id || null,
+            ok: false,
+            reason: persistErr && persistErr.message ? String(persistErr.message) : 'PERSIST_FAILED'
+          });
+        }
+      }
+
+      const persistSuccess = persistResults.filter(r => r.ok).length;
+      persisted = {
+        requested: true,
+        total: persistResults.length,
+        success: persistSuccess,
+        failed: persistResults.length - persistSuccess,
+        results: persistResults
+      };
+    }
+
+    return res.json({
+      success: true,
+      mode: 'batch',
+      ...batchResult,
+      persisted
+    });
+  } catch (err) {
+    console.error("Batch OCR Error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch OCR Mock (legacy endpoint)
+app.post('/api/analyze/batch/mock', async (req, res) => {
+  try {
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (items.length === 0) {
+      return res.status(400).json({ error: 'items is required (array)' });
+    }
     const batchResult = await ocrComponent.analyzeBatchMock(items);
     return res.json({
       success: true,

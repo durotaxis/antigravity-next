@@ -158,6 +158,82 @@ function updateAssetMetrics(storedFilename, metrics) {
 }
 
 /**
+ * Get batch candidate images by run date.
+ * Includes already linked assets and assets whose original filename contains YYYYMMDD.
+ */
+function getBatchCandidatesForDate(runDate) {
+    return new Promise((resolve, reject) => {
+        const token = String(runDate || '').replace(/-/g, '').trim();
+        if (!token) return resolve([]);
+
+        const sql = `
+            SELECT 
+                a.asset_id,
+                a.stored_filename,
+                a.original_filename,
+                a.created_at,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM run_images r
+                        WHERE r.asset_id = a.asset_id AND r.run_id = ?
+                    ) THEN 1
+                    ELSE 0
+                END AS linked
+            FROM image_assets a
+            WHERE EXISTS (
+                SELECT 1 FROM run_images r2
+                WHERE r2.asset_id = a.asset_id AND r2.run_id = ?
+            )
+            OR REPLACE(REPLACE(REPLACE(IFNULL(a.original_filename, ''), '-', ''), '_', ''), ' ', '') LIKE ?
+            ORDER BY linked DESC, a.created_at DESC
+            LIMIT 300
+        `;
+
+        db.all(sql, [runDate, runDate, `%${token}%`], (err, rows) => {
+            if (err) return reject(err);
+            const found = rows || [];
+            if (found.length > 0) return resolve(found);
+
+            // Fallback: when no date-matched assets exist, provide latest assets so UI can still proceed.
+            const fallbackSql = `
+                SELECT 
+                    a.asset_id,
+                    a.stored_filename,
+                    a.original_filename,
+                    a.created_at,
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM run_images r
+                            WHERE r.asset_id = a.asset_id AND r.run_id = ?
+                        ) THEN 1
+                        ELSE 0
+                    END AS linked
+                FROM image_assets a
+                ORDER BY a.created_at DESC
+                LIMIT 80
+            `;
+
+            db.all(fallbackSql, [runDate], (fallbackErr, fallbackRows) => {
+                if (fallbackErr) return reject(fallbackErr);
+                resolve(fallbackRows || []);
+            });
+        });
+    });
+}
+
+/**
+ * Find asset by stored filename
+ */
+function findAssetByStoredFilename(storedFilename) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM image_assets WHERE stored_filename = ?', [storedFilename], (err, row) => {
+            if (err) return reject(err);
+            resolve(row || null);
+        });
+    });
+}
+
+/**
  * Update analysis metrics for an asset by asset_id.
  * This is safer than stored_filename when assets are de-duplicated by file_hash.
  */
@@ -216,8 +292,10 @@ module.exports = {
     createAsset,
     registerAsset,
     findAssetByHash,
+    findAssetByStoredFilename,
     linkImageToRun,
     getImagesForRun,
+    getBatchCandidatesForDate,
     unlinkImageFromRun,
     updateAssetMetrics,
     updateAssetMetricsById,

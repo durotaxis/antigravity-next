@@ -1,6 +1,7 @@
 const WR_STRIDE = 200.0;
 const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
 const batchSelectedFiles = new Set();
+let latestBatchRunToken = 0;
 
 function isGeminiEnabled() {
     const toggle = document.getElementById('geminiToggle');
@@ -981,7 +982,7 @@ async function runBatchFromScreen() {
     const payload = {
         persist: !!(persistToggle && persistToggle.checked),
         job: {
-            job_id: `ui-${Date.now()}`,
+            job_id: '',
             source: 'screen-ui',
             use_vision_default: false
         },
@@ -995,6 +996,9 @@ async function runBatchFromScreen() {
     };
 
     const originalText = runBtn.textContent;
+    const runToken = ++latestBatchRunToken;
+    const expectedJobId = `ui-${Date.now()}-${runToken}`;
+    payload.job.job_id = expectedJobId;
     runBtn.disabled = true;
     runBtn.textContent = 'RUNNING...';
     renderBatchResult('Running batch...');
@@ -1007,9 +1011,14 @@ async function runBatchFromScreen() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `Batch failed: ${res.status}`);
+        if (runToken !== latestBatchRunToken) return;
+        if (data && data.job && data.job.job_id && data.job.job_id !== expectedJobId) {
+            return;
+        }
 
         renderBatchResult({
             mode: data.mode,
+            job_id: data && data.job ? data.job.job_id : expectedJobId,
             total: data.total,
             success: data.success,
             failed: data.failed,
@@ -1021,9 +1030,12 @@ async function runBatchFromScreen() {
         await loadData();
         await loadBatchImageCandidates();
     } catch (err) {
+        if (runToken !== latestBatchRunToken) return;
         renderBatchResult(`Batch Error: ${err.message}`);
     } finally {
-        runBtn.disabled = false;
-        runBtn.textContent = originalText;
+        if (runToken === latestBatchRunToken) {
+            runBtn.disabled = false;
+            runBtn.textContent = originalText;
+        }
     }
 }

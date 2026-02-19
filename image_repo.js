@@ -1,5 +1,9 @@
 const db = require('./db');
 
+function normalizeStoredFilename(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
 /**
  * Create a new image asset record
  */
@@ -226,7 +230,15 @@ function getBatchCandidatesForDate(runDate) {
  */
 function findAssetByStoredFilename(storedFilename) {
     return new Promise((resolve, reject) => {
-        db.get('SELECT * FROM image_assets WHERE stored_filename = ?', [storedFilename], (err, row) => {
+        const normalized = normalizeStoredFilename(storedFilename);
+        if (!normalized) return resolve(null);
+
+        const sql = `
+            SELECT * FROM image_assets
+            WHERE lower(trim(stored_filename)) = ?
+            LIMIT 1
+        `;
+        db.get(sql, [normalized], (err, row) => {
             if (err) return reject(err);
             resolve(row || null);
         });

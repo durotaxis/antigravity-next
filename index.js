@@ -222,6 +222,8 @@ function toBool(value, defaultValue = false) {
 }
 
 function resolveBatchRunDate(batchItem) {
+  // Date decision rule (fixed): UI指定 > runId > OCR抽出 > fallback
+  // In this service: input.runId -> input.date -> data.date
   const runId = batchItem && batchItem.input && batchItem.input.runId ? String(batchItem.input.runId).trim() : '';
   if (runId) return runId;
 

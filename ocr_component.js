@@ -4,6 +4,10 @@ const fs = require('fs').promises;
 
 const STORE_DIR = path.join(__dirname, 'public/assets/store');
 
+function normalizeStoredFilename(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function formatDate(value) {
   if (!value) return null;
   const text = String(value).trim();
@@ -44,14 +48,25 @@ function pickItemMode(item = {}, job = {}) {
   return 'mock';
 }
 
-async function fileExistsInStore(filename) {
-  if (!filename) return false;
-  const full = path.join(STORE_DIR, String(filename));
+async function resolveStoredFilenameInStore(filename) {
+  const raw = String(filename || '').trim();
+  if (!raw) return null;
+
+  const full = path.join(STORE_DIR, raw);
   try {
     await fs.access(full);
-    return true;
+    return raw;
   } catch {
-    return false;
+    // fall through
+  }
+
+  try {
+    const entries = await fs.readdir(STORE_DIR);
+    const normalized = normalizeStoredFilename(raw);
+    const matched = entries.find((name) => normalizeStoredFilename(name) === normalized);
+    return matched || null;
+  } catch {
+    return null;
   }
 }
 
@@ -66,12 +81,12 @@ async function analyzeBatchJob(payload = {}) {
     try {
       const mode = pickItemMode(item, job);
       let data;
-      const requestedFilename = item.filename ? String(item.filename) : null;
-      const hasFile = await fileExistsInStore(requestedFilename);
-      const useVision = mode === 'vision' && hasFile;
+      const requestedFilename = item.filename ? String(item.filename).trim() : null;
+      const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
+      const useVision = mode === 'vision' && !!resolvedFilename;
 
-      if (useVision && requestedFilename) {
-        data = await analyzeScreenOcr(requestedFilename);
+      if (useVision && resolvedFilename) {
+        data = await analyzeScreenOcr(resolvedFilename);
       } else {
         data = buildMockOcrResult(item, i);
       }
@@ -82,7 +97,7 @@ async function analyzeBatchJob(payload = {}) {
         ok: true,
         mode: useVision ? 'vision' : 'mock',
         input: {
-          filename: requestedFilename,
+          filename: resolvedFilename || requestedFilename,
           runId: item.runId || item.run_id || null,
           date: item.date || null,
           requested_mode: mode,

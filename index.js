@@ -538,18 +538,9 @@ app.get('/api/stride', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    let chartData = [];
-
-    // Prefer local cache to avoid Fit API rate limits.
-    try {
-      const cacheFile = path.join(__dirname, 'storage', 'cache', `intraday_${date}.json`);
-      const raw = await fs.readFile(cacheFile, 'utf8');
-      const points = JSON.parse(raw);
-      chartData = Array.isArray(points) ? points : [];
-    } catch {
-      // fall back to Fit API
-      chartData = await googleFitService.getIntradayMetrics(date);
-    }
+    // Always go through googleFitService so the latest filtering rules are applied.
+    // The service itself already uses raw-bucket cache to avoid unnecessary API calls.
+    const chartData = await googleFitService.getIntradayMetrics(date);
 
     // Keep daily_summary in sync with intraday source-of-truth.
     // Deprecated: write side-effect in GET is disabled.

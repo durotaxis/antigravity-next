@@ -180,7 +180,7 @@ function getBatchCandidatesForDate(runDate) {
             FROM image_assets a
             JOIN run_images r ON r.asset_id = a.asset_id
             WHERE r.run_id = ?
-            ORDER BY a.created_at DESC
+            ORDER BY a.created_at ASC
             LIMIT 300
         `;
 

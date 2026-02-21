@@ -535,9 +535,9 @@ function processIntradayBuckets(buckets) {
             speed = parseFloat((distance * 0.06).toFixed(1));
         }
 
-        // HYBRID FILTER LOGIC
-        const isHighIntensity = heartRate > 100;
-        if ((steps > 0 || heartRate > 0) && isTicWatch && (isRunningActivity || isHighIntensity)) {
+        // Strict running filter:
+        // keep only TicWatch/Wear-source buckets explicitly labeled as running (activity.segment = 8).
+        if ((steps > 0 || heartRate > 0) && isTicWatch && isRunningActivity) {
             chartData.push({
                 time, steps, distance: parseFloat(distance.toFixed(1)),
                 stride: parseFloat(stride.toFixed(1)), heartRate: Math.round(heartRate),

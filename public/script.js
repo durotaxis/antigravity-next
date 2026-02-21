@@ -47,6 +47,14 @@ function restoreRunDateInput() {
     const dateInput = document.getElementById('dateInput');
     if (!dateInput) return;
 
+    const params = new URLSearchParams(window.location.search || '');
+    const fromQuery = String(params.get('date') || '').trim();
+    if (isValidRunDate(fromQuery)) {
+        dateInput.value = fromQuery;
+        localStorage.setItem(RUN_DATE_STORAGE_KEY, fromQuery);
+        return;
+    }
+
     const saved = localStorage.getItem(RUN_DATE_STORAGE_KEY);
     const initial = isValidRunDate(saved) ? saved : getTodayLocalDateString();
     dateInput.value = initial;
@@ -1045,9 +1053,8 @@ async function runBatchFromScreen() {
             preview: Array.isArray(data.results) ? data.results.slice(0, 3) : []
         });
 
-        await loadRunHistory();
-        await loadData();
-        await loadBatchImageCandidates();
+        Promise.allSettled([loadRunHistory(), loadData(), loadBatchImageCandidates()])
+            .catch(() => { /* ignore refresh errors */ });
     } catch (err) {
         if (runToken !== latestBatchRunToken) return;
         renderBatchResult(`Batch Error: ${err.message}`);

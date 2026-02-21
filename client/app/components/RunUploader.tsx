@@ -71,9 +71,7 @@ export default function RunUploader() {
                 return;
             }
 
-            // Reload to show new data
             window.location.reload();
-
         } catch (err: unknown) {
             console.error('Error uploading:', err);
             const message = err instanceof Error ? err.message : 'Unknown error';
@@ -82,6 +80,8 @@ export default function RunUploader() {
             e.target.value = '';
         }
     };
+
+    const batchUrl = `${API_BASE}/?date=${encodeURIComponent(runDate)}`;
 
     return (
         <div className="mb-6">
@@ -95,6 +95,14 @@ export default function RunUploader() {
                     disabled={isUploading}
                     className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white"
                 />
+                <a
+                    href={batchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto inline-flex items-center rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-700 hover:bg-cyan-100"
+                >
+                    Open Batch OCR
+                </a>
             </div>
             <div className="relative">
                 <label

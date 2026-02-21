@@ -503,7 +503,16 @@ function processIntradayBuckets(buckets) {
                 if (isWatchOrSync) isTicWatch = true;
 
                 ds.point.forEach(p => {
-                    p.value.forEach(v => {
+                    const dataTypeName = String(p.dataTypeName || '').toLowerCase();
+                    const pointValues = Array.isArray(p.value) ? p.value : [];
+                    const summaryActivityType = Number(pointValues?.[0]?.intVal);
+                    if (
+                        (dataTypeName.includes('activity.summary') || sourceId.includes('activity.summary')) &&
+                        summaryActivityType === 8
+                    ) {
+                        isRunningActivity = true;
+                    }
+                    pointValues.forEach(v => {
                         if (sourceId.includes('step_count')) steps += (v.intVal || 0);
                         if (sourceId.includes('distance')) {
                             const dist = (v.fpVal || 0);
@@ -511,7 +520,12 @@ function processIntradayBuckets(buckets) {
                             bucketDistanceAll += dist;
                         }
                         if (sourceId.includes('heart_rate')) heartRate = (v.fpVal || v.intVal || 0);
-                        if (sourceId.includes('activity.segment') && v.intVal === 8) isRunningActivity = true;
+                        if (
+                            (dataTypeName.includes('activity.segment') || sourceId.includes('activity.segment')) &&
+                            v.intVal === 8
+                        ) {
+                            isRunningActivity = true;
+                        }
                     });
                 });
             }

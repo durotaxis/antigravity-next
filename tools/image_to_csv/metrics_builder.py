@@ -35,12 +35,27 @@ def parse_float_str(value: str) -> Optional[float]:
 
 
 def active_time_to_hhmmss(active_time: str) -> str:
+    m3 = re.match(r"^\s*(\d{1,3}):([0-5]\d):([0-5]\d)\s*$", active_time or "")
+    if m3:
+        hours = int(m3.group(1))
+        minutes = int(m3.group(2))
+        seconds = int(m3.group(3))
+        total = hours * 3600 + minutes * 60 + seconds
+        hh = total // 3600
+        mm = (total % 3600) // 60
+        ss = total % 60
+        return f"{hh:02d}:{mm:02d}:{ss:02d}"
+
     m = re.match(r"^\s*(\d{1,3}):([0-5]\d)\s*$", active_time or "")
     if not m:
         return ""
     minutes = int(m.group(1))
     seconds = int(m.group(2))
-    return f"00:{minutes:02d}:{seconds:02d}"
+    total = minutes * 60 + seconds
+    hh = total // 3600
+    mm = (total % 3600) // 60
+    ss = total % 60
+    return f"{hh:02d}:{mm:02d}:{ss:02d}"
 
 
 def pace_to_speed_kmh(pace_per_km: str) -> str:
@@ -67,6 +82,13 @@ def derive_avg_cadence(steps: str, active_time: str) -> str:
     s = parse_int_str(steps)
     if s is None or s <= 0:
         return ""
+    m3 = re.match(r"^\s*(\d{1,3}):([0-5]\d):([0-5]\d)\s*$", active_time or "")
+    if m3:
+        total_minutes = int(m3.group(1)) * 60 + int(m3.group(2)) + int(m3.group(3)) / 60.0
+        if total_minutes <= 0:
+            return ""
+        return str(int(round(s / total_minutes)))
+
     m = re.match(r"^\s*(\d{1,3}):([0-5]\d)\s*$", active_time or "")
     if not m:
         return ""

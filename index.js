@@ -214,6 +214,45 @@ function pickText(preferred, fallback) {
   return b.length > 0 ? b : null;
 }
 
+function mergePositiveAverage(current, existing, decimals = 1) {
+  const a = Number(current);
+  const b = Number(existing);
+  const hasA = Number.isFinite(a) && a > 0;
+  const hasB = Number.isFinite(b) && b > 0;
+  if (hasA && hasB) return Number((((a + b) / 2)).toFixed(decimals));
+  if (hasA) return Number(a.toFixed(decimals));
+  if (hasB) return Number(b.toFixed(decimals));
+  return 0;
+}
+
+function mergePositiveMax(current, existing, decimals = 1) {
+  const a = Number(current);
+  const b = Number(existing);
+  const max = Math.max(
+    Number.isFinite(a) && a > 0 ? a : 0,
+    Number.isFinite(b) && b > 0 ? b : 0
+  );
+  if (max <= 0) return 0;
+  return Number(max.toFixed(decimals));
+}
+
+function mergePositiveSum(current, existing, decimals = 2) {
+  const a = Number(current);
+  const b = Number(existing);
+  const sum =
+    (Number.isFinite(a) && a > 0 ? a : 0) +
+    (Number.isFinite(b) && b > 0 ? b : 0);
+  if (sum <= 0) return 0;
+  return Number(sum.toFixed(decimals));
+}
+
+function mergeTimeSum(currentHms, existingHms) {
+  const secA = parseHmsToSeconds(currentHms);
+  const secB = parseHmsToSeconds(existingHms);
+  const sum = Math.max(0, secA) + Math.max(0, secB);
+  return sum > 0 ? secondsToHms(sum) : null;
+}
+
 function toBool(value, defaultValue = false) {
   if (value === undefined || value === null) return defaultValue;
   const text = String(value).trim().toLowerCase();
@@ -241,21 +280,35 @@ async function persistBatchItem(batchItem) {
     return { ok: false, reason: 'MISSING_RUN_DATE' };
   }
 
+  const existingSummary = await repo.getDailySummary(runDate);
   const data = (batchItem && batchItem.data && typeof batchItem.data === 'object') ? batchItem.data : {};
+  const currentStepCount = Number(data.step_count || 0);
+  const currentTotalDistanceKm = Number(data.total_distance_km || 0);
+  const currentTotalTime = data.total_time || null;
+  const currentCaloriesKcal = Number(data.calories_kcal || 0);
+  const currentMaxStride = Number(data.max_stride_cm || 0);
+  const currentAvgStride = Number(data.avg_stride_cm || 0);
+  const currentHrMax = Number(data.max_heart_rate || 0);
+  const currentHrAvg = Number(data.avg_heart_rate || 0);
+  const currentAvgCadence = Number(data.avg_cadence || 0);
+  const currentMaxCadence = Number(data.max_cadence || 0);
+  const currentAvgSpeed = Number(data.avg_speed || 0);
+  const currentMaxSpeed = Number(data.max_speed || 0);
+
   const summary = {
     date: runDate,
-    step_count: Number(data.step_count || 0),
-    total_distance_km: Number(data.total_distance_km || 0),
-    total_time: data.total_time || null,
-    calories_kcal: Number(data.calories_kcal || 0),
-    max_stride: Number(data.max_stride_cm || 0),
-    avg_stride: Number(data.avg_stride_cm || 0),
-    hr_max: Number(data.max_heart_rate || 0),
-    hr_avg: Number(data.avg_heart_rate || 0),
-    avg_cadence: Number(data.avg_cadence || 0),
-    max_cadence: Number(data.max_cadence || 0),
-    avg_speed: Number(data.avg_speed || 0),
-    max_speed: Number(data.max_speed || 0),
+    step_count: Math.round(mergePositiveSum(currentStepCount, existingSummary && existingSummary.step_count, 0)),
+    total_distance_km: mergePositiveSum(currentTotalDistanceKm, existingSummary && existingSummary.total_distance_km, 2),
+    total_time: mergeTimeSum(currentTotalTime, existingSummary && existingSummary.total_time),
+    calories_kcal: Math.round(mergePositiveSum(currentCaloriesKcal, existingSummary && existingSummary.calories_kcal, 0)),
+    max_stride: mergePositiveMax(currentMaxStride, existingSummary && existingSummary.max_stride, 1),
+    avg_stride: mergePositiveAverage(currentAvgStride, existingSummary && existingSummary.avg_stride, 1),
+    hr_max: mergePositiveMax(currentHrMax, existingSummary && existingSummary.hr_max, 0),
+    hr_avg: mergePositiveAverage(currentHrAvg, existingSummary && existingSummary.hr_avg, 0),
+    avg_cadence: mergePositiveAverage(currentAvgCadence, existingSummary && existingSummary.avg_cadence, 0),
+    max_cadence: mergePositiveMax(currentMaxCadence, existingSummary && existingSummary.max_cadence, 0),
+    avg_speed: mergePositiveAverage(currentAvgSpeed, existingSummary && existingSummary.avg_speed, 1),
+    max_speed: mergePositiveMax(currentMaxSpeed, existingSummary && existingSummary.max_speed, 1),
     message: null
   };
 
@@ -721,18 +774,12 @@ app.get('/api/images/candidates', async (req, res) => {
 });
 
 
-// 2.7 Delete Image Asset (Physical & DB)
+// 2.7 Delete Image Asset (Disabled)
 app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
-  try {
-    const { assetId } = req.params;
-    // Completely remove valid asset (User requested physical delete)
-    const changes = await imageRepo.deleteAssetWithFile(assetId);
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Delete Error:", err);
-    res.status(500).json({ error: err.message });
-  }
+  return res.status(410).json({
+    error: 'Image delete is disabled to protect summary consistency.',
+    code: 'IMAGE_DELETE_DISABLED'
+  });
 });
 
 // --- Upload & Analysis (Core Feature) ---
@@ -953,7 +1000,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         return Math.round(summaryStepCount / (sec / 60));
       })();
 
-      const finalAvgCadence = pickPositive(
+      let finalAvgCadence = pickPositive(
         result.avg_cadence,
         pickPositive(
           cacheMetrics.avg_cadence,
@@ -995,20 +1042,34 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       result.avg_speed = finalAvgSpeed;
       result.max_speed = finalMaxSpeed;
 
+      // Merge when the same run date already has OCR-derived values from another screenshot.
+      // max*: keep the strongest value, avg*: average current and existing to avoid last-write-wins drift.
+      const mergedMaxStride = mergePositiveMax(safeMaxStride, existingSummary && existingSummary.max_stride, 1);
+      const mergedAvgStride = mergePositiveAverage(safeAvgStride, existingSummary && existingSummary.avg_stride, 1);
+      const mergedMaxHR = mergePositiveMax(safeMaxHR, existingSummary && existingSummary.hr_max, 0);
+      const mergedAvgHR = mergePositiveAverage(safeAvgHR, existingSummary && existingSummary.hr_avg, 0);
+      const mergedMaxCadence = mergePositiveMax(finalMaxCadence, existingSummary && existingSummary.max_cadence, 0);
+      const mergedAvgCadence = mergePositiveAverage(finalAvgCadence, existingSummary && existingSummary.avg_cadence, 0);
+      const mergedMaxSpeed = mergePositiveMax(finalMaxSpeed, existingSummary && existingSummary.max_speed, 1);
+      const mergedAvgSpeed = mergePositiveAverage(finalAvgSpeed, existingSummary && existingSummary.avg_speed, 1);
+      const mergedStepCount = Math.round(mergePositiveSum(summaryStepCount, existingSummary && existingSummary.step_count, 0));
+      const mergedTotalDistanceKm = mergePositiveSum(summaryTotalDistanceKm, existingSummary && existingSummary.total_distance_km, 2);
+      const mergedTotalTime = mergeTimeSum(summaryTotalTime, existingSummary && existingSummary.total_time);
+
       await repo.saveDailySummary({
         date: result.date,
-        step_count: summaryStepCount,
-        total_distance_km: summaryTotalDistanceKm,
-        total_time: summaryTotalTime,
+        step_count: mergedStepCount,
+        total_distance_km: mergedTotalDistanceKm,
+        total_time: mergedTotalTime,
         calories_kcal: summaryCaloriesKcal,
-        max_stride: safeMaxStride,
-        avg_stride: safeAvgStride,
-        hr_max: safeMaxHR,
-        hr_avg: safeAvgHR,
-        avg_cadence: finalAvgCadence,
-        max_cadence: finalMaxCadence,
-        avg_speed: finalAvgSpeed,
-        max_speed: finalMaxSpeed,
+        max_stride: mergedMaxStride,
+        avg_stride: mergedAvgStride,
+        hr_max: mergedMaxHR,
+        hr_avg: mergedAvgHR,
+        avg_cadence: mergedAvgCadence,
+        max_cadence: mergedMaxCadence,
+        avg_speed: mergedAvgSpeed,
+        max_speed: mergedMaxSpeed,
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
@@ -1020,17 +1081,17 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         // 笘・FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
         const advice = await geminiService.generateAdvice({
           date: result.date,
-          step_count: summaryStepCount,
-          total_distance_km: summaryTotalDistanceKm,
+          step_count: mergedStepCount,
+          total_distance_km: mergedTotalDistanceKm,
           calories_kcal: summaryCaloriesKcal,
-          avg_stride_cm: safeAvgStride,
-          max_stride_cm: safeMaxStride, // Use Safe Value
-          avg_heart_rate: safeAvgHR,
-          max_heart_rate: safeMaxHR,    // Use Safe Value
-          avg_cadence: finalAvgCadence,
-          max_cadence: finalMaxCadence,
-          avg_speed: finalAvgSpeed,     // Add Speed
-          max_speed: finalMaxSpeed      // Add Speed
+          avg_stride_cm: mergedAvgStride,
+          max_stride_cm: mergedMaxStride,
+          avg_heart_rate: mergedAvgHR,
+          max_heart_rate: mergedMaxHR,
+          avg_cadence: mergedAvgCadence,
+          max_cadence: mergedMaxCadence,
+          avg_speed: mergedAvgSpeed,
+          max_speed: mergedMaxSpeed
         }, [req.file.path]);
 
         const adviceToSave = (advice === GEMINI_RATE_LIMIT_MESSAGE &&
@@ -1042,18 +1103,18 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
         await repo.saveDailySummary({
           date: result.date,
-          step_count: summaryStepCount,
-          total_distance_km: summaryTotalDistanceKm,
-          total_time: summaryTotalTime,
+          step_count: mergedStepCount,
+          total_distance_km: mergedTotalDistanceKm,
+          total_time: mergedTotalTime,
           calories_kcal: summaryCaloriesKcal,
-          max_stride: safeMaxStride, // Use Safe Value
-          avg_stride: safeAvgStride, // Use Safe Value
-          hr_max: safeMaxHR,         // Use Safe Value
-          hr_avg: safeAvgHR,         // Use Safe Value
-          avg_cadence: finalAvgCadence,
-          max_cadence: finalMaxCadence,
-          avg_speed: finalAvgSpeed,
-          max_speed: finalMaxSpeed,
+          max_stride: mergedMaxStride,
+          avg_stride: mergedAvgStride,
+          hr_max: mergedMaxHR,
+          hr_avg: mergedAvgHR,
+          avg_cadence: mergedAvgCadence,
+          max_cadence: mergedMaxCadence,
+          avg_speed: mergedAvgSpeed,
+          max_speed: mergedMaxSpeed,
           message: adviceToSave // Update with advice
         });
         

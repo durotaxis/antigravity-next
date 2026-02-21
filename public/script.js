@@ -785,7 +785,6 @@ async function checkAndRenderImages(date) {
                 card.innerHTML = `
                     <img src="${imgUrl}" alt="Run Image" loading="lazy" decoding="async">
                     ${overlayHTML}
-                    <div class="delete-btn" title="Remove Link">DEL</div>
                 `;
 
                 // Lightbox Trigger (on image click)
@@ -802,14 +801,6 @@ async function checkAndRenderImages(date) {
                         openLightbox(imgUrl, date, img.asset_id, hasAnalysis);
                     };
                 }
-
-                // Unlink Trigger
-                card.querySelector('.delete-btn').onclick = (e) => {
-                    e.stopPropagation();
-                    if (confirm('Are you sure you want to unlink this image?')) {
-                        unlinkImage(date, img.asset_id);
-                    }
-                };
 
                 imageContainer.appendChild(card);
             });
@@ -957,10 +948,12 @@ let lbCurrentSrc = null;
 function openLightbox(src, runId, assetId, hasAnalysis = false) {
     const lightbox = document.getElementById('lightbox');
     const img = document.getElementById('lightboxImg');
+    const unlinkBtn = document.getElementById('lbUnlinkBtn');
 
     if (lightbox && img) {
         img.src = src;
         lightbox.style.display = 'flex';
+        if (unlinkBtn) unlinkBtn.style.display = 'none';
 
         // LOCK SCROLL
         document.body.style.overflow = 'hidden';
@@ -995,16 +988,7 @@ document.getElementById('lightbox')?.addEventListener('click', (e) => {
 });
 
 document.getElementById('lbUnlinkBtn')?.addEventListener('click', () => {
-    if (lbCurrentRunId && lbCurrentAssetId) {
-        if (confirm('Delete this image from run?')) {
-            unlinkImage(lbCurrentRunId, lbCurrentAssetId).then(() => {
-                closeLightbox();
-            });
-        }
-    } else {
-        console.error('Missing context for unlink', lbCurrentRunId, lbCurrentAssetId);
-        alert('Error: Image context missing. Close and reopen to try again.');
-    }
+    alert('Image delete is disabled.');
 });
 
 async function loadDailyMessage(date) {

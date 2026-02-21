@@ -69,10 +69,25 @@ def extract_steps(text: str) -> str:
 
 
 def extract_active_time(text: str) -> str:
-    m = re.search(r"(\d{1,3})\s*分\s*([0-5]?\d)\s*秒", text)
-    if m:
-        return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+    # 1) Japanese explicit duration: 1時間04分07秒 / 64分07秒
+    hms = re.search(r"(\d{1,2})\s*(?:時間|時)\s*([0-5]?\d)\s*分\s*([0-5]?\d)\s*秒", text)
+    if hms:
+        return f"{int(hms.group(1)):02d}:{int(hms.group(2)):02d}:{int(hms.group(3)):02d}"
 
+    ms = re.search(r"(\d{1,3})\s*分\s*([0-5]?\d)\s*秒", text)
+    if ms:
+        return f"{int(ms.group(1)):02d}:{int(ms.group(2)):02d}"
+
+    # 2) Colon format with hours (from split table cumulative time): 1:04:07
+    hms_colon = re.findall(r"\b([0-9]{1,2}):([0-5]\d):([0-5]\d)\b", text)
+    if hms_colon:
+        best_h, best_m, best_s = max(
+            ((int(h), int(m), int(s)) for h, m, s in hms_colon),
+            key=lambda x: (x[0] * 3600 + x[1] * 60 + x[2]),
+        )
+        return f"{best_h:02d}:{best_m:02d}:{best_s:02d}"
+
+    # 3) Fallback: MM:SS (short runs)
     mmss = re.findall(r"\b([0-9]{1,3}):([0-5]\d)\b", text)
     if not mmss:
         return ""

@@ -222,16 +222,16 @@ function toBool(value, defaultValue = false) {
 }
 
 function resolveBatchRunDate(batchItem) {
-  // Date decision rule (fixed): UI指定 > runId > OCR抽出 > fallback
-  // In this service: input.runId -> input.date -> data.date
-  const runId = batchItem && batchItem.input && batchItem.input.runId ? String(batchItem.input.runId).trim() : '';
-  if (runId) return runId;
+  // Run date rule:
+  // OCR extracted date first, then selected run date (input.date/runId) as fallback.
+  const dataDate = batchItem && batchItem.data && batchItem.data.date ? String(batchItem.data.date).trim() : '';
+  if (dataDate) return dataDate;
 
   const inputDate = batchItem && batchItem.input && batchItem.input.date ? String(batchItem.input.date).trim() : '';
   if (inputDate) return inputDate;
 
-  const dataDate = batchItem && batchItem.data && batchItem.data.date ? String(batchItem.data.date).trim() : '';
-  return dataDate || '';
+  const runId = batchItem && batchItem.input && batchItem.input.runId ? String(batchItem.input.runId).trim() : '';
+  return runId || '';
 }
 
 async function persistBatchItem(batchItem) {
@@ -263,6 +263,12 @@ async function persistBatchItem(batchItem) {
   const storedFilename = batchItem && batchItem.input && batchItem.input.filename
     ? String(batchItem.input.filename).trim()
     : '';
+  const inputRunId = batchItem && batchItem.input && batchItem.input.runId
+    ? String(batchItem.input.runId).trim()
+    : '';
+  const inputDate = batchItem && batchItem.input && batchItem.input.date
+    ? String(batchItem.input.date).trim()
+    : '';
 
   if (!storedFilename) {
     return { ok: true, persisted_date: runDate, linked_asset: false };
@@ -283,6 +289,14 @@ async function persistBatchItem(batchItem) {
     avg_stride_cm: summary.avg_stride
   });
   await imageRepo.linkImageToRun(runDate, asset.asset_id);
+
+  // If the OCR-derived run date differs from input linkage, detach the old linkage.
+  if (inputRunId && inputRunId !== runDate) {
+    await imageRepo.unlinkImageFromRun(inputRunId, asset.asset_id).catch(() => { });
+  }
+  if (inputDate && inputDate !== runDate && inputDate !== inputRunId) {
+    await imageRepo.unlinkImageFromRun(inputDate, asset.asset_id).catch(() => { });
+  }
 
   return { ok: true, persisted_date: runDate, linked_asset: true, asset_id: asset.asset_id };
 }
@@ -536,15 +550,27 @@ app.get('/api/daily/:date', async (req, res) => {
 app.get('/api/stride', async (req, res) => {
   try {
     const { date } = req.query;
+    const syncSummary = String(req.query.sync || '') === '1';
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    // Always go through googleFitService so the latest filtering rules are applied.
-    // The service itself already uses raw-bucket cache to avoid unnecessary API calls.
-    const chartData = await googleFitService.getIntradayMetrics(date);
+    // Always go through googleFitService first.
+    // If it yields empty, fall back to processed cache for operational resilience.
+    let chartData = await googleFitService.getIntradayMetrics(date);
+    if (!Array.isArray(chartData) || chartData.length === 0) {
+      try {
+        const cacheFile = path.join(__dirname, 'storage', 'cache', `intraday_${date}.json`);
+        const raw = await fs.readFile(cacheFile, 'utf8');
+        const cached = JSON.parse(raw);
+        if (Array.isArray(cached) && cached.length > 0) {
+          chartData = cached;
+        }
+      } catch {
+        // keep empty
+      }
+    }
 
-    // Keep daily_summary in sync with intraday source-of-truth.
-    // Deprecated: write side-effect in GET is disabled.
-    /* if (Array.isArray(chartData) && chartData.length > 0) {
+    // Optional sync for legacy RUN ANALYZER: fill missing daily_summary fields from intraday.
+    if (syncSummary && Array.isArray(chartData) && chartData.length > 0) {
       let sumStride = 0, countStride = 0, maxStride = 0;
       let sumHr = 0, countHr = 0, maxHr = 0;
       let sumCad = 0, countCad = 0, maxCad = 0;
@@ -581,6 +607,11 @@ app.get('/api/stride', async (req, res) => {
       }
 
       const existing = await repo.getDailySummary(String(date));
+      // Do not create a new daily_summary row from RUN ANALYZER sync.
+      // Sync is only for filling missing fields on already-existing rows.
+      if (!existing) {
+        return res.json(chartData);
+      }
       const nextAvgStride = countStride > 0 ? Number((sumStride / countStride).toFixed(1)) : null;
       const nextMaxStride = maxStride > 0 ? Number(maxStride.toFixed(1)) : null;
       const nextAvgHr = countHr > 0 ? Math.round(sumHr / countHr) : null;
@@ -602,7 +633,7 @@ app.get('/api/stride', async (req, res) => {
         avg_speed: (!existing || !(Number(existing.avg_speed) > 0)) ? nextAvgSpeed : null,
         max_speed: (!existing || !(Number(existing.max_speed) > 0)) ? nextMaxSpeed : null
       });
-    } */
+    }
 
     res.json(chartData);
   } catch (err) {
@@ -658,7 +689,8 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     const { filenames } = req.body;
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
     const skipAdvice = toBool(req.body && req.body.skipAdvice, false);
-    const results = await imageService.importSelectedFiles(filenames, runId, { skipAdvice });
+    const skipSummary = toBool(req.body && req.body.skipSummary, false);
+    const results = await imageService.importSelectedFiles(filenames, runId, { skipAdvice, skipSummary });
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -731,6 +763,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const forcedRunId = (req.body && (req.body.runId || req.body.date))
       ? String(req.body.runId || req.body.date).trim()
       : '';
+    const allowInputDateFallback = toBool(req.body && req.body.useInputDateFallback, true);
     const skipAdvice = toBool(req.body && req.body.skipAdvice, toBool(process.env.SKIP_ADVICE_GENERATION, false));
 
     const existingAsset = await imageRepo.findAssetByHash(fileHash);
@@ -739,7 +772,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       await fs.unlink(req.file.path).catch(() => { });
 
       // Without run date, duplicate reuse cannot be shown anywhere in UI.
-      if (!forcedRunId) {
+      if (!allowInputDateFallback || !forcedRunId) {
         return res.status(422).json({
           error: 'Could not determine run date from image. Duplicate image was not linked.',
           code: 'MISSING_RUN_DATE'
@@ -786,7 +819,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
     if (ocrFailed) {
       // Do not keep image-only records without a run date.
-      if (!forcedRunId) {
+      if (!allowInputDateFallback || !forcedRunId) {
         await imageRepo.deleteAssetWithFile(assetId).catch(() => { });
         return res.status(422).json({
           error: 'Could not determine run date from image. Image import was rolled back.',
@@ -821,7 +854,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
 
     // If OCR did not produce date, fallback to caller-provided runId/date.
-    if (!result.date && forcedRunId) {
+    if (!result.date && allowInputDateFallback && forcedRunId) {
       result.date = forcedRunId;
     }
 
@@ -1048,7 +1081,6 @@ app.post('/api/analyze/batch', async (req, res) => {
     const payload = req.body && typeof req.body === 'object' ? req.body : {};
     const items = Array.isArray(payload.items) ? payload.items : [];
     const persist = toBool(payload.persist, false);
-    const requireVisionForPersist = toBool(payload.require_vision_for_persist, false);
     if (items.length === 0) {
       return res.status(400).json({ error: 'items is required (array)' });
     }
@@ -1067,7 +1099,7 @@ app.post('/api/analyze/batch', async (req, res) => {
           });
           continue;
         }
-        if (requireVisionForPersist && row.mode !== 'vision') {
+        if (row.mode !== 'vision') {
           persistResults.push({
             item_id: row.item_id || null,
             ok: false,
@@ -1076,7 +1108,6 @@ app.post('/api/analyze/batch', async (req, res) => {
           });
           continue;
         }
-
         try {
           const one = await persistBatchItem(row);
           persistResults.push({

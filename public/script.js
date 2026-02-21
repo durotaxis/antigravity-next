@@ -1,6 +1,7 @@
 const WR_STRIDE = 200.0;
 const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
 const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
+const SNAPSHOT_DATE_STORAGE_KEY = 'selectedSnapshotDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
@@ -68,6 +69,24 @@ function persistRunDateInput() {
     localStorage.setItem(RUN_DATE_STORAGE_KEY, value);
 }
 
+function restoreSnapshotDateInput() {
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const runDateInput = document.getElementById('dateInput');
+    if (!snapshotInput) return;
+    const saved = localStorage.getItem(SNAPSHOT_DATE_STORAGE_KEY);
+    const fallback = runDateInput ? String(runDateInput.value || '').trim() : '';
+    const initial = isValidRunDate(saved) ? saved : (isValidRunDate(fallback) ? fallback : '');
+    snapshotInput.value = initial;
+}
+
+function persistSnapshotDateInput() {
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    if (!snapshotInput) return;
+    const value = String(snapshotInput.value || '').trim();
+    if (!isValidRunDate(value)) return;
+    localStorage.setItem(SNAPSHOT_DATE_STORAGE_KEY, value);
+}
+
 function setBatchPickerMessage(message) {
     const picker = document.getElementById('batchImagePicker');
     if (!picker) return;
@@ -89,12 +108,18 @@ function renderBatchImagePicker(images) {
 
     images.forEach((img) => {
         const filename = String(img && img.stored_filename ? img.stored_filename : '').trim();
+        const originalName = String(img && img.original_filename ? img.original_filename : '').trim();
+        const snapshotDate = String(img && img.snapshot_date ? img.snapshot_date : '').trim();
         if (!filename) return;
         batchSelectedFiles.add(filename);
 
         const row = document.createElement('div');
         row.className = 'batch-image-item';
-        row.textContent = filename;
+        const label = originalName || filename;
+        row.textContent = snapshotDate ? `${snapshotDate} | ${label}` : label;
+        if (originalName && originalName !== filename) {
+            row.title = filename;
+        }
         picker.appendChild(row);
     });
 }
@@ -128,12 +153,15 @@ function normalizeDigitsOnly(text) {
 async function importInboxImagesForBatchDate() {
     const dateInput = document.getElementById('dateInput');
     const date = dateInput ? String(dateInput.value || '').trim() : '';
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const snapshotDate = snapshotInput ? String(snapshotInput.value || '').trim() : '';
     if (!date) {
         setBatchPickerMessage('Date is required.');
         return { imported: 0, matched: 0 };
     }
 
-    const targetToken = normalizeDigitsOnly(date);
+    const tokenSource = isValidRunDate(snapshotDate) ? snapshotDate : date;
+    const targetToken = normalizeDigitsOnly(tokenSource);
     if (!targetToken) {
         setBatchPickerMessage('Invalid date.');
         return { imported: 0, matched: 0 };
@@ -154,7 +182,8 @@ async function importInboxImagesForBatchDate() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             filenames: matchedFiles,
-            skipAdvice: !isGeminiEnabled()
+            skipAdvice: !isGeminiEnabled(),
+            skipSummary: true
         })
     });
     if (!importRes.ok) {
@@ -170,6 +199,8 @@ async function importInboxImagesForBatchDate() {
 async function handleBatchLoadImages() {
     const dateInput = document.getElementById('dateInput');
     const runDate = dateInput ? String(dateInput.value || '').trim() : '';
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const snapshotDate = snapshotInput ? String(snapshotInput.value || '').trim() : '';
     try {
         setBatchPickerMessage('Importing from Phone Link...');
         const imported = await importInboxImagesForBatchDate();
@@ -177,6 +208,7 @@ async function handleBatchLoadImages() {
         renderBatchResult({
             mode: 'batch-load',
             run_date: runDate || null,
+            snapshot_date: isValidRunDate(snapshotDate) ? snapshotDate : runDate || null,
             imported_from_inbox: imported.imported,
             matched_inbox_files: imported.matched
         });
@@ -201,7 +233,7 @@ async function loadData() {
     document.getElementById('daily-message-text').textContent = '';
 
     try {
-        const res = await fetch(`/api/stride?date=${date}`);
+        const res = await fetch(`/api/stride?date=${date}&sync=1`);
         if (!res.ok) {
             const errText = await res.text();
             throw new Error(errText || 'Failed to fetch data');
@@ -556,6 +588,7 @@ function renderChart(data) {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     restoreRunDateInput();
+    restoreSnapshotDateInput();
     restoreGeminiToggle();
     bindGeminiToggle();
 
@@ -566,7 +599,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
     document.getElementById('dateInput')?.addEventListener('change', () => {
         persistRunDateInput();
-        loadBatchImageCandidates();
+        batchSelectedFiles.clear();
+        setBatchPickerMessage('Date changed. Press LOAD IMAGES to fetch candidates for this run date.');
+        renderBatchIdleState('Date updated. Press LOAD IMAGES to fetch candidates.');
+    });
+    document.getElementById('snapshotDateInput')?.addEventListener('change', () => {
+        persistSnapshotDateInput();
+        renderBatchIdleState('Snapshot date updated. Press LOAD IMAGES to import from Phone Link.');
     });
 
     // Modal Event Listeners
@@ -578,7 +617,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial History Load
     loadRunHistory();
-    loadBatchImageCandidates();
+    setBatchPickerMessage('No images loaded yet. Press LOAD IMAGES after confirming run date.');
+    renderBatchIdleState('Ready. Press LOAD IMAGES to import/link images for this run date.');
 });
 
 async function loadRunHistory() {
@@ -978,6 +1018,17 @@ function renderBatchResult(payload) {
     const el = document.getElementById('batchResult');
     if (!el) return;
     el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+}
+
+function renderBatchIdleState(message) {
+    const dateInput = document.getElementById('dateInput');
+    const runDate = dateInput ? String(dateInput.value || '').trim() : '';
+    renderBatchResult({
+        mode: 'idle',
+        run_date: runDate || null,
+        total: 0,
+        message
+    });
 }
 
 async function runBatchFromScreen() {

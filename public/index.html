@@ -34,10 +34,14 @@
             </label>
         </section>
 
-        <section class="glass-card">
+        <section id="batch-ocr" class="glass-card">
             <h3 style="margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
                 Batch OCR
             </h3>
+            <div class="batch-toolbar" style="margin-bottom: 10px;">
+                <label class="batch-toggle" for="snapshotDateInput">Snapshot Date (LOAD IMAGES)</label>
+                <input type="date" id="snapshotDateInput">
+            </div>
             <div class="batch-toolbar">
                 <label class="batch-toggle">
                     <input type="checkbox" id="batchPersistToggle" checked>

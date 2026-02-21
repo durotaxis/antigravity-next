@@ -27,7 +27,7 @@ async function getFileHash(filePath) {
 function extractDateFromFilename(filename) {
     const raw = String(filename || '');
     const text = raw
-        .replace(/[・・・兢/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+        .replace(/[・ｽE・ｽE・ｽE・ｽ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
         .replace(/\s+/g, '');
 
     // 1) YYYYMMDD / YYYY-MM-DD / YYYY_MM_DD
@@ -101,7 +101,7 @@ async function importFromInbox() {
                 // New Asset: Copy to store and create DB record
                 // We use copyFile instead of rename to keep inbox intact for safety until confirmed (can be changed to rename)
                 // User requested "Inbox is Read-Only" in prompt details? 
-                // -> "INBOX_DIR: 繝ｦ繝ｼ繧ｶ繝ｼ縺檎判蜒上ｒ謇句虚縺ｧ謚募・縺吶ｋ繝輔か繝ｫ繝・医す繧ｹ繝・Β縺ｯRead-Only・・
+                // -> "INBOX_DIR: 繝ｦ繝ｼ繧ｶ繝ｼ縺檎判蜒上ｒ謇句虚縺ｧ謚包ｿｽE縺吶ｋ繝輔か繝ｫ繝・ｽE・ｽ繧ｷ繧ｹ繝・・ｽ・ｽ縺ｯRead-Only・ｽE・ｽE
                 // Wait, if system is Read-only for Inbox, we CANNOT delete/move files. 
                 // Implementation Plan said "Delete from inbox (or archive)".
                 // Let's CLARIFY: "System is Read-Only" usually means system doesn't mess with user's files?
@@ -149,6 +149,7 @@ async function getInboxFiles() {
  */
 async function importSelectedFiles(filenames, runId, options = {}) {
     const skipAdvice = options && options.skipAdvice === true;
+    const skipSummary = options && options.skipSummary === true;
     const results = [];
     for (const file of filenames) {
         try {
@@ -184,6 +185,7 @@ async function importSelectedFiles(filenames, runId, options = {}) {
 
             // Auto-create or sync Daily Summary (for Selected Import)
             // runId is the date string here
+            if (!skipSummary) {
             try {
                 const existingSummary = await repo.getDailySummary(runId);
                 const needsSpeedSync =
@@ -283,6 +285,7 @@ async function importSelectedFiles(filenames, runId, options = {}) {
                 console.error('  -> Failed to auto-create summary:', summErr.message);
             }
 
+            }
             results.push({ file, hash, status: 'success' });
 
         } catch (err) {

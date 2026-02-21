@@ -23,11 +23,10 @@ function formatDate(value) {
 }
 
 function buildMockOcrResult(item = {}, index = 0) {
-  const fallbackDate = new Date(Date.now() - (index * 86400000)).toISOString().slice(0, 10);
-  const date = formatDate(item.date || item.runId) || fallbackDate;
-
   return {
-    date,
+    // Concept separation: mock data must not decide run date.
+    // Persist layer will reject MISSING_RUN_DATE for mock rows.
+    date: null,
     step_count: Number(item.step_count || 10234),
     total_distance_km: Number(item.total_distance_km || 8.4),
     total_time: String(item.total_time || '00:48:00'),
@@ -56,6 +55,15 @@ function pickItemMode(item = {}, job = {}) {
   return 'mock';
 }
 
+function resolveBatchConcurrency(payload = {}, job = {}) {
+  const fromJob = Number(job && (job.concurrency || job.parallelism || 0));
+  const fromPayload = Number(payload && (payload.concurrency || 0));
+  const fromEnv = Number(process.env.BATCH_OCR_CONCURRENCY || 0);
+  const raw = fromJob || fromPayload || fromEnv || 2;
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(1, Math.min(8, Math.floor(raw)));
+}
+
 async function resolveStoredFilenameInStore(filename) {
   const raw = String(filename || '').trim();
   if (!raw) return null;
@@ -78,57 +86,70 @@ async function resolveStoredFilenameInStore(filename) {
   }
 }
 
+async function analyzeBatchItem(item = {}, index = 0, job = {}) {
+  const mode = pickItemMode(item, job);
+  try {
+    let data;
+    const requestedFilename = item.filename ? String(item.filename).trim() : null;
+    const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
+    const useVision = mode === 'vision' && !!resolvedFilename;
+
+    if (useVision && resolvedFilename) {
+      data = await analyzeScreenOcr(resolvedFilename);
+    } else {
+      data = buildMockOcrResult(item, index);
+    }
+
+    return {
+      item_id: item.item_id || item.itemId || null,
+      index,
+      ok: true,
+      mode: useVision ? 'vision' : 'mock',
+      input: {
+        filename: resolvedFilename || requestedFilename,
+        runId: item.runId || item.run_id || null,
+        date: item.date || null,
+        requested_mode: mode,
+        fallback_reason: !useVision && mode === 'vision' ? 'FILE_NOT_FOUND' : null
+      },
+      data
+    };
+  } catch (error) {
+    return {
+      item_id: item.item_id || item.itemId || null,
+      index,
+      ok: false,
+      mode,
+      input: {
+        filename: item.filename || null,
+        runId: item.runId || item.run_id || null,
+        date: item.date || null,
+        requested_mode: mode
+      },
+      error: error && error.message ? String(error.message) : 'Batch OCR failed'
+    };
+  }
+}
+
 async function analyzeBatchJob(payload = {}) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   const job = payload.job && typeof payload.job === 'object' ? payload.job : {};
   const startedAt = new Date().toISOString();
-  const results = [];
+  const results = new Array(items.length);
+  const concurrency = resolveBatchConcurrency(payload, job);
+  let cursor = 0;
 
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i] || {};
-    const mode = pickItemMode(item, job);
-    try {
-      let data;
-      const requestedFilename = item.filename ? String(item.filename).trim() : null;
-      const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
-      const useVision = mode === 'vision' && !!resolvedFilename;
-
-      if (useVision && resolvedFilename) {
-        data = await analyzeScreenOcr(resolvedFilename);
-      } else {
-        data = buildMockOcrResult(item, i);
-      }
-
-      results.push({
-        item_id: item.item_id || item.itemId || null,
-        index: i,
-        ok: true,
-        mode: useVision ? 'vision' : 'mock',
-        input: {
-          filename: resolvedFilename || requestedFilename,
-          runId: item.runId || item.run_id || null,
-          date: item.date || null,
-          requested_mode: mode,
-          fallback_reason: !useVision && mode === 'vision' ? 'FILE_NOT_FOUND' : null
-        },
-        data
-      });
-    } catch (error) {
-      results.push({
-        item_id: item.item_id || item.itemId || null,
-        index: i,
-        ok: false,
-        mode,
-        input: {
-          filename: item.filename || null,
-          runId: item.runId || item.run_id || null,
-          date: item.date || null,
-          requested_mode: mode
-        },
-        error: error && error.message ? String(error.message) : 'Batch OCR mock failed'
-      });
+  async function worker() {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      const item = items[current] || {};
+      results[current] = await analyzeBatchItem(item, current, job);
     }
   }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
 
   const success = results.filter(r => r.ok).length;
   const failed = results.length - success;
@@ -136,6 +157,7 @@ async function analyzeBatchJob(payload = {}) {
     job: {
       job_id: job.job_id || payload.job_id || `mock-${Date.now()}`,
       source: job.source || 'manual',
+      concurrency,
       started_at: startedAt,
       finished_at: new Date().toISOString()
     },

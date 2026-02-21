@@ -4,6 +4,17 @@ function normalizeStoredFilename(value) {
     return String(value || '').trim().toLowerCase();
 }
 
+function extractSnapshotDateFromFilename(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+
+    const digits = text.replace(/[^0-9]/g, '');
+    // Typical screenshot pattern includes YYYYMMDD.
+    const m = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])/);
+    if (!m) return null;
+    return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 /**
  * Create a new image asset record
  */
@@ -186,7 +197,11 @@ function getBatchCandidatesForDate(runDate) {
 
         db.all(sql, [normalizedDate], (err, rows) => {
             if (err) return reject(err);
-            resolve(rows || []);
+            const normalized = (rows || []).map((row) => ({
+                ...row,
+                snapshot_date: extractSnapshotDateFromFilename(row && row.original_filename)
+            }));
+            resolve(normalized);
         });
     });
 }

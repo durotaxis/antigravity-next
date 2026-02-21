@@ -81,7 +81,8 @@ export default function RunUploader() {
         }
     };
 
-    const batchUrl = `${API_BASE}/?date=${encodeURIComponent(runDate)}`;
+    const analyzerUrl = `${API_BASE}/?date=${encodeURIComponent(runDate)}`;
+    const batchUrl = `${API_BASE}/?date=${encodeURIComponent(runDate)}#batch-ocr`;
 
     return (
         <div className="mb-6">
@@ -95,14 +96,24 @@ export default function RunUploader() {
                     disabled={isUploading}
                     className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white"
                 />
-                <a
-                    href={batchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-auto inline-flex items-center rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-700 hover:bg-cyan-100"
-                >
-                    Open Batch OCR
-                </a>
+                <div className="ml-auto flex items-center gap-2">
+                    <a
+                        href={analyzerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-blue-700 hover:bg-blue-100"
+                    >
+                        Open Run Analyzer
+                    </a>
+                    <a
+                        href={batchUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-700 hover:bg-cyan-100"
+                    >
+                        Open Batch OCR
+                    </a>
+                </div>
             </div>
             <div className="relative">
                 <label

@@ -1,5 +1,6 @@
 const WR_STRIDE = 200.0;
 const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
+const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
@@ -30,13 +31,33 @@ function bindGeminiToggle() {
     });
 }
 
-function escapeHtml(text) {
-    return String(text || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+function isValidRunDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function getTodayLocalDateString() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function restoreRunDateInput() {
+    const dateInput = document.getElementById('dateInput');
+    if (!dateInput) return;
+
+    const saved = localStorage.getItem(RUN_DATE_STORAGE_KEY);
+    const initial = isValidRunDate(saved) ? saved : getTodayLocalDateString();
+    dateInput.value = initial;
+}
+
+function persistRunDateInput() {
+    const dateInput = document.getElementById('dateInput');
+    if (!dateInput) return;
+    const value = String(dateInput.value || '').trim();
+    if (!isValidRunDate(value)) return;
+    localStorage.setItem(RUN_DATE_STORAGE_KEY, value);
 }
 
 function setBatchPickerMessage(message) {
@@ -56,27 +77,16 @@ function renderBatchImagePicker(images) {
         return;
     }
 
-    const known = new Set(images.map(i => String(i.stored_filename || '').trim()).filter(Boolean));
-    Array.from(batchSelectedFiles).forEach(name => {
-        if (!known.has(name)) batchSelectedFiles.delete(name);
-    });
+    batchSelectedFiles.clear();
 
     images.forEach((img) => {
         const filename = String(img && img.stored_filename ? img.stored_filename : '').trim();
         if (!filename) return;
-        if (!batchSelectedFiles.has(filename)) batchSelectedFiles.add(filename);
+        batchSelectedFiles.add(filename);
 
-        const row = document.createElement('label');
+        const row = document.createElement('div');
         row.className = 'batch-image-item';
-        row.innerHTML = `
-            <input type="checkbox" ${batchSelectedFiles.has(filename) ? 'checked' : ''}>
-            <span>${escapeHtml(filename)}</span>
-        `;
-        const checkbox = row.querySelector('input');
-        checkbox?.addEventListener('change', () => {
-            if (checkbox.checked) batchSelectedFiles.add(filename);
-            else batchSelectedFiles.delete(filename);
-        });
+        row.textContent = filename;
         picker.appendChild(row);
     });
 }
@@ -93,7 +103,10 @@ async function loadBatchImageCandidates() {
     try {
         const res = await fetch(`/api/images/candidates?date=${encodeURIComponent(date)}`);
         if (!res.ok) throw new Error(`Failed to load images: ${res.status}`);
-        const images = await res.json();
+        const imagesRaw = await res.json();
+        const images = Array.isArray(imagesRaw)
+            ? imagesRaw.filter((row) => Number(row && row.linked) === 1)
+            : [];
         renderBatchImagePicker(images);
     } catch (err) {
         setBatchPickerMessage(`Image load error: ${err.message}`);
@@ -147,12 +160,15 @@ async function importInboxImagesForBatchDate() {
 }
 
 async function handleBatchLoadImages() {
+    const dateInput = document.getElementById('dateInput');
+    const runDate = dateInput ? String(dateInput.value || '').trim() : '';
     try {
         setBatchPickerMessage('Importing from Phone Link...');
         const imported = await importInboxImagesForBatchDate();
         await loadBatchImageCandidates();
         renderBatchResult({
             mode: 'batch-load',
+            run_date: runDate || null,
             imported_from_inbox: imported.imported,
             matched_inbox_files: imported.matched
         });
@@ -531,13 +547,7 @@ function renderChart(data) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Set default date to today's local date.
-    const dateInput = document.getElementById('dateInput');
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    dateInput.value = `${year}-${month}-${day}`;
+    restoreRunDateInput();
     restoreGeminiToggle();
     bindGeminiToggle();
 
@@ -546,7 +556,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('analyzeBtn').addEventListener('click', loadData);
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
-    document.getElementById('dateInput')?.addEventListener('change', loadBatchImageCandidates);
+    document.getElementById('dateInput')?.addEventListener('change', () => {
+        persistRunDateInput();
+        loadBatchImageCandidates();
+    });
 
     // Modal Event Listeners
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
@@ -690,7 +703,7 @@ async function checkAndRenderImages(date) {
                 }
 
                 card.innerHTML = `
-                    <img src="${imgUrl}" alt="Run Image">
+                    <img src="${imgUrl}" alt="Run Image" loading="lazy" decoding="async">
                     ${overlayHTML}
                     <div class="delete-btn" title="Remove Link">DEL</div>
                 `;
@@ -771,7 +784,7 @@ async function openInboxModal(date) {
             item.className = 'inbox-item';
             // Added onError to handle broken images
             item.innerHTML = `
-                <img src="/api/inbox/preview/${encodeURIComponent(file)}" alt="${file}">
+                <img src="/api/inbox/preview/${encodeURIComponent(file)}" alt="${file}" loading="lazy" decoding="async">
                 <div class="image-filename">${file}</div>
             `;
             item.onclick = () => toggleSelection(item, file);
@@ -975,7 +988,12 @@ async function runBatchFromScreen() {
 
     const filenames = getBatchFilenames();
     if (filenames.length === 0) {
-        renderBatchResult('At least one stored filename is required.');
+        renderBatchResult({
+            mode: 'batch-skip',
+            run_date: runDate,
+            total: 0,
+            message: 'No images for this date. Skipped (this is normal when there is no linked image).'
+        });
         return;
     }
 
@@ -1018,6 +1036,7 @@ async function runBatchFromScreen() {
 
         renderBatchResult({
             mode: data.mode,
+            run_date: runDate,
             job_id: data && data.job ? data.job.job_id : expectedJobId,
             total: data.total,
             success: data.success,

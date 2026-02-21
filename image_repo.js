@@ -163,12 +163,12 @@ function updateAssetMetrics(storedFilename, metrics) {
 
 /**
  * Get batch candidate images by run date.
- * Includes already linked assets and assets whose original filename contains YYYYMMDD.
+ * Strict mode: only assets already linked to the requested run date.
  */
 function getBatchCandidatesForDate(runDate) {
     return new Promise((resolve, reject) => {
-        const token = String(runDate || '').replace(/-/g, '').trim();
-        if (!token) return resolve([]);
+        const normalizedDate = String(runDate || '').trim();
+        if (!normalizedDate) return resolve([]);
 
         const sql = `
             SELECT 
@@ -176,51 +176,17 @@ function getBatchCandidatesForDate(runDate) {
                 a.stored_filename,
                 a.original_filename,
                 a.created_at,
-                CASE
-                    WHEN EXISTS (
-                        SELECT 1 FROM run_images r
-                        WHERE r.asset_id = a.asset_id AND r.run_id = ?
-                    ) THEN 1
-                    ELSE 0
-                END AS linked
+                1 AS linked
             FROM image_assets a
-            WHERE EXISTS (
-                SELECT 1 FROM run_images r2
-                WHERE r2.asset_id = a.asset_id AND r2.run_id = ?
-            )
-            OR REPLACE(REPLACE(REPLACE(IFNULL(a.original_filename, ''), '-', ''), '_', ''), ' ', '') LIKE ?
-            ORDER BY linked DESC, a.created_at DESC
+            JOIN run_images r ON r.asset_id = a.asset_id
+            WHERE r.run_id = ?
+            ORDER BY a.created_at DESC
             LIMIT 300
         `;
 
-        db.all(sql, [runDate, runDate, `%${token}%`], (err, rows) => {
+        db.all(sql, [normalizedDate], (err, rows) => {
             if (err) return reject(err);
-            const found = rows || [];
-            if (found.length > 0) return resolve(found);
-
-            // Fallback: when no date-matched assets exist, provide latest assets so UI can still proceed.
-            const fallbackSql = `
-                SELECT 
-                    a.asset_id,
-                    a.stored_filename,
-                    a.original_filename,
-                    a.created_at,
-                    CASE
-                        WHEN EXISTS (
-                            SELECT 1 FROM run_images r
-                            WHERE r.asset_id = a.asset_id AND r.run_id = ?
-                        ) THEN 1
-                        ELSE 0
-                    END AS linked
-                FROM image_assets a
-                ORDER BY a.created_at DESC
-                LIMIT 80
-            `;
-
-            db.all(fallbackSql, [runDate], (fallbackErr, fallbackRows) => {
-                if (fallbackErr) return reject(fallbackErr);
-                resolve(fallbackRows || []);
-            });
+            resolve(rows || []);
         });
     });
 }

@@ -245,10 +245,6 @@ input[type="date"]:focus {
     font-size: 0.8rem;
 }
 
-.batch-image-item input {
-    accent-color: #38bdf8;
-}
-
 .batch-result {
     margin-top: 12px;
     background: rgba(2, 6, 23, 0.9);

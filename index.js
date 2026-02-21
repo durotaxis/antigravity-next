@@ -8,6 +8,7 @@ const imageService = require('./image_service');
 const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
+const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
 
 const app = express();
@@ -1165,10 +1166,10 @@ app.post('/api/analyze/batch/mock', async (req, res) => {
   }
 });
 
-// Gemini Advice API
+// Advice API (OpenAI)
 app.post('/api/advice', async (req, res) => {
   try {
-    const { date, avgStride, avgHR, maxStride, maxHR, avgCadence, maxCadence } = req.body;
+    const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
 
     const cached = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
@@ -1192,28 +1193,32 @@ app.post('/api/advice', async (req, res) => {
     const images = await imageRepo.getImagesForRun(date);
     const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
 
-    // Prompt has been moved to geminiService
-    const advice = await geminiService.generateCoachAdvice({
+    const advice = await openaiService.generateCoachMessage({
       date,
+      stepCount,
+      totalDistanceKm,
+      totalTime,
       avgStride,
-      avgHR,
       maxStride,
+      avgHR,
       maxHR,
       avgCadence,
-      maxCadence
+      maxCadence,
+      avgSpeed,
+      maxSpeed
     }, imagePaths);
 
     // Persist message + metrics, preferring cache/intraday source-of-truth.
     await repo.saveDailySummary({
       date,
       max_stride: pickPositive(cacheMetrics.max_stride_cm, maxStride),
-      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, avgStride),
+      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, 0),
       hr_max: pickPositive(cacheMetrics.max_heart_rate, maxHR),
-      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, avgHR),
-      avg_cadence: pickPositive(cacheMetrics.avg_cadence, avgCadence),
+      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, 0),
+      avg_cadence: pickPositive(cacheMetrics.avg_cadence, 0),
       max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
       avg_speed: pickPositive(cacheMetrics.avg_speed, 0),
-      max_speed: pickPositive(cacheMetrics.max_speed, 0),
+      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed),
       message: advice
     });
 

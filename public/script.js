@@ -370,48 +370,80 @@ async function getAdvice(date, maxStride, data) {
     aiContainer.style.display = 'block';
     aiText.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Wait... AI Coach is analyzing...</span>';
 
-    // Calculate Averages & Max for Running
+    // Avg/Max metrics (fallback from intraday chart data)
     const runningData = data.filter(d => d.steps > 140);
     const totalRunningSteps = runningData.reduce((acc, d) => acc + d.steps, 0);
     const avgStride = totalRunningSteps > 0 ? (runningData.reduce((acc, d) => acc + (d.stride * d.steps), 0) / totalRunningSteps) : 0;
+    const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
+    const totalDistanceKm = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0) / 1000;
+    const totalSeconds = Math.max(0, data.length * 60);
+    const hh = Math.floor(totalSeconds / 3600);
+    const mm = Math.floor((totalSeconds % 3600) / 60);
+    const ss = totalSeconds % 60;
+    const totalTime = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 
-    // Cadence (Steps per minute)
-    let maxCadence = 0;
     let sumCadence = 0;
+    let countCadence = 0;
+    let maxCadence = 0;
+    let sumSpeed = 0;
+    let countSpeed = 0;
+    let maxSpeed = 0;
     data.forEach(d => {
         if (d.steps > maxCadence) maxCadence = d.steps;
-        if (d.steps > 140) sumCadence += d.steps;
+        if (d.steps > 140) {
+            sumCadence += d.steps;
+            countCadence += 1;
+        }
+        if (d.speed > 0) {
+            sumSpeed += d.speed;
+            countSpeed += 1;
+        }
+        if (d.speed > maxSpeed) maxSpeed = d.speed;
     });
-    const avgCadence = runningData.length > 0 ? (sumCadence / runningData.length) : 0;
+    const avgCadence = countCadence > 0 ? (sumCadence / countCadence) : 0;
+    const avgSpeed = countSpeed > 0 ? (sumSpeed / countSpeed) : 0;
 
-    // Heart Rate Stats
+    // HR
     let maxHR = 0;
     let sumHR = 0;
     let countHR = 0;
-
     data.forEach(d => {
         if (d.heartRate > 0) {
-            if (d.heartRate > maxHR) maxHR = d.heartRate;
             sumHR += d.heartRate;
-            countHR++;
+            countHR += 1;
         }
+        if (d.heartRate > maxHR) maxHR = d.heartRate;
     });
-
     const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
 
     try {
+        let summary = null;
+        try {
+            const dailyRes = await fetch(`/api/daily/${encodeURIComponent(date)}`);
+            if (dailyRes.ok) summary = await dailyRes.json();
+        } catch {
+            // ignore and use computed fallback
+        }
+
+        const payload = {
+            date,
+            stepCount: Number(summary?.step_count) > 0 ? Number(summary.step_count) : Math.round(totalSteps || 0),
+            totalDistanceKm: Number(summary?.total_distance_km) > 0 ? Number(summary.total_distance_km) : Number((totalDistanceKm || 0).toFixed(2)),
+            totalTime: (summary?.total_time && String(summary.total_time).trim()) ? String(summary.total_time).trim() : totalTime,
+            avgStride: Number(summary?.avg_stride) > 0 ? Number(summary.avg_stride) : Number(avgStride.toFixed(1)),
+            maxStride: Number(summary?.max_stride) > 0 ? Number(summary.max_stride) : Number(maxStride.toFixed(1)),
+            avgHR: Number(summary?.hr_avg) > 0 ? Number(summary.hr_avg) : Math.round(avgHR || 0),
+            maxHR: Number(summary?.hr_max) > 0 ? Number(summary.hr_max) : Math.round(maxHR || 0),
+            avgCadence: Number(summary?.avg_cadence) > 0 ? Number(summary.avg_cadence) : Math.round(avgCadence || 0),
+            maxCadence: Number(summary?.max_cadence) > 0 ? Number(summary.max_cadence) : Math.round(maxCadence || 0),
+            avgSpeed: Number(summary?.avg_speed) > 0 ? Number(summary.avg_speed) : Number((avgSpeed || 0).toFixed(1)),
+            maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : Number((maxSpeed || 0).toFixed(1))
+        };
+
         const res = await fetch('/api/advice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                date,
-                maxStride: Number(maxStride.toFixed(1)),
-                avgStride: Number(avgStride.toFixed(1)),
-                maxHR: Math.round(maxHR),
-                avgHR: Math.round(avgHR),
-                avgCadence: Math.round(avgCadence),
-                maxCadence: Math.round(maxCadence)
-            })
+            body: JSON.stringify(payload)
         });
 
         const text = await res.text();

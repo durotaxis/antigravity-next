@@ -77,6 +77,41 @@ function normalizeTime(raw) {
   return null;
 }
 
+function parseHmsToHours(timeText) {
+  const text = String(timeText || '').trim();
+  if (!text) return 0;
+  const parts = text.split(':').map(Number);
+  if (parts.some((v) => !Number.isFinite(v))) return 0;
+  if (parts.length === 3) return (parts[0] + parts[1] / 60 + parts[2] / 3600);
+  if (parts.length === 2) return (parts[0] / 60 + parts[1] / 3600);
+  return 0;
+}
+
+function calculateStride(distanceKm, stepCount) {
+  if (!distanceKm || !stepCount || stepCount <= 0) return null;
+  const stride = (Number(distanceKm) * 100000) / Number(stepCount);
+  if (!Number.isFinite(stride) || stride <= 0) return null;
+  return Number(stride.toFixed(1));
+}
+
+function calculateCadence(stepCount, timeText) {
+  if (!stepCount || !timeText) return null;
+  const hours = parseHmsToHours(timeText);
+  if (!(hours > 0)) return null;
+  const cadence = Number(stepCount) / (hours * 60);
+  if (!Number.isFinite(cadence) || cadence <= 0) return null;
+  return Math.round(cadence);
+}
+
+function calculateAvgSpeed(distanceKm, timeText) {
+  if (!distanceKm || !timeText) return null;
+  const hours = parseHmsToHours(timeText);
+  if (!(hours > 0)) return null;
+  const speed = Number(distanceKm) / hours;
+  if (!Number.isFinite(speed) || speed <= 0) return null;
+  return Number(speed.toFixed(1));
+}
+
 function tryExtractJson(text) {
   const raw = String(text || '').trim();
   if (!raw) return null;
@@ -152,7 +187,7 @@ async function analyzeImage(filename) {
     throw new Error('Vision OCR returned non-JSON response');
   }
 
-  return {
+  const out = {
     date: normalizeDate(parsed.date, today),
     step_count: toIntOrNull(parsed.step_count),
     total_distance_km: toNumberOrNull(parsed.total_distance_km),
@@ -166,6 +201,18 @@ async function analyzeImage(filename) {
     avg_cadence: toIntOrNull(parsed.avg_cadence),
     max_cadence: toIntOrNull(parsed.max_cadence)
   };
+
+  if (!(Number(out.avg_stride_cm) > 0) && Number(out.total_distance_km) > 0 && Number(out.step_count) > 0) {
+    out.avg_stride_cm = calculateStride(out.total_distance_km, out.step_count);
+  }
+  if (!(Number(out.avg_cadence) > 0) && Number(out.step_count) > 0 && out.total_time) {
+    out.avg_cadence = calculateCadence(out.step_count, out.total_time);
+  }
+  if (!(Number(out.avg_speed) > 0) && Number(out.total_distance_km) > 0 && out.total_time) {
+    out.avg_speed = calculateAvgSpeed(out.total_distance_km, out.total_time);
+  }
+
+  return out;
 }
 
 module.exports = {

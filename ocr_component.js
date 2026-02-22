@@ -100,22 +100,9 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
     const requestedFilename = item.filename ? String(item.filename).trim() : null;
     const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
     const useOcr = (mode === 'vision' || mode === 'python') && !!resolvedFilename;
-    let effectiveMode = mode;
-    let fallbackReason = null;
 
     if (useOcr && resolvedFilename) {
-      try {
-        data = await analyzeScreenOcr(resolvedFilename, mode);
-      } catch (visionErr) {
-        // Keep batch usable when Vision quota is unavailable.
-        if (mode === 'vision') {
-          data = await analyzeScreenOcr(resolvedFilename, 'python');
-          effectiveMode = 'python';
-          fallbackReason = 'VISION_FAILED_FALLBACK_TO_PYTHON';
-        } else {
-          throw visionErr;
-        }
-      }
+      data = await analyzeScreenOcr(resolvedFilename, mode);
     } else {
       data = buildMockOcrResult(item, index);
     }
@@ -124,15 +111,13 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
       item_id: item.item_id || item.itemId || null,
       index,
       ok: true,
-      mode: useOcr ? effectiveMode : 'mock',
+      mode: useOcr ? mode : 'mock',
       input: {
         filename: resolvedFilename || requestedFilename,
         runId: item.runId || item.run_id || null,
         date: item.date || null,
         requested_mode: mode,
-        fallback_reason: !useOcr && (mode === 'vision' || mode === 'python')
-          ? 'FILE_NOT_FOUND'
-          : fallbackReason
+        fallback_reason: !useOcr && (mode === 'vision' || mode === 'python') ? 'FILE_NOT_FOUND' : null
       },
       data
     };

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+const LAST_OCR_MODE_KEY = 'last_ocr_mode';
 
 function getApiBase(): string {
     const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
@@ -15,6 +16,7 @@ function getApiBase(): string {
 export default function RunUploader() {
     const API_BASE = getApiBase();
     const [isUploading, setIsUploading] = useState(false);
+    const [lastOcrMode, setLastOcrMode] = useState('');
     const [runDate, setRunDate] = useState(() => {
         const now = new Date();
         const yyyy = now.getFullYear();
@@ -22,6 +24,14 @@ export default function RunUploader() {
         const dd = String(now.getDate()).padStart(2, '0');
         return `${yyyy}-${mm}-${dd}`;
     });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const saved = String(window.sessionStorage.getItem(LAST_OCR_MODE_KEY) || '').trim().toLowerCase();
+        if (saved === 'vision' || saved === 'python') {
+            setLastOcrMode(saved);
+        }
+    }, []);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -55,6 +65,11 @@ export default function RunUploader() {
             }
 
             const data = await res.json();
+            const modeUsed = String(data?.ocr?.executed_mode || data?.ocr?.requested_mode || '').trim().toLowerCase();
+            if (modeUsed === 'vision' || modeUsed === 'python') {
+                window.sessionStorage.setItem(LAST_OCR_MODE_KEY, modeUsed);
+                setLastOcrMode(modeUsed);
+            }
 
             if (data?.data?.duplicate_upload) {
                 alert('同じ画像は既に取り込み済みです。既存データを再利用しました。');
@@ -115,6 +130,16 @@ export default function RunUploader() {
                     </a>
                 </div>
             </div>
+            {lastOcrMode ? (
+                <div className="mb-3">
+                    <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${lastOcrMode === 'vision'
+                        ? 'border-cyan-300 bg-cyan-50 text-cyan-700'
+                        : 'border-blue-300 bg-blue-50 text-blue-700'
+                        }`}>
+                        OCR Mode Used: {lastOcrMode === 'vision' ? 'Vision OCR' : 'Python OCR'}
+                    </span>
+                </div>
+            ) : null}
             <div className="relative">
                 <label
                     htmlFor="run-upload"

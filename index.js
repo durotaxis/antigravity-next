@@ -823,6 +823,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const forcedRunId = (req.body && (req.body.runId || req.body.date))
       ? String(req.body.runId || req.body.date).trim()
       : '';
+    const requestedSingleModeRaw = String((req.body && req.body.ocr_mode) || (req.body && req.body.mode) || 'vision').toLowerCase().trim();
+    const requestedSingleMode = requestedSingleModeRaw === 'python' ? 'python' : 'vision';
+    let executedSingleMode = null;
     const allowInputDateFallback = toBool(req.body && req.body.useInputDateFallback, true);
     const skipAdvice = toBool(req.body && req.body.skipAdvice, toBool(process.env.SKIP_ADVICE_GENERATION, false));
 
@@ -843,6 +846,11 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       return res.json({
         success: true,
+        ocr: {
+          requested_mode: requestedSingleMode,
+          executed_mode: executedSingleMode,
+          status: 'skipped_duplicate'
+        },
         data: {
           duplicate_upload: true,
           linked_run_id: linkedRunId,
@@ -862,7 +870,11 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     let result = {};
     let ocrFailed = false;
     try {
-      const analyzed = await ocrComponent.analyzeScreenOcr(filename);
+      executedSingleMode = requestedSingleMode;
+      const analyzed = await ocrComponent.analyzeScreenOcr(
+        filename,
+        requestedSingleMode
+      );
       result = analyzed && typeof analyzed === 'object' ? analyzed : {};
       
     } catch (ocrErr) {
@@ -880,7 +892,12 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         await imageRepo.deleteAssetWithFile(assetId).catch(() => { });
         return res.status(422).json({
           error: 'Could not determine run date from image. Image import was rolled back.',
-          code: 'MISSING_RUN_DATE'
+          code: 'MISSING_RUN_DATE',
+          ocr: {
+            requested_mode: requestedSingleMode,
+            executed_mode: executedSingleMode,
+            status: 'failed'
+          }
         });
       }
 
@@ -898,6 +915,11 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       return res.json({
         success: true,
+        ocr: {
+          requested_mode: requestedSingleMode,
+          executed_mode: executedSingleMode,
+          status: 'failed_but_stored'
+        },
         data: {
           ...result,
           asset_id: assetId,
@@ -919,7 +941,12 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       await imageRepo.deleteAssetWithFile(assetId).catch(() => { });
       return res.status(422).json({
         error: 'Could not determine run date from image. Image import was rolled back.',
-        code: 'MISSING_RUN_DATE'
+        code: 'MISSING_RUN_DATE',
+        ocr: {
+          requested_mode: requestedSingleMode,
+          executed_mode: executedSingleMode,
+          status: 'missing_run_date'
+        }
       });
     }
 
@@ -1138,7 +1165,16 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     // 3. 繧｢繧ｻ繝・ヨ諠・ｱ譖ｴ譁ｰ
     await imageRepo.updateAssetMetricsById(assetId, result);
 
-    res.json({ success: true, data: result });
+    console.log(`[OCR /api/analyze] requested=${requestedSingleMode} executed=${executedSingleMode || 'none'} status=ok date=${result.date || 'null'} file=${filename}`);
+    res.json({
+      success: true,
+      ocr: {
+        requested_mode: requestedSingleMode,
+        executed_mode: executedSingleMode,
+        status: 'ok'
+      },
+      data: result
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -1155,6 +1191,18 @@ app.post('/api/analyze/batch', async (req, res) => {
     }
 
     const batchResult = await ocrComponent.analyzeBatchJob(payload);
+    const requestedModeCounts = { vision: 0, python: 0, mock: 0, other: 0 };
+    const executedModeCounts = { vision: 0, python: 0, mock: 0, other: 0 };
+    for (const row of batchResult.results || []) {
+      const requested = String(row?.input?.requested_mode || '').toLowerCase().trim();
+      const executed = String(row?.mode || '').toLowerCase().trim();
+      if (requested === 'vision' || requested === 'python' || requested === 'mock') requestedModeCounts[requested] += 1;
+      else requestedModeCounts.other += 1;
+      if (executed === 'vision' || executed === 'python' || executed === 'mock') executedModeCounts[executed] += 1;
+      else executedModeCounts.other += 1;
+    }
+    console.log(`[OCR /api/analyze/batch] requested=${JSON.stringify(requestedModeCounts)} executed=${JSON.stringify(executedModeCounts)} total=${batchResult.total} success=${batchResult.success} failed=${batchResult.failed}`);
+
     const persistResults = [];
     for (const row of batchResult.results || []) {
       if (!row || !row.ok) {
@@ -1202,6 +1250,10 @@ app.post('/api/analyze/batch', async (req, res) => {
       success: true,
       mode: 'batch',
       ...batchResult,
+      ocr_modes: {
+        requested: requestedModeCounts,
+        executed: executedModeCounts
+      },
       persisted
     });
   } catch (err) {

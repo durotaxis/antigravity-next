@@ -4,7 +4,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const STORE_DIR = path.join(__dirname, 'public/assets/store');
 const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || '').trim();
-const GEMINI_VISION_OCR_MODEL = String(process.env.GEMINI_VISION_OCR_MODEL || 'gemini-2.0-flash').trim();
+const GEMINI_VISION_OCR_MODEL = String(process.env.GEMINI_VISION_OCR_MODEL || 'gemini-3-flash-preview').trim();
 
 function toNumberOrNull(value) {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -17,15 +17,56 @@ function toIntOrNull(value) {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-function normalizeDate(rawDate) {
-  if (!rawDate) return null;
-  const text = String(rawDate).trim().replace(/\//g, '-');
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+function toHalfWidthDigits(value) {
+  return String(value || '').replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
 
-  const digits = text.replace(/[^0-9]/g, '');
-  const m = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])/);
-  if (!m) return null;
-  return `${m[1]}-${m[2]}-${m[3]}`;
+function inferYear(month, currentDate = new Date()) {
+  const currentMonth = currentDate.getMonth() + 1;
+  const currentYear = currentDate.getFullYear();
+  return month > currentMonth ? (currentYear - 1) : currentYear;
+}
+
+function normalizeDate(rawDate, currentDate = new Date()) {
+  if (!rawDate) return null;
+  const text = toHalfWidthDigits(String(rawDate).trim())
+    .replace(/[年.\-]/g, '/')
+    .replace(/[月]/g, '/')
+    .replace(/[日]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/\/+/g, '/');
+
+  let m = text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  m = text.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (m) {
+    const mo = Number(m[1]);
+    const d = Number(m[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      const y = inferYear(mo, currentDate);
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  m = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
 }
 
 function normalizeTime(raw) {
@@ -76,14 +117,23 @@ async function analyzeImage(filename) {
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({ model: GEMINI_VISION_OCR_MODEL });
+  const today = new Date();
+  const currentDateString = today.toISOString().split('T')[0];
+  const currentYear = today.getFullYear();
+  const lastYear = currentYear - 1;
+  const currentMonth = today.getMonth() + 1;
 
   const prompt = [
-    'Extract running summary metrics from this screenshot.',
-    'Return ONLY one JSON object with keys exactly:',
-    'date, step_count, total_distance_km, total_time, avg_heart_rate, max_heart_rate, avg_speed, max_speed, avg_stride_cm, max_stride_cm, avg_cadence, max_cadence',
+    'Analyze this Google Fit activity screenshot and extract metrics into one JSON object.',
+    'Return ONLY valid JSON (no markdown code block).',
+    `Current Date: ${currentDateString}`,
+    `Current Month: ${currentMonth}`,
+    `Current Year: ${currentYear}`,
+    `Last Year: ${lastYear}`,
+    'Date rule: if screenshot date has no year (MM/DD), infer year using current month (if Image_Month > Current_Month then Last_Year else Current_Year).',
     'Use null when unknown.',
-    'date must be YYYY-MM-DD.',
-    'total_time must be HH:MM:SS or MM:SS.'
+    'Keys exactly: date, step_count, total_distance_km, total_time, avg_heart_rate, max_heart_rate, avg_speed, max_speed, avg_stride_cm, max_stride_cm, avg_cadence, max_cadence',
+    'date must be YYYY-MM-DD. total_time must be HH:MM:SS or MM:SS.'
   ].join('\n');
 
   const result = await model.generateContent([
@@ -103,7 +153,7 @@ async function analyzeImage(filename) {
   }
 
   return {
-    date: normalizeDate(parsed.date),
+    date: normalizeDate(parsed.date, today),
     step_count: toIntOrNull(parsed.step_count),
     total_distance_km: toNumberOrNull(parsed.total_distance_km),
     total_time: normalizeTime(parsed.total_time),

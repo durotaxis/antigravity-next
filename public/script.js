@@ -5,6 +5,7 @@ const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiAdviceApi';
 const ADVICE_PROVIDER_STORAGE_KEY = 'adviceProvider';
 const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
 const SNAPSHOT_DATE_STORAGE_KEY = 'selectedSnapshotDate';
+const FIT_SYNC_FROM_DATE_STORAGE_KEY = 'fitSyncFromDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
@@ -124,6 +125,95 @@ function persistSnapshotDateInput() {
     const value = String(snapshotInput.value || '').trim();
     if (!isValidRunDate(value)) return;
     localStorage.setItem(SNAPSHOT_DATE_STORAGE_KEY, value);
+}
+
+function restoreFitSyncFromDateInput() {
+    const fromInput = document.getElementById('fitSyncFromDateInput');
+    if (!fromInput) return;
+    const saved = String(localStorage.getItem(FIT_SYNC_FROM_DATE_STORAGE_KEY) || '').trim();
+    const initial = isValidRunDate(saved) ? saved : getTodayLocalDateString();
+    fromInput.value = initial;
+}
+
+function persistFitSyncFromDateInput() {
+    const fromInput = document.getElementById('fitSyncFromDateInput');
+    if (!fromInput) return;
+    const value = normalizeRunDate(fromInput.value);
+    if (!value) return;
+    localStorage.setItem(FIT_SYNC_FROM_DATE_STORAGE_KEY, value);
+}
+
+function compareDateText(a, b) {
+    return String(a || '').localeCompare(String(b || ''));
+}
+
+function nextDateText(dateText) {
+    const [y, m, d] = String(dateText).split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    const yyyy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function listDateRange(fromDate, toDate) {
+    const out = [];
+    let cur = fromDate;
+    while (compareDateText(cur, toDate) <= 0) {
+        out.push(cur);
+        cur = nextDateText(cur);
+    }
+    return out;
+}
+
+async function syncFitJsonRangeFromUi() {
+    const syncBtn = document.getElementById('syncJsonBtn');
+    const fromInput = document.getElementById('fitSyncFromDateInput');
+    const fromDate = fromInput ? normalizeRunDate(fromInput.value) : '';
+    const toDate = getTodayLocalDateString();
+
+    if (!fromDate) {
+        alert('From date is required.');
+        return;
+    }
+    if (compareDateText(fromDate, toDate) > 0) {
+        alert(`From date must be on or before ${toDate}.`);
+        return;
+    }
+
+    persistFitSyncFromDateInput();
+    const dates = listDateRange(fromDate, toDate);
+    let okCount = 0;
+    let ngCount = 0;
+
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.textContent = `SYNCING 0/${dates.length}`;
+    }
+
+    try {
+        for (let i = 0; i < dates.length; i++) {
+            const d = dates[i];
+            try {
+                const res = await fetch(`/api/stride?date=${encodeURIComponent(d)}&sync=1`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                await res.json();
+                okCount += 1;
+            } catch (_e) {
+                ngCount += 1;
+            }
+            if (syncBtn) syncBtn.textContent = `SYNCING ${i + 1}/${dates.length}`;
+        }
+    } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.textContent = 'SYNC FIT JSON';
+        }
+    }
+
+    alert(`FIT sync completed: success ${okCount}, failed ${ngCount}`);
+    loadData({ triggerAdvice: false });
 }
 
 function setBatchPickerMessage(message) {
@@ -304,14 +394,21 @@ function renderSavedAdvice(summary) {
 
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
+    const syncSummary = !!(options && options.syncSummary);
     const dateInput = document.getElementById('dateInput');
     const date = dateInput.value;
     const summaryContainer = document.getElementById('summary');
     const tbody = document.querySelector('#resultTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
+    const syncJsonBtn = document.getElementById('syncJsonBtn');
 
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = 'ANALYZING...';
+    if (analyzeBtn) analyzeBtn.disabled = true;
+    if (syncJsonBtn) syncJsonBtn.disabled = true;
+    if (syncSummary) {
+        if (syncJsonBtn) syncJsonBtn.textContent = 'SYNCING...';
+    } else {
+        if (analyzeBtn) analyzeBtn.textContent = 'ANALYZING...';
+    }
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
 
     // Clear advice message first
@@ -321,7 +418,9 @@ async function loadData(options = {}) {
     if (msgText) msgText.textContent = '';
 
     try {
-        const res = await fetch(`/api/stride?date=${date}&sync=1`);
+        const qs = new URLSearchParams({ date: String(date || '').trim() });
+        if (syncSummary) qs.set('sync', '1');
+        const res = await fetch(`/api/stride?${qs.toString()}`);
         if (!res.ok) {
             const errText = await res.text();
             throw new Error(errText || 'Failed to fetch data');
@@ -450,8 +549,14 @@ async function loadData(options = {}) {
         // Even if stride fetch fails, still allow importing images for the selected date.
         checkAndRenderImages(date);
     } finally {
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = 'RUN ANALYZER';
+        if (analyzeBtn) {
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = 'RUN ANALYZER';
+        }
+        if (syncJsonBtn) {
+            syncJsonBtn.disabled = false;
+            syncJsonBtn.textContent = 'SYNC FIT JSON';
+        }
     }
 }
 
@@ -728,12 +833,14 @@ function renderChart(data) {
 document.addEventListener('DOMContentLoaded', () => {
     restoreRunDateInput();
     restoreSnapshotDateInput();
+    restoreFitSyncFromDateInput();
     restoreAdviceToggles();
     bindAdviceToggles();
 
     loadData({ triggerAdvice: false });
 
     document.getElementById('analyzeBtn').addEventListener('click', () => loadData({ triggerAdvice: true }));
+    document.getElementById('syncJsonBtn')?.addEventListener('click', syncFitJsonRangeFromUi);
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
     document.getElementById('imageImportBtn')?.addEventListener('click', runImageImportFlow);
@@ -747,6 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
         persistSnapshotDateInput();
         renderBatchIdleState('Snapshot date updated. Press IMPORT IMAGES to import and analyze.');
     });
+    document.getElementById('fitSyncFromDateInput')?.addEventListener('change', persistFitSyncFromDateInput);
 
     // Modal Event Listeners
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);

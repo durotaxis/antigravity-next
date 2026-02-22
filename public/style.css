@@ -152,6 +152,19 @@ h1 {
     margin-bottom: 24px;
 }
 
+#fitSyncControls {
+    justify-content: flex-start;
+}
+
+#imageImportControls,
+#analyzerControls {
+    justify-content: flex-start;
+}
+
+#analyzerControls .control-primary {
+    min-width: auto;
+}
+
 input[type="date"] {
     background: rgba(15, 23, 42, 0.6);
     border: 1px solid var(--glass-border);

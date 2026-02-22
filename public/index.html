@@ -29,8 +29,12 @@
             <input type="date" id="dateInput">
             <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
             <label class="batch-toggle">
-                <input type="checkbox" id="geminiToggle" checked>
+                <input type="checkbox" id="openaiAdviceToggle" checked>
                 <span>Use OpenAI Advice API</span>
+            </label>
+            <label class="batch-toggle">
+                <input type="checkbox" id="geminiAdviceToggle">
+                <span>Use Gemini Advice API</span>
             </label>
         </section>
 
@@ -148,7 +152,7 @@
 
     <!-- Logic -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js"></script>
+    <script src="script.js?v=20260222-1"></script>
 </body>
 
 </html>

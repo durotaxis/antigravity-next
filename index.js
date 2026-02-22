@@ -1247,7 +1247,7 @@ app.post('/api/advice', async (req, res) => {
         max_speed: pickPositive(cacheMetrics && cacheMetrics.max_speed, cached.max_speed),
         message: cached.message
       });
-      return res.json({ advice: cached.message });
+      return res.json({ advice: cached.message, provider: 'openai-cache' });
     }
 
     // Fetch images for this run to provide context to Gemini
@@ -1283,10 +1283,42 @@ app.post('/api/advice', async (req, res) => {
       message: advice
     });
 
-    res.json({ advice });
+    res.json({ advice, provider: 'openai-live' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Advice API (Gemini)
+app.post('/api/advice/gemini', async (req, res) => {
+  try {
+    const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
+    if (!date) return res.status(400).json({ error: 'date is required' });
+
+    const cacheMetrics = await computeDailySummaryFromCache(date);
+    const images = await imageRepo.getImagesForRun(date);
+    const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
+
+    const advice = await geminiService.generateAdvice({
+      date,
+      step_count: Number(stepCount || 0),
+      total_distance_km: Number(totalDistanceKm || 0),
+      total_time: totalTime || null,
+      avg_stride_cm: pickPositive(cacheMetrics.avg_stride_cm, avgStride),
+      max_stride_cm: pickPositive(cacheMetrics.max_stride_cm, maxStride),
+      avg_heart_rate: pickPositive(cacheMetrics.avg_heart_rate, avgHR),
+      max_heart_rate: pickPositive(cacheMetrics.max_heart_rate, maxHR),
+      avg_cadence: pickPositive(cacheMetrics.avg_cadence, avgCadence),
+      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
+      avg_speed: pickPositive(cacheMetrics.avg_speed, avgSpeed),
+      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed)
+    }, imagePaths);
+
+    return res.json({ advice, provider: 'gemini-live' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

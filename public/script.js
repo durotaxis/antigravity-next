@@ -1,34 +1,50 @@
 const WR_STRIDE = 200.0;
-const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
+const LEGACY_OPENAI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
+const OPENAI_TOGGLE_STORAGE_KEY = 'useOpenAiAdviceApi';
+const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiAdviceApi';
 const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
 const SNAPSHOT_DATE_STORAGE_KEY = 'selectedSnapshotDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
-function isGeminiEnabled() {
-    const toggle = document.getElementById('geminiToggle');
+function isOpenAiEnabled() {
+    const toggle = document.getElementById('openaiAdviceToggle');
     return !!(toggle && toggle.checked);
 }
 
-function restoreGeminiToggle() {
-    const toggle = document.getElementById('geminiToggle');
-    if (!toggle) return;
-
-    const saved = localStorage.getItem(GEMINI_TOGGLE_STORAGE_KEY);
-    if (saved === null) {
-        toggle.checked = true;
-        return;
-    }
-
-    toggle.checked = saved === '1';
+function isGeminiEnabled() {
+    const toggle = document.getElementById('geminiAdviceToggle');
+    return !!(toggle && toggle.checked);
 }
 
-function bindGeminiToggle() {
-    const toggle = document.getElementById('geminiToggle');
-    if (!toggle) return;
+function restoreAdviceToggles() {
+    const openAiToggle = document.getElementById('openaiAdviceToggle');
+    const geminiToggle = document.getElementById('geminiAdviceToggle');
+    if (!openAiToggle || !geminiToggle) return;
 
-    toggle.addEventListener('change', () => {
-        localStorage.setItem(GEMINI_TOGGLE_STORAGE_KEY, toggle.checked ? '1' : '0');
+    const openAiSaved = localStorage.getItem(OPENAI_TOGGLE_STORAGE_KEY);
+    const openAiLegacy = localStorage.getItem(LEGACY_OPENAI_TOGGLE_STORAGE_KEY);
+    if (openAiSaved === null) {
+        openAiToggle.checked = openAiLegacy === null ? true : openAiLegacy === '1';
+    } else {
+        openAiToggle.checked = openAiSaved === '1';
+    }
+
+    const geminiSaved = localStorage.getItem(GEMINI_TOGGLE_STORAGE_KEY);
+    geminiToggle.checked = geminiSaved === '1';
+}
+
+function bindAdviceToggles() {
+    const openAiToggle = document.getElementById('openaiAdviceToggle');
+    const geminiToggle = document.getElementById('geminiAdviceToggle');
+    if (!openAiToggle || !geminiToggle) return;
+
+    openAiToggle.addEventListener('change', () => {
+        localStorage.setItem(OPENAI_TOGGLE_STORAGE_KEY, openAiToggle.checked ? '1' : '0');
+    });
+
+    geminiToggle.addEventListener('change', () => {
+        localStorage.setItem(GEMINI_TOGGLE_STORAGE_KEY, geminiToggle.checked ? '1' : '0');
     });
 }
 
@@ -228,9 +244,11 @@ async function loadData() {
     analyzeBtn.textContent = 'ANALYZING...';
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
 
-    // Clear message first
-    document.getElementById('daily-message-container').style.display = 'none';
-    document.getElementById('daily-message-text').textContent = '';
+    // Clear advice message first
+    const msgContainer = document.getElementById('daily-message-container');
+    const msgText = document.getElementById('daily-message-text');
+    if (msgContainer) msgContainer.style.display = 'none';
+    if (msgText) msgText.textContent = '';
 
     try {
         const res = await fetch(`/api/stride?date=${date}&sync=1`);
@@ -342,13 +360,9 @@ async function loadData() {
 
         // --- Call AI Advice ---
         if (isGeminiEnabled()) {
-            getAdvice(date, maxStride, data);
-            loadDailyMessage(date);
-        } else {
-            const msgContainer = document.getElementById('daily-message-container');
-            const msgText = document.getElementById('daily-message-text');
-            if (msgContainer) msgContainer.style.display = 'none';
-            if (msgText) msgText.textContent = '';
+            getGeminiAdvice(date, maxStride, data);
+        } else if (isOpenAiEnabled()) {
+            getOpenAiAdvice(date, maxStride, data);
         }
 
     } catch (error) {
@@ -362,15 +376,7 @@ async function loadData() {
     }
 }
 
-async function getAdvice(date, maxStride, data) {
-    const aiContainer = document.getElementById('daily-message-container');
-    const aiText = document.getElementById('daily-message-text');
-
-    // Show loading state
-    aiContainer.style.display = 'block';
-    aiText.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Wait... AI Coach is analyzing...</span>';
-
-    // Avg/Max metrics (fallback from intraday chart data)
+async function buildAdvicePayload(date, maxStride, data) {
     const runningData = data.filter(d => d.steps > 140);
     const totalRunningSteps = runningData.reduce((acc, d) => acc + d.steps, 0);
     const avgStride = totalRunningSteps > 0 ? (runningData.reduce((acc, d) => acc + (d.stride * d.steps), 0) / totalRunningSteps) : 0;
@@ -416,51 +422,73 @@ async function getAdvice(date, maxStride, data) {
     });
     const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
 
+    let summary = null;
     try {
-        let summary = null;
-        try {
-            const dailyRes = await fetch(`/api/daily/${encodeURIComponent(date)}`);
-            if (dailyRes.ok) summary = await dailyRes.json();
-        } catch {
-            // ignore and use computed fallback
-        }
+        const dailyRes = await fetch(`/api/daily/${encodeURIComponent(date)}`);
+        if (dailyRes.ok) summary = await dailyRes.json();
+    } catch {
+        // ignore and use computed fallback
+    }
 
-        const payload = {
-            date,
-            stepCount: Number(summary?.step_count) > 0 ? Number(summary.step_count) : Math.round(totalSteps || 0),
-            totalDistanceKm: Number(summary?.total_distance_km) > 0 ? Number(summary.total_distance_km) : Number((totalDistanceKm || 0).toFixed(2)),
-            totalTime: (summary?.total_time && String(summary.total_time).trim()) ? String(summary.total_time).trim() : totalTime,
-            avgStride: Number(summary?.avg_stride) > 0 ? Number(summary.avg_stride) : Number(avgStride.toFixed(1)),
-            maxStride: Number(summary?.max_stride) > 0 ? Number(summary.max_stride) : Number(maxStride.toFixed(1)),
-            avgHR: Number(summary?.hr_avg) > 0 ? Number(summary.hr_avg) : Math.round(avgHR || 0),
-            maxHR: Number(summary?.hr_max) > 0 ? Number(summary.hr_max) : Math.round(maxHR || 0),
-            avgCadence: Number(summary?.avg_cadence) > 0 ? Number(summary.avg_cadence) : Math.round(avgCadence || 0),
-            maxCadence: Number(summary?.max_cadence) > 0 ? Number(summary.max_cadence) : Math.round(maxCadence || 0),
-            avgSpeed: Number(summary?.avg_speed) > 0 ? Number(summary.avg_speed) : Number((avgSpeed || 0).toFixed(1)),
-            maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : Number((maxSpeed || 0).toFixed(1))
-        };
+    return {
+        date,
+        stepCount: Number(summary?.step_count) > 0 ? Number(summary.step_count) : Math.round(totalSteps || 0),
+        totalDistanceKm: Number(summary?.total_distance_km) > 0 ? Number(summary.total_distance_km) : Number((totalDistanceKm || 0).toFixed(2)),
+        totalTime: (summary?.total_time && String(summary.total_time).trim()) ? String(summary.total_time).trim() : totalTime,
+        avgStride: Number(summary?.avg_stride) > 0 ? Number(summary.avg_stride) : Number(avgStride.toFixed(1)),
+        maxStride: Number(summary?.max_stride) > 0 ? Number(summary.max_stride) : Number(maxStride.toFixed(1)),
+        avgHR: Number(summary?.hr_avg) > 0 ? Number(summary.hr_avg) : Math.round(avgHR || 0),
+        maxHR: Number(summary?.hr_max) > 0 ? Number(summary.hr_max) : Math.round(maxHR || 0),
+        avgCadence: Number(summary?.avg_cadence) > 0 ? Number(summary.avg_cadence) : Math.round(avgCadence || 0),
+        maxCadence: Number(summary?.max_cadence) > 0 ? Number(summary.max_cadence) : Math.round(maxCadence || 0),
+        avgSpeed: Number(summary?.avg_speed) > 0 ? Number(summary.avg_speed) : Number((avgSpeed || 0).toFixed(1)),
+        maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : Number((maxSpeed || 0).toFixed(1))
+    };
+}
 
+async function getOpenAiAdvice(date, maxStride, data) {
+    const container = document.getElementById('daily-message-container');
+    const textSpan = document.getElementById('daily-message-text');
+    if (!container || !textSpan) return;
+
+    container.style.display = 'block';
+    textSpan.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">OpenAI is analyzing...</span>';
+
+    try {
+        const payload = await buildAdvicePayload(date, maxStride, data);
         const res = await fetch('/api/advice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-
-        const text = await res.text();
-        try {
-            const json = JSON.parse(text);
-            if (json.error) throw new Error(json.error);
-            aiText.innerHTML = json.advice;
-        } catch (e) {
-            console.error("API Response was not JSON:", text);
-            if (text.includes("<!DOCTYPE html>")) {
-                aiText.innerHTML = "Error: API Endpoint not found or Server Error (HTML response). Check console.";
-            } else {
-                aiText.innerHTML = "AI Analysis Failed: " + (json?.error || e.message);
-            }
-        }
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
+        textSpan.textContent = String(json.advice || '').trim() || 'No advice returned.';
     } catch (e) {
-        aiText.innerHTML = "AI Analysis Failed: " + e.message;
+        textSpan.textContent = `OpenAI Advice Failed: ${e.message}`;
+    }
+}
+
+async function getGeminiAdvice(date, maxStride, data) {
+    const container = document.getElementById('daily-message-container');
+    const textSpan = document.getElementById('daily-message-text');
+    if (!container || !textSpan) return;
+
+    container.style.display = 'block';
+    textSpan.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Gemini is analyzing...</span>';
+
+    try {
+        const payload = await buildAdvicePayload(date, maxStride, data);
+        const res = await fetch('/api/advice/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
+        textSpan.textContent = String(json.advice || '').trim() || 'No advice returned.';
+    } catch (e) {
+        textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
     }
 }
 
@@ -621,8 +649,8 @@ function renderChart(data) {
 document.addEventListener('DOMContentLoaded', () => {
     restoreRunDateInput();
     restoreSnapshotDateInput();
-    restoreGeminiToggle();
-    bindGeminiToggle();
+    restoreAdviceToggles();
+    bindAdviceToggles();
 
     loadData();
 

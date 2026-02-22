@@ -130,6 +130,7 @@ h1 {
     flex-wrap: wrap;
     margin-bottom: 12px;
     padding: 16px 20px;
+    position: relative;
 }
 
 .control-primary {
@@ -138,6 +139,7 @@ h1 {
     gap: 16px;
     min-width: 360px;
     justify-content: flex-start;
+    flex-wrap: wrap;
 }
 
 .control-options {
@@ -148,17 +150,27 @@ h1 {
     justify-content: flex-start;
 }
 
+.inline-options {
+    min-width: auto;
+    gap: 12px;
+    flex-wrap: nowrap;
+}
+
 #analyzerControls {
     margin-bottom: 24px;
 }
 
-#fitSyncControls {
+#debugControls,
+#analyzerControls {
     justify-content: flex-start;
 }
 
-#imageImportControls,
-#analyzerControls {
-    justify-content: flex-start;
+#debugControls .control-primary {
+    width: 100%;
+}
+
+#heightCmInput {
+    width: 96px;
 }
 
 #analyzerControls .control-primary {
@@ -194,6 +206,36 @@ input[type="date"]:focus {
     transition: all 0.3s ease;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+#syncJsonBtn,
+#imageImportBtn,
+#saveHeightBtn {
+    min-width: 240px;
+    min-height: 48px;
+    text-align: center;
+}
+
+#fitSyncHint,
+#imageImportHint {
+    flex-basis: 100%;
+    margin-top: -4px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.2;
+}
+
+.debug-frame-label {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: #9aa6bd;
+    border: 1px solid rgba(154, 166, 189, 0.35);
+    border-radius: 999px;
+    padding: 2px 8px;
 }
 
 .btn-primary:hover {

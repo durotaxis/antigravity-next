@@ -6,6 +6,9 @@ const ADVICE_PROVIDER_STORAGE_KEY = 'adviceProvider';
 const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
 const SNAPSHOT_DATE_STORAGE_KEY = 'selectedSnapshotDate';
 const FIT_SYNC_FROM_DATE_STORAGE_KEY = 'fitSyncFromDate';
+const DEBUG_ANCHOR_DATE_STORAGE_KEY = 'debugAnchorDate';
+const FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY = 'fitSyncCheckpointDate';
+const IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY = 'imageImportCheckpointDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
@@ -143,6 +146,29 @@ function persistFitSyncFromDateInput() {
     localStorage.setItem(FIT_SYNC_FROM_DATE_STORAGE_KEY, value);
 }
 
+function restoreHeightInput() {
+    const input = document.getElementById('heightCmInput');
+    if (!input) return;
+    const saved = String(localStorage.getItem('profile.height_cm') || '').trim();
+    if (/^\d{3}$/.test(saved)) {
+        input.value = saved;
+    }
+}
+
+function saveHeightInput() {
+    const input = document.getElementById('heightCmInput');
+    if (!input) return;
+    const raw = String(input.value || '').trim();
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 100 || v > 250) {
+        alert('Height must be between 100 and 250 cm.');
+        return;
+    }
+    const rounded = String(Math.round(v));
+    input.value = rounded;
+    localStorage.setItem('profile.height_cm', rounded);
+}
+
 function compareDateText(a, b) {
     return String(a || '').localeCompare(String(b || ''));
 }
@@ -167,25 +193,84 @@ function listDateRange(fromDate, toDate) {
     return out;
 }
 
+function getStoredValidDate(key) {
+    const v = String(localStorage.getItem(key) || '').trim();
+    return isValidRunDate(v) ? v : '';
+}
+
+function markDebugAnchorDate(dateValue) {
+    const d = normalizeRunDate(dateValue);
+    if (!d) return;
+    localStorage.setItem(DEBUG_ANCHOR_DATE_STORAGE_KEY, d);
+    updateDebugHints();
+}
+
+function getDebugAnchorDate() {
+    const saved = getStoredValidDate(DEBUG_ANCHOR_DATE_STORAGE_KEY);
+    if (saved) return saved;
+    const dateInput = document.getElementById('dateInput');
+    const fromInput = dateInput ? normalizeRunDate(dateInput.value) : '';
+    return fromInput || getTodayLocalDateString();
+}
+
+function getPendingDateRange(checkpointKey) {
+    const today = getTodayLocalDateString();
+    const anchor = getDebugAnchorDate();
+    const checkpoint = getStoredValidDate(checkpointKey);
+    let start = anchor;
+    if (checkpoint && compareDateText(checkpoint, start) >= 0) {
+        start = nextDateText(checkpoint);
+    }
+    if (compareDateText(start, today) > 0) return [];
+    return listDateRange(start, today);
+}
+
+function getPendingDateRangeWithFrom(checkpointKey, fromDate) {
+    const today = getTodayLocalDateString();
+    const checkpoint = getStoredValidDate(checkpointKey);
+    let start = normalizeRunDate(fromDate) || getDebugAnchorDate();
+    if (checkpoint && compareDateText(checkpoint, start) >= 0) {
+        start = nextDateText(checkpoint);
+    }
+    if (compareDateText(start, today) > 0) return [];
+    return listDateRange(start, today);
+}
+
+function updateDebugHints() {
+    const anchor = getDebugAnchorDate();
+    const fitCheckpoint = getStoredValidDate(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY) || '-';
+    const imageCheckpoint = getStoredValidDate(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY) || '-';
+    const fitRange = getPendingDateRange(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY);
+    const imageRange = getPendingDateRange(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY);
+
+    const fitHint = document.getElementById('fitSyncHint');
+    if (fitHint) {
+        fitHint.textContent = `anchor ${anchor} / checkpoint ${fitCheckpoint} / pending ${fitRange.length}`;
+    }
+    const imageHint = document.getElementById('imageImportHint');
+    if (imageHint) {
+        imageHint.textContent = `anchor ${anchor} / checkpoint ${imageCheckpoint} / pending ${imageRange.length}`;
+    }
+}
+
 async function syncFitJsonRangeFromUi() {
     const syncBtn = document.getElementById('syncJsonBtn');
     const fromInput = document.getElementById('fitSyncFromDateInput');
-    const fromDate = fromInput ? normalizeRunDate(fromInput.value) : '';
-    const toDate = getTodayLocalDateString();
-
-    if (!fromDate) {
-        alert('From date is required.');
-        return;
+    const manualFrom = fromInput ? normalizeRunDate(fromInput.value) : '';
+    if (manualFrom) {
+        markDebugAnchorDate(manualFrom);
     }
-    if (compareDateText(fromDate, toDate) > 0) {
-        alert(`From date must be on or before ${toDate}.`);
+    const dates = getPendingDateRangeWithFrom(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
+    if (dates.length === 0) {
+        alert('No pending FIT dates.');
         return;
     }
 
-    persistFitSyncFromDateInput();
-    const dates = listDateRange(fromDate, toDate);
     let okCount = 0;
     let ngCount = 0;
+    let lastSuccess = '';
+    let firstFailure = '';
+    const originalText = syncBtn ? syncBtn.textContent : '';
 
     if (syncBtn) {
         syncBtn.disabled = true;
@@ -200,19 +285,30 @@ async function syncFitJsonRangeFromUi() {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 await res.json();
                 okCount += 1;
+                lastSuccess = d;
             } catch (_e) {
                 ngCount += 1;
+                firstFailure = d;
+                break;
             }
             if (syncBtn) syncBtn.textContent = `SYNCING ${i + 1}/${dates.length}`;
         }
     } finally {
         if (syncBtn) {
             syncBtn.disabled = false;
-            syncBtn.textContent = 'SYNC FIT JSON';
+            syncBtn.textContent = originalText || 'SYNC FIT JSON';
         }
     }
 
-    alert(`FIT sync completed: success ${okCount}, failed ${ngCount}`);
+    if (lastSuccess) {
+        localStorage.setItem(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, lastSuccess);
+    }
+    updateDebugHints();
+    if (firstFailure) {
+        alert(`FIT sync stopped at ${firstFailure}. success ${okCount}, failed ${ngCount}`);
+    } else {
+        alert(`FIT sync completed: success ${okCount}, failed ${ngCount}`);
+    }
     loadData({ triggerAdvice: false });
 }
 
@@ -347,6 +443,7 @@ async function handleBatchLoadImages() {
         setBatchPickerMessage('Importing from Phone Link...');
         const imported = await importInboxImagesForBatchDate();
         await loadBatchImageCandidates();
+        if (targetDate) markDebugAnchorDate(targetDate);
         renderBatchResult({
             mode: 'batch-load',
             run_date: targetDate || null,
@@ -354,8 +451,10 @@ async function handleBatchLoadImages() {
             imported_from_inbox: imported.imported,
             matched_inbox_files: imported.matched
         });
+        return { targetDate, imported: imported.imported, matched: imported.matched };
     } catch (err) {
         setBatchPickerMessage(`Batch load error: ${err.message}`);
+        return { targetDate, imported: 0, matched: 0, error: err.message };
     }
 }
 
@@ -831,6 +930,7 @@ function renderChart(data) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    restoreHeightInput();
     restoreRunDateInput();
     restoreSnapshotDateInput();
     restoreFitSyncFromDateInput();
@@ -838,8 +938,11 @@ document.addEventListener('DOMContentLoaded', () => {
     bindAdviceToggles();
 
     loadData({ triggerAdvice: false });
+    updateDebugHints();
 
-    document.getElementById('analyzeBtn').addEventListener('click', () => loadData({ triggerAdvice: true }));
+    document.getElementById('analyzeBtn').addEventListener('click', () => {
+        loadData({ triggerAdvice: true });
+    });
     document.getElementById('syncJsonBtn')?.addEventListener('click', syncFitJsonRangeFromUi);
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
@@ -851,11 +954,27 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBatchIdleState('Date updated. Press IMPORT IMAGES to process images.');
     });
     document.getElementById('snapshotDateInput')?.addEventListener('change', () => {
+        const snapshotInput = document.getElementById('snapshotDateInput');
+        const snapshotDate = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
         persistSnapshotDateInput();
+        if (snapshotDate) {
+            markDebugAnchorDate(snapshotDate);
+        } else {
+            updateDebugHints();
+        }
         renderBatchIdleState('Snapshot date updated. Press IMPORT IMAGES to import and analyze.');
     });
-    document.getElementById('fitSyncFromDateInput')?.addEventListener('change', persistFitSyncFromDateInput);
-
+    document.getElementById('fitSyncFromDateInput')?.addEventListener('change', () => {
+        const fromInput = document.getElementById('fitSyncFromDateInput');
+        const fromDate = fromInput ? normalizeRunDate(fromInput.value) : '';
+        persistFitSyncFromDateInput();
+        if (fromDate) {
+            markDebugAnchorDate(fromDate);
+        } else {
+            updateDebugHints();
+        }
+    });
+    document.getElementById('saveHeightBtn')?.addEventListener('click', saveHeightInput);
     // Modal Event Listeners
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('inboxModal').addEventListener('click', (e) => {
@@ -1263,21 +1382,21 @@ function renderBatchIdleState(message) {
     });
 }
 
-async function runBatchFromScreen() {
+async function runBatchFromScreen(options = {}) {
     const runBtn = document.getElementById('runBatchBtn');
     const imageImportBtn = document.getElementById('imageImportBtn');
     const dateInput = document.getElementById('dateInput');
     const snapshotInput = document.getElementById('snapshotDateInput');
     const selectedMode = document.querySelector('input[name="batchOcrMode"]:checked');
 
-    if (!dateInput) return;
+    if (!dateInput) return { ok: false, skipped: true, reason: 'missing-date-input' };
 
-    const snapshotDate = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
-    const dateFromRun = normalizeRunDate(dateInput.value);
+    const snapshotDate = normalizeRunDate(options.snapshotDate || (snapshotInput ? snapshotInput.value : ''));
+    const dateFromRun = normalizeRunDate(options.runDate || dateInput.value);
     const runDate = snapshotDate || dateFromRun;
     if (!runDate) {
         renderBatchResult('Date is required.');
-        return;
+        return { ok: false, skipped: true, reason: 'missing-run-date' };
     }
 
     const filenames = getBatchFilenames();
@@ -1288,7 +1407,7 @@ async function runBatchFromScreen() {
             total: 0,
             message: 'No images for this date. Skipped (this is normal when there is no linked image).'
         });
-        return;
+        return { ok: true, skipped: true, runDate, total: 0 };
     }
 
     const payload = {
@@ -1325,9 +1444,11 @@ async function runBatchFromScreen() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `Batch failed: ${res.status}`);
-        if (runToken !== latestBatchRunToken) return;
+        if (runToken !== latestBatchRunToken) {
+            return { ok: false, skipped: true, reason: 'stale-token' };
+        }
         if (data && data.job && data.job.job_id && data.job.job_id !== expectedJobId) {
-            return;
+            return { ok: false, skipped: true, reason: 'job-id-mismatch' };
         }
 
         renderBatchResult({
@@ -1343,9 +1464,18 @@ async function runBatchFromScreen() {
 
         Promise.allSettled([loadRunHistory(), loadData(), loadBatchImageCandidates()])
             .catch(() => { /* ignore refresh errors */ });
+        return {
+            ok: true,
+            skipped: false,
+            runDate,
+            total: Number(data && data.total ? data.total : 0),
+            success: Number(data && data.success ? data.success : 0),
+            failed: Number(data && data.failed ? data.failed : 0)
+        };
     } catch (err) {
         if (runToken !== latestBatchRunToken) return;
         renderBatchResult(`Batch Error: ${err.message}`);
+        return { ok: false, skipped: false, runDate, error: err.message };
     } finally {
         if (runToken === latestBatchRunToken && targetBtn) {
             targetBtn.disabled = false;
@@ -1356,17 +1486,77 @@ async function runBatchFromScreen() {
 
 async function runImageImportFlow() {
     const btn = document.getElementById('imageImportBtn');
+    const dateInput = document.getElementById('dateInput');
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const manualFrom = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
+    if (manualFrom) {
+        markDebugAnchorDate(manualFrom);
+    }
+    const dates = getPendingDateRangeWithFrom(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
+    if (dates.length === 0) {
+        alert('No pending image-import dates.');
+        updateDebugHints();
+        return;
+    }
+
+    const dateBackup = dateInput ? String(dateInput.value || '') : '';
+    const snapshotBackup = snapshotInput ? String(snapshotInput.value || '') : '';
+    let okCount = 0;
+    let failCount = 0;
+    let lastSuccess = '';
+    let firstFailure = '';
+    const originalText = btn ? btn.textContent : '';
+
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'IMPORTING...';
+        btn.textContent = `IMPORTING 0/${dates.length}`;
     }
     try {
-        await handleBatchLoadImages();
-        await runBatchFromScreen();
+        for (let i = 0; i < dates.length; i++) {
+            const d = dates[i];
+            if (dateInput) dateInput.value = d;
+            if (snapshotInput) snapshotInput.value = d;
+            persistRunDateInput();
+            persistSnapshotDateInput();
+
+            const importedResult = await handleBatchLoadImages();
+            if (importedResult && importedResult.error) {
+                failCount += 1;
+                firstFailure = d;
+                break;
+            }
+
+            const batchResult = await runBatchFromScreen({ runDate: d, snapshotDate: d });
+            if (!batchResult || batchResult.ok === false) {
+                failCount += 1;
+                firstFailure = d;
+                break;
+            }
+
+            okCount += 1;
+            lastSuccess = d;
+            if (btn) btn.textContent = `IMPORTING ${i + 1}/${dates.length}`;
+        }
     } finally {
+        if (dateInput) dateInput.value = dateBackup;
+        if (snapshotInput) snapshotInput.value = snapshotBackup;
+        persistRunDateInput();
+        persistSnapshotDateInput();
+
+        if (lastSuccess) {
+            localStorage.setItem(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, lastSuccess);
+        }
+        updateDebugHints();
+
         if (btn) {
             btn.disabled = false;
-            btn.textContent = 'IMPORT IMAGES';
+            btn.textContent = originalText || 'IMPORT IMAGES';
         }
+    }
+
+    if (firstFailure) {
+        alert(`Image import stopped at ${firstFailure}. success ${okCount}, failed ${failCount}`);
+    } else {
+        alert(`Image import completed: success ${okCount}, failed ${failCount}`);
     }
 }

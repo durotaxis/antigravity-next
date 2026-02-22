@@ -1,8 +1,8 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import EfficiencyChart from './EfficiencyChart';
-// 作成したコンポーネントをインポート
+// 菴懈・縺励◆繧ｳ繝ｳ繝昴・繝阪Φ繝医ｒ繧､繝ｳ繝昴・繝・
 import ImageGrid from './components/ImageGrid';
 import RunUploader from './components/RunUploader';
 import Lightbox from './components/Lightbox';
@@ -18,7 +18,7 @@ function getApiBase(): string {
   return 'http://localhost:3000';
 }
 
-// データの型定義
+// 繝・・繧ｿ縺ｮ蝙句ｮ夂ｾｩ
 type Run = {
   id: number;
   date: string;
@@ -56,7 +56,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [legacyChartDate, setLegacyChartDate] = useState<string | null>(null);
   const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
-  const [heightCm, setHeightCm] = useState<string>('');
 
   const formatSpeed = (value: number | undefined) => {
     if (value === undefined || value === null || value <= 0) return '-';
@@ -66,10 +65,10 @@ export default function Home() {
     }).format(value);
   };
 
-  // Lightbox用の状態管理
+  // Lightbox逕ｨ縺ｮ迥ｶ諷狗ｮ｡逅・
   const [lightboxData, setLightboxData] = useState<{ url: string; assetId: number; runId: number; runDate: string } | null>(null);
 
-  // Lightboxを開く関数
+  // Lightbox繧帝幕縺城未謨ｰ
   const openLightbox = (url: string, assetId: number, runId: number, runDate: string) => {
     setLightboxData({ url, assetId, runId, runDate });
   };
@@ -97,7 +96,7 @@ export default function Home() {
     return !(hasDistance || hasSteps || hasStride || hasHr || hasSpeed || hasCadence || hasMessage);
   };
 
-  // Express (Port 3000) からデータを取得
+  // Express (Port 3000) 縺九ｉ繝・・繧ｿ繧貞叙蠕・
   useEffect(() => {
     fetch(`${API_BASE}/api/runs?includeDerived=1`)
       .then((res) => res.json())
@@ -135,35 +134,11 @@ export default function Home() {
       });
   }, [API_BASE]);
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('profile.height_cm');
-      if (stored) setHeightCm(stored);
-    } catch {
-      // ignore localStorage failures
-    }
-  }, []);
-
-  const handleSaveHeight = () => {
-    const v = Number(heightCm);
-    if (!Number.isFinite(v) || v < 100 || v > 250) {
-      alert('身長は 100〜250 cm で入力してください');
-      return;
-    }
-    const rounded = String(Math.round(v));
-    try {
-      localStorage.setItem('profile.height_cm', rounded);
-      setHeightCm(rounded);
-    } catch {
-      alert('身長の保存に失敗しました');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
 
-      {/* Lightbox (モーダル表示) */}
-      {/* Lightbox (モーダル表示) */}
+      {/* Lightbox (繝｢繝ｼ繝繝ｫ陦ｨ遉ｺ) */}
+      {/* Lightbox (繝｢繝ｼ繝繝ｫ陦ｨ遉ｺ) */}
       <Lightbox
         isOpen={!!lightboxData}
         imageSrc={lightboxData?.url || null}
@@ -188,35 +163,11 @@ export default function Home() {
         <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight mb-6">
           🏃‍♂️ AntiGravity <span className="text-blue-600">Next</span>
         </h1>
-
-        <div className="mb-4 bg-white border border-gray-100 rounded-lg p-3 flex items-center gap-2">
-          <label htmlFor="height-cm" className="text-sm text-gray-600 font-medium">
-            身長(cm)
-          </label>
-          <input
-            id="height-cm"
-            type="number"
-            min={100}
-            max={250}
-            step={1}
-            value={heightCm}
-            onChange={(e) => setHeightCm(e.target.value)}
-            className="w-24 px-2 py-1 rounded border border-gray-200 text-sm"
-            placeholder="170"
-          />
-          <button
-            onClick={handleSaveHeight}
-            className="px-3 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700"
-          >
-            保存
-          </button>
-        </div>
-
         {/* Upload Component */}
         <RunUploader />
       </header>
 
-      {/* エラー表示 */}
+      {/* 繧ｨ繝ｩ繝ｼ陦ｨ遉ｺ */}
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
           <strong className="font-bold">Error: </strong>
@@ -224,18 +175,18 @@ export default function Home() {
         </div>
       )}
 
-      {/* グラフエリア */}
+      {/* 繧ｰ繝ｩ繝輔お繝ｪ繧｢ */}
       <div className="mb-10 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <EfficiencyChart runs={runs} />
       </div>
 
-      {/* データリスト表示エリア */}
+      {/* 繝・・繧ｿ繝ｪ繧ｹ繝郁｡ｨ遉ｺ繧ｨ繝ｪ繧｢ */}
       <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.isArray(runs) && runs.map((run) => (
           <div key={run.id} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden border border-gray-100 flex flex-col">
             <div className="p-5 flex-grow">
 
-              {/* 日付ヘッダー */}
+              {/* 譌･莉倥・繝・ム繝ｼ */}
               <div className="flex justify-between items-center mb-4 relative group-card-header">
                 <span className="text-sm font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded">
                   {run.date}
@@ -258,7 +209,7 @@ export default function Home() {
 
               </div>
 
-              {/* 距離と時間（データがある場合のみ表示） */}
+              {/* 霍晞屬縺ｨ譎る俣・医ョ繝ｼ繧ｿ縺後≠繧句ｴ蜷医・縺ｿ陦ｨ遉ｺ・・*/}
               {run.distance > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1 mb-2">
@@ -266,7 +217,7 @@ export default function Home() {
                     <span className="text-sm text-gray-500 font-medium">km</span>
                   </div>
                   <div className="text-lg font-semibold text-blue-600 mb-4 flex items-center gap-2">
-                    ⏱ {run.time}
+                    竢ｱ {run.time}
                   </div>
                 </>
               ) : (
@@ -285,8 +236,8 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ストライドと心拍数 (Avg / Max) */}
-              {/* ストライドと心拍数 (Max Top / Avg Bottom) */}
+              {/* 繧ｹ繝医Λ繧､繝峨→蠢・牛謨ｰ (Avg / Max) */}
+              {/* 繧ｹ繝医Λ繧､繝峨→蠢・牛謨ｰ (Max Top / Avg Bottom) */}
               <div className="grid grid-cols-4 gap-3 pt-4 border-t border-gray-50 text-center">
 
                 {/* Stride Column */}
@@ -391,7 +342,7 @@ export default function Home() {
 
               </div>
 
-              {/* 画像グリッド (本番データ) */}
+              {/* 逕ｻ蜒上げ繝ｪ繝・ラ (譛ｬ逡ｪ繝・・繧ｿ) */}
               
 
               <div className="mt-6 border-t border-gray-50 pt-4">
@@ -413,3 +364,6 @@ export default function Home() {
     </div>
   );
 }
+
+
+

@@ -25,33 +25,9 @@
             <div class="subtitle">Peak Performance Control</div>
         </header>
 
-        <section class="controls glass-card" id="fitSyncControls">
-            <div class="control-primary">
-                <input type="date" id="fitSyncFromDateInput" title="From Date (SYNC FIT JSON)">
-                <button id="syncJsonBtn" class="btn-primary" type="button">SYNC FIT JSON</button>
-            </div>
-        </section>
-
-        <section class="controls glass-card" id="imageImportControls">
-            <div class="control-primary">
-                <input type="date" id="snapshotDateInput" title="Snapshot Date (Image Import)">
-                <button id="imageImportBtn" class="btn-primary" type="button">IMPORT IMAGES</button>
-            </div>
-            <div class="control-options">
-                <label class="batch-toggle">
-                    <input type="radio" name="batchOcrMode" id="batchOcrModePython" value="python" checked>
-                    <span>Python OCR</span>
-                </label>
-                <label class="batch-toggle">
-                    <input type="radio" name="batchOcrMode" id="batchOcrModeVision" value="vision">
-                    <span>Vision OCR</span>
-                </label>
-            </div>
-        </section>
-
         <section class="controls glass-card" id="analyzerControls">
             <div class="control-primary">
-                <input type="date" id="dateInput">
+                <input type="date" id="dateInput" title="Run Date (RUN ANALYZER)">
                 <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
             </div>
             <div class="control-options">
@@ -99,6 +75,35 @@
                         <!-- Data rows will be injected here -->
                     </tbody>
                 </table>
+            </section>
+
+            <section class="controls glass-card" id="debugControls">
+                <div class="debug-frame-label">DEBUG</div>
+                <div class="control-primary">
+                    <input type="date" id="fitSyncFromDateInput" title="From Date (SYNC FIT JSON)">
+                    <button id="syncJsonBtn" class="btn-primary" type="button">SYNC FIT JSON</button>
+                    <span id="fitSyncHint" class="batch-toggle"></span>
+                </div>
+                <div class="control-primary">
+                    <input type="date" id="snapshotDateInput" title="From Date (IMPORT IMAGES DEBUG)">
+                    <button id="imageImportBtn" class="btn-primary" type="button">IMPORT IMAGES</button>
+                    <div class="control-options inline-options">
+                        <label class="batch-toggle">
+                            <input type="radio" name="batchOcrMode" id="batchOcrModePython" value="python" checked>
+                            <span>Python OCR</span>
+                        </label>
+                        <label class="batch-toggle">
+                            <input type="radio" name="batchOcrMode" id="batchOcrModeVision" value="vision">
+                            <span>Vision OCR</span>
+                        </label>
+                    </div>
+                    <span id="imageImportHint" class="batch-toggle"></span>
+                </div>
+                <div class="control-primary">
+                    <label for="heightCmInput" class="batch-toggle">Height(cm)</label>
+                    <input type="number" id="heightCmInput" min="100" max="250" step="1" placeholder="170">
+                    <button id="saveHeightBtn" class="btn-primary" type="button">SAVE HEIGHT</button>
+                </div>
             </section>
 
             <section class="glass-card">

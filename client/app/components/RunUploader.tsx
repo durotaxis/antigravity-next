@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 
@@ -14,7 +14,6 @@ function getApiBase(): string {
 
 export default function RunUploader() {
     const [apiBase, setApiBase] = useState(() => (process.env.NEXT_PUBLIC_API_URL || '').trim());
-    const [mounted, setMounted] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [runDate, setRunDate] = useState(() => {
         const now = new Date();
@@ -25,7 +24,6 @@ export default function RunUploader() {
     });
 
     useEffect(() => {
-        setMounted(true);
         if (!apiBase) {
             setApiBase(getApiBase());
         }
@@ -35,7 +33,7 @@ export default function RunUploader() {
         const file = e.target.files?.[0];
         if (!file) return;
         if (!runDate) {
-            alert('走行日を選択してください。');
+            alert('Please select a run date first.');
             e.target.value = '';
             return;
         }
@@ -56,7 +54,7 @@ export default function RunUploader() {
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
                 if (res.status === 422 && errData?.code === 'MISSING_RUN_DATE') {
-                    alert('画像から日付を特定できなかったため、取り込みはキャンセルしました。');
+                    alert('Run date could not be determined. Set the run date and try again.');
                     setIsUploading(false);
                     e.target.value = '';
                     return;
@@ -66,7 +64,7 @@ export default function RunUploader() {
 
             const data = await res.json();
             if (data?.data?.duplicate_upload) {
-                alert('同じ画像は既に取り込み済みです。既存データを再利用しました。');
+                alert('This image appears to be already imported. Existing data was reused.');
                 setIsUploading(false);
                 e.target.value = '';
                 window.location.reload();
@@ -74,7 +72,7 @@ export default function RunUploader() {
             }
 
             if (data?.data?.ocr_failed) {
-                alert('OCRに失敗しましたが、画像の取り込みは完了しました。回復後に再度お試しください。');
+                alert('OCR failed. The image was imported, but analysis values could not be extracted.');
                 setIsUploading(false);
                 e.target.value = '';
                 return;
@@ -90,14 +88,10 @@ export default function RunUploader() {
         }
     };
 
-    const analyzerUrl = mounted
-        ? `${apiBase || getApiBase()}/?date=${encodeURIComponent(runDate)}`
-        : `/?date=${encodeURIComponent(runDate)}`;
-
     return (
         <div className="mb-6">
             <div className="mb-3 flex items-center gap-3">
-                <label htmlFor="run-date" className="text-sm font-medium text-gray-600">走行日</label>
+                <label htmlFor="run-date" className="text-sm font-medium text-gray-600">Run Date (Upload Target)</label>
                 <input
                     id="run-date"
                     type="date"
@@ -106,20 +100,8 @@ export default function RunUploader() {
                     disabled={isUploading}
                     className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white"
                 />
-                <div className="ml-auto flex items-center gap-2">
-                    <a
-                        href={analyzerUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-blue-700 hover:bg-blue-100"
-                    >
-                        Open Run Analyzer
-                    </a>
-                </div>
-            </div>
-            <div className="mb-3">
-                <span className="inline-flex items-center rounded-lg border px-3 py-1 text-xs font-semibold uppercase tracking-wide border-blue-300 bg-blue-50 text-blue-700">
-                    OCR Mode Used: Python OCR
+                <span className="text-xs font-medium uppercase tracking-wide text-blue-600">
+                    OCR mode: Python OCR
                 </span>
             </div>
             <div className="relative">
@@ -165,3 +147,6 @@ export default function RunUploader() {
         </div>
     );
 }
+
+
+

@@ -68,6 +68,13 @@ function isValidRunDate(value) {
     return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
 
+function normalizeRunDate(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const normalized = raw.replace(/\//g, '-');
+    return isValidRunDate(normalized) ? normalized : '';
+}
+
 function getTodayLocalDateString() {
     const now = new Date();
     const year = now.getFullYear();
@@ -158,7 +165,9 @@ function renderBatchImagePicker(images) {
 
 async function loadBatchImageCandidates() {
     const dateInput = document.getElementById('dateInput');
-    const date = dateInput ? String(dateInput.value || '').trim() : '';
+    const date = dateInput ? normalizeRunDate(dateInput.value) : '';
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const snapshotDate = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
     if (!date) {
         setBatchPickerMessage('Date is required.');
         return;
@@ -166,12 +175,17 @@ async function loadBatchImageCandidates() {
 
     setBatchPickerMessage('Loading images...');
     try {
-        const res = await fetch(`/api/images/candidates?date=${encodeURIComponent(date)}`);
+        const qs = new URLSearchParams({ date });
+        if (snapshotDate) qs.set('snapshot_date', snapshotDate);
+        const res = await fetch(`/api/images/candidates?${qs.toString()}`);
         if (!res.ok) throw new Error(`Failed to load images: ${res.status}`);
         const imagesRaw = await res.json();
-        const images = Array.isArray(imagesRaw)
+        const linkedImages = Array.isArray(imagesRaw)
             ? imagesRaw.filter((row) => Number(row && row.linked) === 1)
             : [];
+        const images = isValidRunDate(snapshotDate)
+            ? linkedImages.filter((row) => String(row && row.snapshot_date ? row.snapshot_date : '').trim() === snapshotDate)
+            : linkedImages;
         renderBatchImagePicker(images);
     } catch (err) {
         setBatchPickerMessage(`Image load error: ${err.message}`);
@@ -1137,8 +1151,7 @@ function renderBatchIdleState(message) {
 async function runBatchFromScreen() {
     const runBtn = document.getElementById('runBatchBtn');
     const dateInput = document.getElementById('dateInput');
-    const persistToggle = document.getElementById('batchPersistToggle');
-    const visionToggle = document.getElementById('batchVisionToggle');
+    const selectedMode = document.querySelector('input[name="batchOcrMode"]:checked');
 
     if (!runBtn || !dateInput) return;
 
@@ -1160,16 +1173,15 @@ async function runBatchFromScreen() {
     }
 
     const payload = {
-        persist: !!(persistToggle && persistToggle.checked),
         job: {
             job_id: '',
             source: 'screen-ui',
-            use_vision_default: false
+            ocr_mode_default: 'python'
         },
         items: filenames.map((filename, idx) => ({
             item_id: `item-${idx + 1}`,
             filename,
-            mode: (visionToggle && visionToggle.checked) ? 'vision' : 'mock',
+            mode: selectedMode ? String(selectedMode.value || 'python') : 'python',
             date: runDate,
             runId: runDate
         }))

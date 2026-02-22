@@ -261,6 +261,13 @@ function toBool(value, defaultValue = false) {
   return defaultValue;
 }
 
+function normalizeRunDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/\//g, '-');
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : '';
+}
+
 function resolveBatchRunDate(batchItem) {
   // Run date rule:
   // OCR extracted date first, then selected run date (input.date/runId) as fallback.
@@ -763,11 +770,16 @@ app.get('/api/runs/:runId/images', async (req, res) => {
 
 app.get('/api/images/candidates', async (req, res) => {
   try {
-    const date = String(req.query.date || '').trim();
+    const date = normalizeRunDate(req.query.date);
     if (!date) return res.status(400).json({ error: 'date is required' });
+    const snapshotDate = normalizeRunDate(req.query.snapshot_date);
 
     const candidates = await imageRepo.getBatchCandidatesForDate(date);
-    res.json(candidates || []);
+    const rows = Array.isArray(candidates) ? candidates : [];
+    const filtered = snapshotDate
+      ? rows.filter((row) => String(row && row.snapshot_date ? row.snapshot_date : '').trim() === snapshotDate)
+      : rows;
+    res.json(filtered);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1138,58 +1150,53 @@ app.post('/api/analyze/batch', async (req, res) => {
   try {
     const payload = req.body && typeof req.body === 'object' ? req.body : {};
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const persist = toBool(payload.persist, false);
     if (items.length === 0) {
       return res.status(400).json({ error: 'items is required (array)' });
     }
 
     const batchResult = await ocrComponent.analyzeBatchJob(payload);
-    let persisted = null;
-
-    if (persist) {
-      const persistResults = [];
-      for (const row of batchResult.results || []) {
-        if (!row || !row.ok) {
-          persistResults.push({
-            item_id: row && (row.item_id || null),
-            ok: false,
-            reason: 'OCR_FAILED'
-          });
-          continue;
-        }
-        if (row.mode !== 'vision') {
-          persistResults.push({
-            item_id: row.item_id || null,
-            ok: false,
-            reason: 'MOCK_NOT_ALLOWED',
-            mode: row.mode
-          });
-          continue;
-        }
-        try {
-          const one = await persistBatchItem(row);
-          persistResults.push({
-            item_id: row.item_id || null,
-            ...one
-          });
-        } catch (persistErr) {
-          persistResults.push({
-            item_id: row.item_id || null,
-            ok: false,
-            reason: persistErr && persistErr.message ? String(persistErr.message) : 'PERSIST_FAILED'
-          });
-        }
+    const persistResults = [];
+    for (const row of batchResult.results || []) {
+      if (!row || !row.ok) {
+        persistResults.push({
+          item_id: row && (row.item_id || null),
+          ok: false,
+          reason: 'OCR_FAILED'
+        });
+        continue;
       }
-
-      const persistSuccess = persistResults.filter(r => r.ok).length;
-      persisted = {
-        requested: true,
-        total: persistResults.length,
-        success: persistSuccess,
-        failed: persistResults.length - persistSuccess,
-        results: persistResults
-      };
+      if (row.mode !== 'vision' && row.mode !== 'python') {
+        persistResults.push({
+          item_id: row.item_id || null,
+          ok: false,
+          reason: 'OCR_MODE_NOT_ALLOWED',
+          mode: row.mode
+        });
+        continue;
+      }
+      try {
+        const one = await persistBatchItem(row);
+        persistResults.push({
+          item_id: row.item_id || null,
+          ...one
+        });
+      } catch (persistErr) {
+        persistResults.push({
+          item_id: row.item_id || null,
+          ok: false,
+          reason: persistErr && persistErr.message ? String(persistErr.message) : 'PERSIST_FAILED'
+        });
+      }
     }
+
+    const persistSuccess = persistResults.filter(r => r.ok).length;
+    const persisted = {
+      requested: true,
+      total: persistResults.length,
+      success: persistSuccess,
+      failed: persistResults.length - persistSuccess,
+      results: persistResults
+    };
 
     return res.json({
       success: true,

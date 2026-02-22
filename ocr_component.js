@@ -48,11 +48,13 @@ async function analyzeScreenOcr(filename) {
 
 function pickItemMode(item = {}, job = {}) {
   const raw = String(item.mode || '').toLowerCase().trim();
-  if (raw === 'vision' || raw === 'mock') return raw;
+  if (raw === 'vision' || raw === 'python' || raw === 'mock') return raw;
 
   if (toBool(item.useVision, false)) return 'vision';
   if (toBool(job.use_vision_default, false)) return 'vision';
-  return 'mock';
+  const fromJob = String(job.ocr_mode_default || '').toLowerCase().trim();
+  if (fromJob === 'vision' || fromJob === 'python') return fromJob;
+  return 'python';
 }
 
 function resolveBatchConcurrency(payload = {}, job = {}) {
@@ -92,9 +94,9 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
     let data;
     const requestedFilename = item.filename ? String(item.filename).trim() : null;
     const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
-    const useVision = mode === 'vision' && !!resolvedFilename;
+    const useOcr = (mode === 'vision' || mode === 'python') && !!resolvedFilename;
 
-    if (useVision && resolvedFilename) {
+    if (useOcr && resolvedFilename) {
       data = await analyzeScreenOcr(resolvedFilename);
     } else {
       data = buildMockOcrResult(item, index);
@@ -104,13 +106,13 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
       item_id: item.item_id || item.itemId || null,
       index,
       ok: true,
-      mode: useVision ? 'vision' : 'mock',
+      mode: useOcr ? mode : 'mock',
       input: {
         filename: resolvedFilename || requestedFilename,
         runId: item.runId || item.run_id || null,
         date: item.date || null,
         requested_mode: mode,
-        fallback_reason: !useVision && mode === 'vision' ? 'FILE_NOT_FOUND' : null
+        fallback_reason: !useOcr && (mode === 'vision' || mode === 'python') ? 'FILE_NOT_FOUND' : null
       },
       data
     };

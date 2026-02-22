@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function getApiBase(): string {
     const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
@@ -13,7 +13,8 @@ function getApiBase(): string {
 }
 
 export default function RunUploader() {
-    const API_BASE = getApiBase();
+    const [apiBase, setApiBase] = useState(() => (process.env.NEXT_PUBLIC_API_URL || '').trim());
+    const [mounted, setMounted] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [runDate, setRunDate] = useState(() => {
         const now = new Date();
@@ -22,6 +23,13 @@ export default function RunUploader() {
         const dd = String(now.getDate()).padStart(2, '0');
         return `${yyyy}-${mm}-${dd}`;
     });
+
+    useEffect(() => {
+        setMounted(true);
+        if (!apiBase) {
+            setApiBase(getApiBase());
+        }
+    }, [apiBase]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -40,7 +48,7 @@ export default function RunUploader() {
         formData.append('ocr_mode', 'python');
 
         try {
-            const res = await fetch(`${API_BASE}/api/analyze`, {
+            const res = await fetch(`${apiBase || getApiBase()}/api/analyze`, {
                 method: 'POST',
                 body: formData,
             });
@@ -82,7 +90,9 @@ export default function RunUploader() {
         }
     };
 
-    const analyzerUrl = `${API_BASE}/?date=${encodeURIComponent(runDate)}`;
+    const analyzerUrl = mounted
+        ? `${apiBase || getApiBase()}/?date=${encodeURIComponent(runDate)}`
+        : `/?date=${encodeURIComponent(runDate)}`;
 
     return (
         <div className="mb-6">

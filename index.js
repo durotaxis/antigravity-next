@@ -1231,24 +1231,9 @@ app.post('/api/analyze/batch/mock', async (req, res) => {
 app.post('/api/advice', async (req, res) => {
   try {
     const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
+    if (!date) return res.status(400).json({ error: 'date is required' });
 
-    const cached = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
-    if (cached && cached.message) {
-      await repo.saveDailySummary({
-        date,
-        max_stride: pickPositive(cacheMetrics && cacheMetrics.max_stride_cm, cached.max_stride),
-        avg_stride: pickPositive(cacheMetrics && cacheMetrics.avg_stride_cm, cached.avg_stride),
-        hr_max: pickPositive(cacheMetrics && cacheMetrics.max_heart_rate, cached.hr_max),
-        hr_avg: pickPositive(cacheMetrics && cacheMetrics.avg_heart_rate, cached.hr_avg),
-        avg_cadence: pickPositive(cacheMetrics && cacheMetrics.avg_cadence, cached.avg_cadence),
-        max_cadence: pickPositive(cacheMetrics && cacheMetrics.max_cadence, cached.max_cadence),
-        avg_speed: pickPositive(cacheMetrics && cacheMetrics.avg_speed, cached.avg_speed),
-        max_speed: pickPositive(cacheMetrics && cacheMetrics.max_speed, cached.max_speed),
-        message: cached.message
-      });
-      return res.json({ advice: cached.message, provider: 'openai-cache' });
-    }
 
     // Fetch images for this run to provide context to Gemini
     const images = await imageRepo.getImagesForRun(date);
@@ -1314,6 +1299,19 @@ app.post('/api/advice/gemini', async (req, res) => {
       avg_speed: pickPositive(cacheMetrics.avg_speed, avgSpeed),
       max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed)
     }, imagePaths);
+
+    await repo.saveDailySummary({
+      date,
+      max_stride: pickPositive(cacheMetrics.max_stride_cm, maxStride),
+      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, 0),
+      hr_max: pickPositive(cacheMetrics.max_heart_rate, maxHR),
+      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, 0),
+      avg_cadence: pickPositive(cacheMetrics.avg_cadence, 0),
+      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
+      avg_speed: pickPositive(cacheMetrics.avg_speed, 0),
+      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed),
+      message: advice
+    });
 
     return res.json({ advice, provider: 'gemini-live' });
   } catch (err) {

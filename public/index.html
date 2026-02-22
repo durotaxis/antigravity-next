@@ -29,12 +29,12 @@
             <input type="date" id="dateInput">
             <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
             <label class="batch-toggle">
-                <input type="checkbox" id="openaiAdviceToggle" checked>
-                <span>Use OpenAI Advice API</span>
+                <input type="radio" name="adviceProvider" id="openaiAdviceToggle" value="openai" checked>
+                <span>OpenAI Advice API</span>
             </label>
             <label class="batch-toggle">
-                <input type="checkbox" id="geminiAdviceToggle">
-                <span>Use Gemini Advice API</span>
+                <input type="radio" name="adviceProvider" id="geminiAdviceToggle" value="gemini">
+                <span>Gemini Advice API</span>
             </label>
         </section>
 

@@ -9,6 +9,7 @@ const path = require('path');
 
 const USER_HEIGHT_CM = 172;
 const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
+const ANALYSIS_UNAVAILABLE_MESSAGE = "AI Analysis is currently unavailable.";
 
 function isRateLimitError(error) {
     const status = Number(error?.status || error?.statusCode || error?.response?.status);
@@ -73,8 +74,11 @@ async function generateAdvice(metrics, imagePaths = []) {
         };
         return await generateCoachAdvice(stats, imagePaths);
     } catch (e) {
-        if (isRateLimitError(e)) return RATE_LIMIT_MESSAGE;
-        return "AI Analysis unavailable.";
+        if (isRateLimitError(e)) {
+            return RATE_LIMIT_MESSAGE;
+        }
+        console.error("Gemini generateAdvice failed:", e && e.message ? e.message : e);
+        return ANALYSIS_UNAVAILABLE_MESSAGE;
     }
 }
 
@@ -122,8 +126,9 @@ async function generateCoachAdvice(stats, imagePaths = []) {
 
     } catch (error) {
         if (isRateLimitError(error)) return RATE_LIMIT_MESSAGE;
-        return "AI Analysis is currently unavailable.";
+        console.error("Gemini generateCoachAdvice failed:", error && error.message ? error.message : error);
+        return ANALYSIS_UNAVAILABLE_MESSAGE;
     }
 }
 
-module.exports = { generateAdvice, generateCoachAdvice };
+module.exports = { generateAdvice, generateCoachAdvice, RATE_LIMIT_MESSAGE };

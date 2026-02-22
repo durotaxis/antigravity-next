@@ -78,6 +78,25 @@ export default function Home() {
   const closeLegacyChart = () => setLegacyChartDate(null);
   const closeLegacyDetail = () => setLegacyDetailDate(null);
 
+  const isToday = (dateStr: string) => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return dateStr === `${y}-${m}-${day}`;
+  };
+
+  const isEmptyRunCard = (run: Run) => {
+    const hasDistance = Number(run.distance || 0) > 0;
+    const hasSteps = Number(run.steps || 0) > 0;
+    const hasStride = Number(run.avg_stride || 0) > 0 || Number(run.max_stride || 0) > 0;
+    const hasHr = Number(run.avg_heart_rate || 0) > 0 || Number(run.max_heart_rate || 0) > 0;
+    const hasSpeed = Number(run.avg_speed || 0) > 0 || Number(run.max_speed || 0) > 0;
+    const hasCadence = Number(run.avg_cadence || 0) > 0 || Number(run.max_cadence || 0) > 0;
+    const hasMessage = typeof run.message === 'string' && run.message.trim().length > 0;
+    return !(hasDistance || hasSteps || hasStride || hasHr || hasSpeed || hasCadence || hasMessage);
+  };
+
   // Express (Port 3000) からデータを取得
   useEffect(() => {
     fetch(`${API_BASE}/api/runs?includeDerived=1`)
@@ -98,7 +117,12 @@ export default function Home() {
             max_speed: Number(run.max_speed ?? run.json_max_speed ?? 0),
             images: Array.isArray(run.images) ? run.images : []
           }));
-          setRuns(normalizedRuns);
+          const filteredRuns = normalizedRuns.filter((run) => {
+            // Hide today's placeholder-only card (often created before run data is ready).
+            if (isToday(run.date) && isEmptyRunCard(run)) return false;
+            return true;
+          });
+          setRuns(filteredRuns);
           setError(null);
         } else {
           console.error("API Error:", data);
@@ -135,36 +159,6 @@ export default function Home() {
     }
   };
 
-  // 画像削除ハンドラ
-  const handleDeleteImage = async (runId: number, runDate: string, assetId: number) => {
-    if (!confirm('Remove this image link? (The daily summary will remain)')) return;
-
-    try {
-      // NOTE: run_imagesテーブルは date を run_id として使用しているため、APIには date を渡す必要がある
-      const res = await fetch(`${API_BASE}/api/runs/${runDate}/images/${assetId}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        // UI側の状態も更新（リロードせずに反映）
-        setRuns(prevRuns => prevRuns.map(run => {
-          if (run.id === runId) {
-            return {
-              ...run,
-              images: run.images.filter(img => img.id !== assetId)
-            };
-          }
-          return run;
-        }));
-      } else {
-        alert('Failed to delete image');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Error deleting image');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
 
@@ -174,12 +168,6 @@ export default function Home() {
         isOpen={!!lightboxData}
         imageSrc={lightboxData?.url || null}
         onClose={closeLightbox}
-        onDelete={() => {
-          if (lightboxData) {
-            handleDeleteImage(lightboxData.runId, lightboxData.runDate, lightboxData.assetId);
-            closeLightbox();
-          }
-        }}
       />
       {legacyChartDate && (
         <LegacyStrideChart
@@ -268,31 +256,6 @@ export default function Home() {
                   <span className="text-xs text-gray-300">ID: {run.id}</span>
                 </div>
 
-                {/* 削除ボタン (Trash Icon) */}
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!confirm('Are you sure you want to delete this record? This cannot be undone.')) return;
-
-                    try {
-                      const res = await fetch(`${API_BASE}/api/runs/${run.id}`, { method: 'DELETE' });
-                      if (res.ok) {
-                        window.location.reload();
-                      } else {
-                        throw new Error('Delete failed');
-                      }
-                    } catch (err) {
-                      alert('Failed to delete run');
-                      console.error(err);
-                    }
-                  }}
-                  className="absolute -right-2 -top-2 p-2 text-gray-400 hover:text-red-500 bg-white/80 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-sm"
-                  title="Delete Run"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
               </div>
 
               {/* 距離と時間（データがある場合のみ表示） */}

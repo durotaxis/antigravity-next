@@ -13,7 +13,7 @@ const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
-const GEMINI_RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
+const GEMINI_RATE_LIMIT_MESSAGE = geminiService.RATE_LIMIT_MESSAGE || "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -818,29 +818,26 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     if (existingAsset) {
       // Multer already stored the file with a random filename; remove it for duplicate uploads.
       await fs.unlink(req.file.path).catch(() => { });
-
-      // Without run date, duplicate reuse cannot be shown anywhere in UI.
-      if (!allowInputDateFallback || !forcedRunId) {
-        return res.status(422).json({
-          error: 'Could not determine run date from image. Duplicate image was not linked.',
-          code: 'MISSING_RUN_DATE'
-        });
+      let linkedRunId = null;
+      if (allowInputDateFallback && forcedRunId) {
+        const forcedSummary = await repo.getDailySummary(forcedRunId);
+        // Do not create placeholder daily_summary by import date.
+        // Link only if the target run already exists.
+        if (forcedSummary) {
+          await imageRepo.linkImageToRun(forcedRunId, existingAsset.asset_id);
+          linkedRunId = forcedRunId;
+        }
       }
-
-      await repo.saveDailySummary({
-        date: forcedRunId,
-        message: null
-      });
-      await imageRepo.linkImageToRun(forcedRunId, existingAsset.asset_id);
 
       return res.json({
         success: true,
         data: {
           duplicate_upload: true,
-          linked_run_id: forcedRunId || null,
+          linked_run_id: linkedRunId,
           asset_id: existingAsset.asset_id,
           stored_filename: existingAsset.stored_filename || null,
-          original_filename: existingAsset.original_filename || originalName
+          original_filename: existingAsset.original_filename || originalName,
+          note: linkedRunId ? undefined : 'Duplicate detected. Not linked because target run was not found.'
         }
       });
     }
@@ -875,19 +872,16 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         });
       }
 
-      // Ensure the run exists even when OCR fails and date is forced by caller.
-      await repo.saveDailySummary({
-        date: forcedRunId,
-        message: null
-      });
-
+      const forcedSummary = await repo.getDailySummary(forcedRunId);
       result.date = forcedRunId;
       await imageRepo.updateAssetMetricsById(assetId, result);
 
-      try {
-        await imageRepo.linkImageToRun(forcedRunId, assetId);
-      } catch (linkErr) {
-        console.error("Link Failed (ignored):", linkErr && linkErr.message ? linkErr.message : linkErr);
+      if (forcedSummary) {
+        try {
+          await imageRepo.linkImageToRun(forcedRunId, assetId);
+        } catch (linkErr) {
+          console.error("Link Failed (ignored):", linkErr && linkErr.message ? linkErr.message : linkErr);
+        }
       }
 
       return res.json({
@@ -896,7 +890,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           ...result,
           asset_id: assetId,
           stored_filename: filename,
-          original_filename: originalName
+          original_filename: originalName,
+          linked_run_id: forcedSummary ? forcedRunId : null,
+          note: forcedSummary ? undefined : 'OCR failed. Image stored without run link because target run was not found.'
         }
       });
     }

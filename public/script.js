@@ -2,19 +2,23 @@ const WR_STRIDE = 200.0;
 const LEGACY_OPENAI_TOGGLE_STORAGE_KEY = 'useGeminiApi';
 const OPENAI_TOGGLE_STORAGE_KEY = 'useOpenAiAdviceApi';
 const GEMINI_TOGGLE_STORAGE_KEY = 'useGeminiAdviceApi';
+const ADVICE_PROVIDER_STORAGE_KEY = 'adviceProvider';
 const RUN_DATE_STORAGE_KEY = 'selectedRunDate';
 const SNAPSHOT_DATE_STORAGE_KEY = 'selectedSnapshotDate';
 const batchSelectedFiles = new Set();
 let latestBatchRunToken = 0;
 
+function getSelectedAdviceProvider() {
+    const selected = document.querySelector('input[name="adviceProvider"]:checked');
+    return selected ? String(selected.value || '').trim() : '';
+}
+
 function isOpenAiEnabled() {
-    const toggle = document.getElementById('openaiAdviceToggle');
-    return !!(toggle && toggle.checked);
+    return getSelectedAdviceProvider() === 'openai';
 }
 
 function isGeminiEnabled() {
-    const toggle = document.getElementById('geminiAdviceToggle');
-    return !!(toggle && toggle.checked);
+    return getSelectedAdviceProvider() === 'gemini';
 }
 
 function restoreAdviceToggles() {
@@ -22,29 +26,41 @@ function restoreAdviceToggles() {
     const geminiToggle = document.getElementById('geminiAdviceToggle');
     if (!openAiToggle || !geminiToggle) return;
 
-    const openAiSaved = localStorage.getItem(OPENAI_TOGGLE_STORAGE_KEY);
-    const openAiLegacy = localStorage.getItem(LEGACY_OPENAI_TOGGLE_STORAGE_KEY);
-    if (openAiSaved === null) {
-        openAiToggle.checked = openAiLegacy === null ? true : openAiLegacy === '1';
-    } else {
-        openAiToggle.checked = openAiSaved === '1';
+    const providerSaved = localStorage.getItem(ADVICE_PROVIDER_STORAGE_KEY);
+    if (providerSaved === 'openai' || providerSaved === 'gemini') {
+        openAiToggle.checked = providerSaved === 'openai';
+        geminiToggle.checked = providerSaved === 'gemini';
+        return;
     }
 
+    const openAiSaved = localStorage.getItem(OPENAI_TOGGLE_STORAGE_KEY);
+    const openAiLegacy = localStorage.getItem(LEGACY_OPENAI_TOGGLE_STORAGE_KEY);
     const geminiSaved = localStorage.getItem(GEMINI_TOGGLE_STORAGE_KEY);
-    geminiToggle.checked = geminiSaved === '1';
+    if (geminiSaved === '1') {
+        openAiToggle.checked = false;
+        geminiToggle.checked = true;
+    } else if (openAiSaved === null) {
+        openAiToggle.checked = openAiLegacy === null ? true : openAiLegacy === '1';
+        geminiToggle.checked = false;
+    } else {
+        openAiToggle.checked = openAiSaved === '1';
+        geminiToggle.checked = !openAiToggle.checked;
+    }
 }
 
 function bindAdviceToggles() {
-    const openAiToggle = document.getElementById('openaiAdviceToggle');
-    const geminiToggle = document.getElementById('geminiAdviceToggle');
-    if (!openAiToggle || !geminiToggle) return;
+    const toggles = document.querySelectorAll('input[name="adviceProvider"]');
+    if (!toggles || toggles.length === 0) return;
 
-    openAiToggle.addEventListener('change', () => {
-        localStorage.setItem(OPENAI_TOGGLE_STORAGE_KEY, openAiToggle.checked ? '1' : '0');
-    });
-
-    geminiToggle.addEventListener('change', () => {
-        localStorage.setItem(GEMINI_TOGGLE_STORAGE_KEY, geminiToggle.checked ? '1' : '0');
+    toggles.forEach(toggle => {
+        toggle.addEventListener('change', () => {
+            const provider = getSelectedAdviceProvider();
+            if (provider === 'openai' || provider === 'gemini') {
+                localStorage.setItem(ADVICE_PROVIDER_STORAGE_KEY, provider);
+                localStorage.setItem(OPENAI_TOGGLE_STORAGE_KEY, provider === 'openai' ? '1' : '0');
+                localStorage.setItem(GEMINI_TOGGLE_STORAGE_KEY, provider === 'gemini' ? '1' : '0');
+            }
+        });
     });
 }
 
@@ -233,7 +249,41 @@ async function handleBatchLoadImages() {
     }
 }
 
-async function loadData() {
+function hasNonEmptyMessage(summary) {
+    return !!(summary && typeof summary.message === 'string' && summary.message.trim().length > 0);
+}
+
+async function fetchDailySummary(date) {
+    try {
+        const res = await fetch(`/api/daily/${encodeURIComponent(date)}`);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (_e) {
+        return null;
+    }
+}
+
+function shouldTriggerAdvice(date, summary) {
+    if (!isValidRunDate(date)) return false;
+    if (!summary) return false;
+    return !hasNonEmptyMessage(summary);
+}
+
+function renderSavedAdvice(summary) {
+    const container = document.getElementById('daily-message-container');
+    const textSpan = document.getElementById('daily-message-text');
+    if (!container || !textSpan) return;
+    if (hasNonEmptyMessage(summary)) {
+        textSpan.textContent = String(summary.message).trim();
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+        textSpan.textContent = '';
+    }
+}
+
+async function loadData(options = {}) {
+    const triggerAdvice = !!(options && options.triggerAdvice);
     const dateInput = document.getElementById('dateInput');
     const date = dateInput.value;
     const summaryContainer = document.getElementById('summary');
@@ -358,11 +408,20 @@ async function loadData() {
         // --- Check & Render Images ---
         checkAndRenderImages(date);
 
-        // --- Call AI Advice ---
-        if (isGeminiEnabled()) {
-            getGeminiAdvice(date, maxStride, data);
-        } else if (isOpenAiEnabled()) {
-            getOpenAiAdvice(date, maxStride, data);
+        const dailySummary = await fetchDailySummary(date);
+        const canTriggerAdvice = triggerAdvice && shouldTriggerAdvice(date, dailySummary);
+
+        // --- Call AI Advice (only when daily_summary exists and message is empty) ---
+        if (canTriggerAdvice) {
+            if (isGeminiEnabled()) {
+                getGeminiAdvice(date, maxStride, data);
+            } else if (isOpenAiEnabled()) {
+                getOpenAiAdvice(date, maxStride, data);
+            } else {
+                renderSavedAdvice(dailySummary);
+            }
+        } else {
+            renderSavedAdvice(dailySummary);
         }
 
     } catch (error) {
@@ -652,9 +711,9 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreAdviceToggles();
     bindAdviceToggles();
 
-    loadData();
+    loadData({ triggerAdvice: false });
 
-    document.getElementById('analyzeBtn').addEventListener('click', loadData);
+    document.getElementById('analyzeBtn').addEventListener('click', () => loadData({ triggerAdvice: true }));
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
     document.getElementById('dateInput')?.addEventListener('change', () => {
@@ -703,7 +762,7 @@ async function loadRunHistory() {
             tr.style.cursor = 'pointer';
             tr.onclick = () => {
                 document.getElementById('dateInput').value = run.date;
-                loadData(); // Load chart for this date
+                loadData({ triggerAdvice: false }); // Load chart only
 
                 // Highlight selected row with class
                 document.querySelectorAll('#historyTable tr').forEach(r => r.classList.remove('history-row-active'));

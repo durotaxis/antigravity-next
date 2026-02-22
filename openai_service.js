@@ -23,9 +23,15 @@ async function generateCoachMessage(maxStats, imagePaths = []) {
     {
       type: 'text',
       text: [
-        'You are a running coach.',
-        'Use only the provided max metrics and image evidence.',
-        'Return one short Japanese message (about 80-140 chars).',
+        'You are a biomechanics-oriented running coach.',
+        'Use 榎本靖士 博士論文 as the evaluation basis.',
+        'Use only the provided metrics and image evidence. Do not add unknown facts.',
+        'Output MUST be Japanese, 120-180 characters, plain text only.',
+        'Output MUST include ALL of these elements:',
+        '1) Mention max speed, max stride, and max cadence with numbers.',
+        '2) Briefly judge SL-type vs pitch-type tendency.',
+        '3) Provide exactly one concrete next action for the next run.',
+        'Avoid generic praise-only advice.',
         `Date: ${maxStats.date || '-'}`,
         `Step Count: ${maxStats.stepCount || '-'}`,
         `Total Distance(km): ${maxStats.totalDistanceKm || '-'}`,
@@ -37,7 +43,8 @@ async function generateCoachMessage(maxStats, imagePaths = []) {
         `Avg Cadence(spm): ${maxStats.avgCadence || '-'}`,
         `Max Cadence(spm): ${maxStats.maxCadence || '-'}`,
         `Avg Speed(km/h): ${maxStats.avgSpeed || '-'}`,
-        `Max Speed(km/h): ${maxStats.maxSpeed || '-'}`
+        `Max Speed(km/h): ${maxStats.maxSpeed || '-'}`,
+        'If values are missing, explicitly say "データ不足".'
       ].join('\n')
     }
   ];

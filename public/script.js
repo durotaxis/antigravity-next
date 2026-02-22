@@ -134,16 +134,17 @@ function setBatchPickerMessage(message) {
 
 function renderBatchImagePicker(images) {
     const picker = document.getElementById('batchImagePicker');
-    if (!picker) return;
 
-    picker.innerHTML = '';
+    batchSelectedFiles.clear();
     if (!Array.isArray(images) || images.length === 0) {
-        batchSelectedFiles.clear();
-        setBatchPickerMessage('No linked images for this date. Add manual filename or link image first.');
+        if (picker) {
+            picker.innerHTML = '';
+            setBatchPickerMessage('No linked images for this date. Add manual filename or link image first.');
+        }
         return;
     }
 
-    batchSelectedFiles.clear();
+    if (picker) picker.innerHTML = '';
 
     images.forEach((img) => {
         const filename = String(img && img.stored_filename ? img.stored_filename : '').trim();
@@ -152,30 +153,33 @@ function renderBatchImagePicker(images) {
         if (!filename) return;
         batchSelectedFiles.add(filename);
 
-        const row = document.createElement('div');
-        row.className = 'batch-image-item';
-        const label = originalName || filename;
-        row.textContent = snapshotDate ? `${snapshotDate} | ${label}` : label;
-        if (originalName && originalName !== filename) {
-            row.title = filename;
+        if (picker) {
+            const row = document.createElement('div');
+            row.className = 'batch-image-item';
+            const label = originalName || filename;
+            row.textContent = snapshotDate ? `${snapshotDate} | ${label}` : label;
+            if (originalName && originalName !== filename) {
+                row.title = filename;
+            }
+            picker.appendChild(row);
         }
-        picker.appendChild(row);
     });
 }
 
 async function loadBatchImageCandidates() {
-    const dateInput = document.getElementById('dateInput');
-    const date = dateInput ? normalizeRunDate(dateInput.value) : '';
     const snapshotInput = document.getElementById('snapshotDateInput');
     const snapshotDate = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
-    if (!date) {
+    const dateInput = document.getElementById('dateInput');
+    const runDate = dateInput ? normalizeRunDate(dateInput.value) : '';
+    const targetDate = snapshotDate || runDate;
+    if (!targetDate) {
         setBatchPickerMessage('Date is required.');
         return;
     }
 
     setBatchPickerMessage('Loading images...');
     try {
-        const qs = new URLSearchParams({ date });
+        const qs = new URLSearchParams({ date: targetDate });
         if (snapshotDate) qs.set('snapshot_date', snapshotDate);
         const res = await fetch(`/api/images/candidates?${qs.toString()}`);
         if (!res.ok) throw new Error(`Failed to load images: ${res.status}`);
@@ -198,15 +202,16 @@ function normalizeDigitsOnly(text) {
 
 async function importInboxImagesForBatchDate() {
     const dateInput = document.getElementById('dateInput');
-    const date = dateInput ? String(dateInput.value || '').trim() : '';
+    const runDate = dateInput ? String(dateInput.value || '').trim() : '';
     const snapshotInput = document.getElementById('snapshotDateInput');
     const snapshotDate = snapshotInput ? String(snapshotInput.value || '').trim() : '';
-    if (!date) {
+    const targetDate = isValidRunDate(snapshotDate) ? snapshotDate : runDate;
+    if (!targetDate) {
         setBatchPickerMessage('Date is required.');
         return { imported: 0, matched: 0 };
     }
 
-    const tokenSource = isValidRunDate(snapshotDate) ? snapshotDate : date;
+    const tokenSource = targetDate;
     const targetToken = normalizeDigitsOnly(tokenSource);
     if (!targetToken) {
         setBatchPickerMessage('Invalid date.');
@@ -223,7 +228,7 @@ async function importInboxImagesForBatchDate() {
         return { imported: 0, matched: 0 };
     }
 
-    const importRes = await fetch(`/api/runs/${encodeURIComponent(date)}/import-selected`, {
+    const importRes = await fetch(`/api/runs/${encodeURIComponent(targetDate)}/import-selected`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,18 +248,19 @@ async function importInboxImagesForBatchDate() {
 }
 
 async function handleBatchLoadImages() {
-    const dateInput = document.getElementById('dateInput');
-    const runDate = dateInput ? String(dateInput.value || '').trim() : '';
     const snapshotInput = document.getElementById('snapshotDateInput');
     const snapshotDate = snapshotInput ? String(snapshotInput.value || '').trim() : '';
+    const dateInput = document.getElementById('dateInput');
+    const runDate = dateInput ? String(dateInput.value || '').trim() : '';
+    const targetDate = isValidRunDate(snapshotDate) ? snapshotDate : runDate;
     try {
         setBatchPickerMessage('Importing from Phone Link...');
         const imported = await importInboxImagesForBatchDate();
         await loadBatchImageCandidates();
         renderBatchResult({
             mode: 'batch-load',
-            run_date: runDate || null,
-            snapshot_date: isValidRunDate(snapshotDate) ? snapshotDate : runDate || null,
+            run_date: targetDate || null,
+            snapshot_date: isValidRunDate(snapshotDate) ? snapshotDate : targetDate || null,
             imported_from_inbox: imported.imported,
             matched_inbox_files: imported.matched
         });
@@ -730,15 +736,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('analyzeBtn').addEventListener('click', () => loadData({ triggerAdvice: true }));
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
+    document.getElementById('imageImportBtn')?.addEventListener('click', runImageImportFlow);
     document.getElementById('dateInput')?.addEventListener('change', () => {
         persistRunDateInput();
         batchSelectedFiles.clear();
-        setBatchPickerMessage('Date changed. Press LOAD IMAGES to fetch candidates for this run date.');
-        renderBatchIdleState('Date updated. Press LOAD IMAGES to fetch candidates.');
+        setBatchPickerMessage('Date changed. Press IMPORT IMAGES to process images.');
+        renderBatchIdleState('Date updated. Press IMPORT IMAGES to process images.');
     });
     document.getElementById('snapshotDateInput')?.addEventListener('change', () => {
         persistSnapshotDateInput();
-        renderBatchIdleState('Snapshot date updated. Press LOAD IMAGES to import from Phone Link.');
+        renderBatchIdleState('Snapshot date updated. Press IMPORT IMAGES to import and analyze.');
     });
 
     // Modal Event Listeners
@@ -750,8 +757,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial History Load
     loadRunHistory();
-    setBatchPickerMessage('No images loaded yet. Press LOAD IMAGES after confirming run date.');
-    renderBatchIdleState('Ready. Press LOAD IMAGES to import/link images for this run date.');
+    setBatchPickerMessage('No images loaded yet. Press IMPORT IMAGES after confirming dates.');
+    renderBatchIdleState('Ready. Press IMPORT IMAGES to import/link images.');
 });
 
 async function loadRunHistory() {
@@ -1150,12 +1157,16 @@ function renderBatchIdleState(message) {
 
 async function runBatchFromScreen() {
     const runBtn = document.getElementById('runBatchBtn');
+    const imageImportBtn = document.getElementById('imageImportBtn');
     const dateInput = document.getElementById('dateInput');
+    const snapshotInput = document.getElementById('snapshotDateInput');
     const selectedMode = document.querySelector('input[name="batchOcrMode"]:checked');
 
-    if (!runBtn || !dateInput) return;
+    if (!dateInput) return;
 
-    const runDate = String(dateInput.value || '').trim();
+    const snapshotDate = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
+    const dateFromRun = normalizeRunDate(dateInput.value);
+    const runDate = snapshotDate || dateFromRun;
     if (!runDate) {
         renderBatchResult('Date is required.');
         return;
@@ -1187,12 +1198,15 @@ async function runBatchFromScreen() {
         }))
     };
 
-    const originalText = runBtn.textContent;
+    const targetBtn = runBtn || imageImportBtn;
+    const originalText = targetBtn ? targetBtn.textContent : '';
     const runToken = ++latestBatchRunToken;
     const expectedJobId = `ui-${Date.now()}-${runToken}`;
     payload.job.job_id = expectedJobId;
-    runBtn.disabled = true;
-    runBtn.textContent = 'RUNNING...';
+    if (targetBtn) {
+        targetBtn.disabled = true;
+        targetBtn.textContent = 'RUNNING...';
+    }
     renderBatchResult('Running batch...');
 
     try {
@@ -1225,9 +1239,26 @@ async function runBatchFromScreen() {
         if (runToken !== latestBatchRunToken) return;
         renderBatchResult(`Batch Error: ${err.message}`);
     } finally {
-        if (runToken === latestBatchRunToken) {
-            runBtn.disabled = false;
-            runBtn.textContent = originalText;
+        if (runToken === latestBatchRunToken && targetBtn) {
+            targetBtn.disabled = false;
+            targetBtn.textContent = originalText;
+        }
+    }
+}
+
+async function runImageImportFlow() {
+    const btn = document.getElementById('imageImportBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'IMPORTING...';
+    }
+    try {
+        await handleBatchLoadImages();
+        await runBatchFromScreen();
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'IMPORT IMAGES';
         }
     }
 }

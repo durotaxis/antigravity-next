@@ -25,28 +25,12 @@
             <div class="subtitle">Peak Performance Control</div>
         </header>
 
-        <section class="controls glass-card">
-            <input type="date" id="dateInput">
-            <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
-            <label class="batch-toggle">
-                <input type="radio" name="adviceProvider" id="openaiAdviceToggle" value="openai" checked>
-                <span>OpenAI Advice API</span>
-            </label>
-            <label class="batch-toggle">
-                <input type="radio" name="adviceProvider" id="geminiAdviceToggle" value="gemini">
-                <span>Gemini Advice API</span>
-            </label>
-        </section>
-
-        <section id="batch-ocr" class="glass-card">
-            <h3 style="margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
-                Batch OCR
-            </h3>
-            <div class="batch-toolbar" style="margin-bottom: 10px;">
-                <label class="batch-toggle" for="snapshotDateInput">Snapshot Date (LOAD IMAGES)</label>
-                <input type="date" id="snapshotDateInput">
+        <section class="controls glass-card" id="imageImportControls">
+            <div class="control-primary">
+                <input type="date" id="snapshotDateInput" title="Snapshot Date (Image Import)">
+                <button id="imageImportBtn" class="btn-primary" type="button">IMPORT IMAGES</button>
             </div>
-            <div class="batch-toolbar">
+            <div class="control-options">
                 <label class="batch-toggle">
                     <input type="radio" name="batchOcrMode" id="batchOcrModePython" value="python" checked>
                     <span>Python OCR</span>
@@ -55,15 +39,24 @@
                     <input type="radio" name="batchOcrMode" id="batchOcrModeVision" value="vision">
                     <span>Vision OCR</span>
                 </label>
-                <button id="batchLoadImagesBtn" class="btn-primary batch-load-btn" type="button">LOAD IMAGES</button>
             </div>
-            <div id="batchImagePicker" class="batch-image-picker">No images loaded yet.</div>
-            <textarea id="batchFilenamesInput" class="batch-input"
-                placeholder="Optional: one stored filename per line (manual input)&#10;Example:&#10;upload_04a5cee87050.png"></textarea>
-            <div class="batch-actions">
-                <button id="runBatchBtn" class="btn-primary">RUN BATCH</button>
+        </section>
+
+        <section class="controls glass-card" id="analyzerControls">
+            <div class="control-primary">
+                <input type="date" id="dateInput">
+                <button id="analyzeBtn" class="btn-primary">RUN ANALYZER</button>
             </div>
-            <pre id="batchResult" class="batch-result">Batch result will appear here.</pre>
+            <div class="control-options">
+                <label class="batch-toggle">
+                    <input type="radio" name="adviceProvider" id="openaiAdviceToggle" value="openai" checked>
+                    <span>OpenAI Advice API</span>
+                </label>
+                <label class="batch-toggle">
+                    <input type="radio" name="adviceProvider" id="geminiAdviceToggle" value="gemini">
+                    <span>Gemini Advice API</span>
+                </label>
+            </div>
         </section>
 
         <section>

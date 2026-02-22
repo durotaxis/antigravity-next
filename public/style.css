@@ -127,7 +127,29 @@ h1 {
     gap: 16px;
     align-items: center;
     justify-content: center;
-    margin-bottom: 30px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 16px 20px;
+}
+
+.control-primary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 360px;
+    justify-content: flex-start;
+}
+
+.control-options {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 320px;
+    justify-content: flex-start;
+}
+
+#analyzerControls {
+    margin-bottom: 24px;
 }
 
 input[type="date"] {

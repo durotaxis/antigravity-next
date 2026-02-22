@@ -1,4 +1,5 @@
-const visionService = require('./vision_service');
+const pythonOcrService = require('./vision_service');
+const geminiVisionOcrService = require('./gemini_vision_ocr_service');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -42,8 +43,12 @@ function buildMockOcrResult(item = {}, index = 0) {
   };
 }
 
-async function analyzeScreenOcr(filename) {
-  return visionService.analyzeImage(filename);
+async function analyzeScreenOcr(filename, mode = 'python') {
+  const selectedMode = String(mode || 'python').toLowerCase().trim();
+  if (selectedMode === 'vision') {
+    return geminiVisionOcrService.analyzeImage(filename);
+  }
+  return pythonOcrService.analyzeImage(filename);
 }
 
 function pickItemMode(item = {}, job = {}) {
@@ -95,9 +100,22 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
     const requestedFilename = item.filename ? String(item.filename).trim() : null;
     const resolvedFilename = await resolveStoredFilenameInStore(requestedFilename);
     const useOcr = (mode === 'vision' || mode === 'python') && !!resolvedFilename;
+    let effectiveMode = mode;
+    let fallbackReason = null;
 
     if (useOcr && resolvedFilename) {
-      data = await analyzeScreenOcr(resolvedFilename);
+      try {
+        data = await analyzeScreenOcr(resolvedFilename, mode);
+      } catch (visionErr) {
+        // Keep batch usable when Vision quota is unavailable.
+        if (mode === 'vision') {
+          data = await analyzeScreenOcr(resolvedFilename, 'python');
+          effectiveMode = 'python';
+          fallbackReason = 'VISION_FAILED_FALLBACK_TO_PYTHON';
+        } else {
+          throw visionErr;
+        }
+      }
     } else {
       data = buildMockOcrResult(item, index);
     }
@@ -106,13 +124,15 @@ async function analyzeBatchItem(item = {}, index = 0, job = {}) {
       item_id: item.item_id || item.itemId || null,
       index,
       ok: true,
-      mode: useOcr ? mode : 'mock',
+      mode: useOcr ? effectiveMode : 'mock',
       input: {
         filename: resolvedFilename || requestedFilename,
         runId: item.runId || item.run_id || null,
         date: item.date || null,
         requested_mode: mode,
-        fallback_reason: !useOcr && (mode === 'vision' || mode === 'python') ? 'FILE_NOT_FOUND' : null
+        fallback_reason: !useOcr && (mode === 'vision' || mode === 'python')
+          ? 'FILE_NOT_FOUND'
+          : fallbackReason
       },
       data
     };

@@ -749,9 +749,86 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     const { runId } = req.params;
     const { filenames } = req.body;
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
-    const skipAdvice = toBool(req.body && req.body.skipAdvice, false);
-    const skipSummary = toBool(req.body && req.body.skipSummary, false);
-    const results = await imageService.importSelectedFiles(filenames, runId, { skipAdvice, skipSummary });
+    const storeDir = path.join(__dirname, 'public', 'assets', 'store');
+    const results = [];
+
+    for (const rawName of filenames) {
+      const filename = String(rawName || '').trim();
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        results.push({ file: filename, status: 'error', code: 'INVALID_FILENAME', error: 'Invalid filename' });
+        continue;
+      }
+
+      const inboxPath = path.join(imageService.INBOX_DIR, filename);
+      try {
+        await fs.access(inboxPath);
+      } catch {
+        results.push({ file: filename, status: 'error', code: 'FILE_NOT_FOUND', error: 'File not found' });
+        continue;
+      }
+
+      const ext = path.extname(filename).toLowerCase();
+      const fileBuffer = await fs.readFile(inboxPath);
+      const hash = require('crypto').createHash('sha256').update(fileBuffer).digest('hex');
+      const storedFilename = `${hash}${ext}`;
+      const storePath = path.join(storeDir, storedFilename);
+
+      let asset = await imageRepo.findAssetByHash(hash);
+      let createdAssetId = null;
+      if (!asset) {
+        await fs.copyFile(inboxPath, storePath);
+        const assetId = await imageRepo.createAsset(hash, storedFilename, filename);
+        createdAssetId = assetId;
+        asset = { asset_id: assetId };
+      }
+
+      let analyzed = null;
+      try {
+        analyzed = await ocrComponent.analyzeScreenOcr(storedFilename, 'python');
+      } catch (ocrErr) {
+        if (createdAssetId) {
+          await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
+        }
+        results.push({
+          file: filename,
+          status: 'error',
+          code: 'OCR_FAILED',
+          error: ocrErr && ocrErr.message ? String(ocrErr.message) : 'OCR failed'
+        });
+        continue;
+      }
+
+      const ocrRunDate = normalizeRunDate(analyzed && analyzed.date);
+      if (!ocrRunDate) {
+        if (createdAssetId) {
+          await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
+        }
+        results.push({
+          file: filename,
+          status: 'error',
+          code: 'MISSING_RUN_DATE',
+          error: 'OCR date could not be determined. Import was rolled back.'
+        });
+        continue;
+      }
+
+      await imageRepo.updateAssetMetricsById(asset.asset_id, analyzed || {});
+      await imageRepo.linkImageToRun(ocrRunDate, asset.asset_id);
+      if (runId && runId !== ocrRunDate) {
+        await imageRepo.unlinkImageFromRun(runId, asset.asset_id).catch(() => { });
+      }
+
+      results.push({ file: filename, status: 'success', run_id: ocrRunDate, asset_id: asset.asset_id });
+    }
+
+    const failed = results.filter((row) => row && row.status !== 'success');
+    if (failed.length > 0) {
+      return res.status(422).json({
+        error: 'Some images failed to import because OCR run date could not be determined.',
+        code: 'IMPORT_PARTIAL_FAILED',
+        results
+      });
+    }
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err.message });

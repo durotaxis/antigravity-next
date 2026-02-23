@@ -1241,7 +1241,20 @@ async function importSelectedImages() {
             })
         });
 
-        if (!res.ok) throw new Error('Import failed');
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const rows = Array.isArray(payload && payload.results) ? payload.results : [];
+            const failedRows = rows.filter(r => r && r.status !== 'success');
+            if (failedRows.length > 0) {
+                const first = failedRows[0];
+                const file = first && first.file ? String(first.file) : '(unknown)';
+                const reason = first && first.error ? String(first.error) : 'Import failed';
+                alert(`Import failed: ${file}\n${reason}`);
+            } else {
+                alert(payload && payload.error ? String(payload.error) : 'Import failed');
+            }
+            throw new Error(payload && payload.error ? String(payload.error) : 'Import failed');
+        }
 
         const dateToRefresh = currentRunDate; // Capture before clearing
         closeModal();

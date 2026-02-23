@@ -8,7 +8,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const USER_HEIGHT_CM = 172;
-const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。お手数ですが、回復する（16時）までお待ち下さい。";
+const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。米国時間0:00のリセット後に再試行してください。";
 const ANALYSIS_UNAVAILABLE_MESSAGE = "AI Analysis is currently unavailable.";
 
 function isRateLimitError(error) {

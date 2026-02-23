@@ -1288,7 +1288,22 @@ app.post('/api/advice', async (req, res) => {
     const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
+    const dailySummary = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
+    const resolvedStepCount = pickPositive(dailySummary && dailySummary.step_count, pickPositive(cacheMetrics.step_count, stepCount));
+    const resolvedTotalDistanceKm = pickPositive(dailySummary && dailySummary.total_distance_km, pickPositive(cacheMetrics.total_distance_km, totalDistanceKm));
+    const resolvedTotalTime = pickText(dailySummary && dailySummary.total_time, pickText(cacheMetrics.total_time, totalTime));
+    const resolvedAvgStride = pickPositive(dailySummary && dailySummary.avg_stride, pickPositive(cacheMetrics.avg_stride_cm, avgStride));
+    const resolvedMaxStride = pickPositive(
+      dailySummary && dailySummary.max_stride,
+      mergePositiveMax(maxStride, cacheMetrics.max_stride_cm, 1)
+    );
+    const resolvedAvgHr = pickPositive(dailySummary && dailySummary.hr_avg, pickPositive(cacheMetrics.avg_heart_rate, avgHR));
+    const resolvedMaxHr = pickPositive(dailySummary && dailySummary.hr_max, pickPositive(cacheMetrics.max_heart_rate, maxHR));
+    const resolvedAvgCadence = pickPositive(dailySummary && dailySummary.avg_cadence, pickPositive(cacheMetrics.avg_cadence, avgCadence));
+    const resolvedMaxCadence = pickPositive(dailySummary && dailySummary.max_cadence, pickPositive(cacheMetrics.max_cadence, maxCadence));
+    const resolvedAvgSpeed = pickPositive(dailySummary && dailySummary.avg_speed, pickPositive(cacheMetrics.avg_speed, avgSpeed));
+    const resolvedMaxSpeed = pickPositive(dailySummary && dailySummary.max_speed, pickPositive(cacheMetrics.max_speed, maxSpeed));
 
     // Fetch images for this run to provide context to Gemini
     const images = await imageRepo.getImagesForRun(date);
@@ -1296,30 +1311,33 @@ app.post('/api/advice', async (req, res) => {
 
     const advice = await openaiService.generateCoachMessage({
       date,
-      stepCount,
-      totalDistanceKm,
-      totalTime,
-      avgStride,
-      maxStride,
-      avgHR,
-      maxHR,
-      avgCadence,
-      maxCadence,
-      avgSpeed,
-      maxSpeed
+      stepCount: resolvedStepCount,
+      totalDistanceKm: resolvedTotalDistanceKm,
+      totalTime: resolvedTotalTime,
+      avgStride: resolvedAvgStride,
+      maxStride: resolvedMaxStride,
+      avgHR: resolvedAvgHr,
+      maxHR: resolvedMaxHr,
+      avgCadence: resolvedAvgCadence,
+      maxCadence: resolvedMaxCadence,
+      avgSpeed: resolvedAvgSpeed,
+      maxSpeed: resolvedMaxSpeed
     }, imagePaths);
 
     // Persist message + metrics, preferring cache/intraday source-of-truth.
     await repo.saveDailySummary({
       date,
-      max_stride: pickPositive(cacheMetrics.max_stride_cm, maxStride),
-      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, 0),
-      hr_max: pickPositive(cacheMetrics.max_heart_rate, maxHR),
-      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, 0),
-      avg_cadence: pickPositive(cacheMetrics.avg_cadence, 0),
-      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
-      avg_speed: pickPositive(cacheMetrics.avg_speed, 0),
-      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed),
+      step_count: resolvedStepCount,
+      total_distance_km: resolvedTotalDistanceKm,
+      total_time: resolvedTotalTime,
+      max_stride: resolvedMaxStride,
+      avg_stride: resolvedAvgStride,
+      hr_max: resolvedMaxHr,
+      hr_avg: resolvedAvgHr,
+      avg_cadence: resolvedAvgCadence,
+      max_cadence: resolvedMaxCadence,
+      avg_speed: resolvedAvgSpeed,
+      max_speed: resolvedMaxSpeed,
       message: advice
     });
 
@@ -1336,35 +1354,53 @@ app.post('/api/advice/gemini', async (req, res) => {
     const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
+    const dailySummary = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
+    const resolvedStepCount = pickPositive(dailySummary && dailySummary.step_count, pickPositive(cacheMetrics.step_count, stepCount));
+    const resolvedTotalDistanceKm = pickPositive(dailySummary && dailySummary.total_distance_km, pickPositive(cacheMetrics.total_distance_km, totalDistanceKm));
+    const resolvedTotalTime = pickText(dailySummary && dailySummary.total_time, pickText(cacheMetrics.total_time, totalTime));
+    const resolvedAvgStride = pickPositive(dailySummary && dailySummary.avg_stride, pickPositive(cacheMetrics.avg_stride_cm, avgStride));
+    const resolvedMaxStride = pickPositive(
+      dailySummary && dailySummary.max_stride,
+      mergePositiveMax(maxStride, cacheMetrics.max_stride_cm, 1)
+    );
+    const resolvedAvgHr = pickPositive(dailySummary && dailySummary.hr_avg, pickPositive(cacheMetrics.avg_heart_rate, avgHR));
+    const resolvedMaxHr = pickPositive(dailySummary && dailySummary.hr_max, pickPositive(cacheMetrics.max_heart_rate, maxHR));
+    const resolvedAvgCadence = pickPositive(dailySummary && dailySummary.avg_cadence, pickPositive(cacheMetrics.avg_cadence, avgCadence));
+    const resolvedMaxCadence = pickPositive(dailySummary && dailySummary.max_cadence, pickPositive(cacheMetrics.max_cadence, maxCadence));
+    const resolvedAvgSpeed = pickPositive(dailySummary && dailySummary.avg_speed, pickPositive(cacheMetrics.avg_speed, avgSpeed));
+    const resolvedMaxSpeed = pickPositive(dailySummary && dailySummary.max_speed, pickPositive(cacheMetrics.max_speed, maxSpeed));
     const images = await imageRepo.getImagesForRun(date);
     const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
 
     const advice = await geminiService.generateAdvice({
       date,
-      step_count: Number(stepCount || 0),
-      total_distance_km: Number(totalDistanceKm || 0),
-      total_time: totalTime || null,
-      avg_stride_cm: pickPositive(cacheMetrics.avg_stride_cm, avgStride),
-      max_stride_cm: pickPositive(cacheMetrics.max_stride_cm, maxStride),
-      avg_heart_rate: pickPositive(cacheMetrics.avg_heart_rate, avgHR),
-      max_heart_rate: pickPositive(cacheMetrics.max_heart_rate, maxHR),
-      avg_cadence: pickPositive(cacheMetrics.avg_cadence, avgCadence),
-      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
-      avg_speed: pickPositive(cacheMetrics.avg_speed, avgSpeed),
-      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed)
+      step_count: resolvedStepCount,
+      total_distance_km: resolvedTotalDistanceKm,
+      total_time: resolvedTotalTime,
+      avg_stride_cm: resolvedAvgStride,
+      max_stride_cm: resolvedMaxStride,
+      avg_heart_rate: resolvedAvgHr,
+      max_heart_rate: resolvedMaxHr,
+      avg_cadence: resolvedAvgCadence,
+      max_cadence: resolvedMaxCadence,
+      avg_speed: resolvedAvgSpeed,
+      max_speed: resolvedMaxSpeed
     }, imagePaths);
 
     await repo.saveDailySummary({
       date,
-      max_stride: pickPositive(cacheMetrics.max_stride_cm, maxStride),
-      avg_stride: pickPositive(cacheMetrics.avg_stride_cm, 0),
-      hr_max: pickPositive(cacheMetrics.max_heart_rate, maxHR),
-      hr_avg: pickPositive(cacheMetrics.avg_heart_rate, 0),
-      avg_cadence: pickPositive(cacheMetrics.avg_cadence, 0),
-      max_cadence: pickPositive(cacheMetrics.max_cadence, maxCadence),
-      avg_speed: pickPositive(cacheMetrics.avg_speed, 0),
-      max_speed: pickPositive(cacheMetrics.max_speed, maxSpeed),
+      step_count: resolvedStepCount,
+      total_distance_km: resolvedTotalDistanceKm,
+      total_time: resolvedTotalTime,
+      max_stride: resolvedMaxStride,
+      avg_stride: resolvedAvgStride,
+      hr_max: resolvedMaxHr,
+      hr_avg: resolvedAvgHr,
+      avg_cadence: resolvedAvgCadence,
+      max_cadence: resolvedMaxCadence,
+      avg_speed: resolvedAvgSpeed,
+      max_speed: resolvedMaxSpeed,
       message: advice
     });
 

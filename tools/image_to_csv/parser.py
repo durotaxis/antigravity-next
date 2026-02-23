@@ -6,6 +6,21 @@ from pathlib import Path
 from typing import Optional
 
 
+def _extract_explicit_date(text: str) -> Optional[str]:
+    m = re.search(
+        r"(?P<y>\d{4})\s*(?:年|[./-])\s*(?P<m>\d{1,2})\s*(?:月|[./-])\s*(?P<d>\d{1,2})\s*(?:日)?",
+        text,
+    )
+    if not m:
+        return None
+    year = int(m.group("y"))
+    month = int(m.group("m"))
+    day = int(m.group("d"))
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
 def infer_date_from_filename(image_path: Path) -> Optional[str]:
     m = re.search(r"(\d{4})(\d{2})(\d{2})[-_]\d{6}", image_path.name)
     if not m:
@@ -15,16 +30,29 @@ def infer_date_from_filename(image_path: Path) -> Optional[str]:
 
 
 def extract_run_date(text: str, image_path: Path) -> str:
+    explicit = _extract_explicit_date(text)
+    if explicit:
+        return explicit
+
     fallback = infer_date_from_filename(image_path)
-    # 2月12日 or 2 / 12
+    if fallback:
+        try:
+            ref_date = datetime.strptime(fallback, "%Y-%m-%d")
+        except ValueError:
+            ref_date = datetime.fromtimestamp(image_path.stat().st_mtime)
+    else:
+        ref_date = datetime.fromtimestamp(image_path.stat().st_mtime)
+
+    # 2月12日 or 2 / 12 (year omitted in screenshot UI)
     m = re.search(r"(?P<m>\d{1,2})\s*(?:月|/)\s*(?P<d>\d{1,2})\s*(?:日)?", text)
     if m:
         month = int(m.group("m"))
         day = int(m.group("d"))
-        if fallback:
-            year = int(fallback[:4])
-        else:
-            year = datetime.fromtimestamp(image_path.stat().st_mtime).year
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return fallback or ""
+
+        # If OCR month is ahead of reference month, it is likely a previous-year run.
+        year = ref_date.year - 1 if month > ref_date.month else ref_date.year
         return f"{year:04d}-{month:02d}-{day:02d}"
     return fallback or ""
 

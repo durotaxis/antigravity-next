@@ -208,9 +208,9 @@ function markDebugAnchorDate(dateValue) {
 function getDebugAnchorDate() {
     const saved = getStoredValidDate(DEBUG_ANCHOR_DATE_STORAGE_KEY);
     if (saved) return saved;
-    const dateInput = document.getElementById('dateInput');
-    const fromInput = dateInput ? normalizeRunDate(dateInput.value) : '';
-    return fromInput || getTodayLocalDateString();
+    const fitSyncFromInput = document.getElementById('fitSyncFromDateInput');
+    const fromFitSync = fitSyncFromInput ? normalizeRunDate(fitSyncFromInput.value) : '';
+    return fromFitSync || getTodayLocalDateString();
 }
 
 function getPendingDateRange(checkpointKey) {
@@ -1236,14 +1236,13 @@ async function importSelectedImages() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                filenames: Array.from(selectedFiles),
-                skipAdvice: !isGeminiEnabled()
+                filenames: Array.from(selectedFiles)
             })
         });
 
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) {
-            const rows = Array.isArray(payload && payload.results) ? payload.results : [];
+            const rows = Array.isArray(payload?.results) ? payload.results : [];
             const failedRows = rows.filter(r => r && r.status !== 'success');
             if (failedRows.length > 0) {
                 const first = failedRows[0];
@@ -1251,9 +1250,9 @@ async function importSelectedImages() {
                 const reason = first && first.error ? String(first.error) : 'Import failed';
                 alert(`Import failed: ${file}\n${reason}`);
             } else {
-                alert(payload && payload.error ? String(payload.error) : 'Import failed');
+                alert(payload?.error ? String(payload.error) : 'Import failed');
             }
-            throw new Error(payload && payload.error ? String(payload.error) : 'Import failed');
+            throw new Error(payload?.error ? String(payload.error) : 'Import failed');
         }
 
         const dateToRefresh = currentRunDate; // Capture before clearing

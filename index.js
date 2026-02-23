@@ -749,13 +749,16 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     const { runId } = req.params;
     const { filenames } = req.body;
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
+
     const storeDir = path.join(__dirname, 'public', 'assets', 'store');
     const results = [];
+    const isUnsafeFilename = (name) => !name || name.includes('..') || name.includes('/') || name.includes('\\');
+    const buildErrorRow = (file, code, error) => ({ file, status: 'error', code, error });
 
     for (const rawName of filenames) {
       const filename = String(rawName || '').trim();
-      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-        results.push({ file: filename, status: 'error', code: 'INVALID_FILENAME', error: 'Invalid filename' });
+      if (isUnsafeFilename(filename)) {
+        results.push(buildErrorRow(filename, 'INVALID_FILENAME', 'Invalid filename'));
         continue;
       }
 
@@ -763,13 +766,13 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
       try {
         await fs.access(inboxPath);
       } catch {
-        results.push({ file: filename, status: 'error', code: 'FILE_NOT_FOUND', error: 'File not found' });
+        results.push(buildErrorRow(filename, 'FILE_NOT_FOUND', 'File not found'));
         continue;
       }
 
       const ext = path.extname(filename).toLowerCase();
       const fileBuffer = await fs.readFile(inboxPath);
-      const hash = require('crypto').createHash('sha256').update(fileBuffer).digest('hex');
+      const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
       const storedFilename = `${hash}${ext}`;
       const storePath = path.join(storeDir, storedFilename);
 
@@ -782,33 +785,32 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
         asset = { asset_id: assetId };
       }
 
+      const rollbackCreatedAsset = async () => {
+        if (!createdAssetId) return;
+        await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
+      };
+
       let analyzed = null;
       try {
         analyzed = await ocrComponent.analyzeScreenOcr(storedFilename, 'python');
       } catch (ocrErr) {
-        if (createdAssetId) {
-          await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
-        }
-        results.push({
-          file: filename,
-          status: 'error',
-          code: 'OCR_FAILED',
-          error: ocrErr && ocrErr.message ? String(ocrErr.message) : 'OCR failed'
-        });
+        await rollbackCreatedAsset();
+        results.push(buildErrorRow(
+          filename,
+          'OCR_FAILED',
+          ocrErr && ocrErr.message ? String(ocrErr.message) : 'OCR failed'
+        ));
         continue;
       }
 
       const ocrRunDate = normalizeRunDate(analyzed && analyzed.date);
       if (!ocrRunDate) {
-        if (createdAssetId) {
-          await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
-        }
-        results.push({
-          file: filename,
-          status: 'error',
-          code: 'MISSING_RUN_DATE',
-          error: 'OCR date could not be determined. Import was rolled back.'
-        });
+        await rollbackCreatedAsset();
+        results.push(buildErrorRow(
+          filename,
+          'MISSING_RUN_DATE',
+          'OCR date could not be determined. Import was rolled back.'
+        ));
         continue;
       }
 

@@ -217,7 +217,7 @@ export default function Home() {
                     <span className="text-sm text-gray-500 font-medium">km</span>
                   </div>
                   <div className="text-lg font-semibold text-blue-600 mb-4 flex items-center gap-2">
-                    竢ｱ {run.time}
+                    ⏱ {run.time}
                   </div>
                 </>
               ) : (

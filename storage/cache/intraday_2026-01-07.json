@@ -1,10 +1,38 @@
 [
   {
+    "time": "00:28",
+    "steps": 55,
+    "distance": 36.5,
+    "stride": 66.3,
+    "heartRate": 0,
+    "speed": 2.2,
+    "source": "ticwatch"
+  },
+  {
+    "time": "00:29",
+    "steps": 135,
+    "distance": 166.9,
+    "stride": 123.6,
+    "heartRate": 0,
+    "speed": 10,
+    "source": "ticwatch"
+  },
+  {
+    "time": "00:30",
+    "steps": 148,
+    "distance": 163.7,
+    "stride": 110.6,
+    "heartRate": 0,
+    "speed": 9.8,
+    "source": "ticwatch"
+  },
+  {
     "time": "00:31",
     "steps": 161,
     "distance": 214.2,
     "stride": 133,
     "heartRate": 127,
+    "speed": 12.9,
     "source": "ticwatch"
   },
   {
@@ -13,6 +41,7 @@
     "distance": 194.4,
     "stride": 122.3,
     "heartRate": 130,
+    "speed": 11.7,
     "source": "ticwatch"
   },
   {
@@ -21,6 +50,7 @@
     "distance": 201.2,
     "stride": 125.7,
     "heartRate": 156,
+    "speed": 12.1,
     "source": "ticwatch"
   },
   {
@@ -29,6 +59,7 @@
     "distance": 220.6,
     "stride": 135.4,
     "heartRate": 163,
+    "speed": 13.2,
     "source": "ticwatch"
   },
   {
@@ -37,6 +68,7 @@
     "distance": 219.4,
     "stride": 135.4,
     "heartRate": 165,
+    "speed": 13.2,
     "source": "ticwatch"
   },
   {
@@ -45,6 +77,7 @@
     "distance": 227.4,
     "stride": 137,
     "heartRate": 166,
+    "speed": 13.6,
     "source": "ticwatch"
   },
   {
@@ -53,6 +86,7 @@
     "distance": 225.5,
     "stride": 136.7,
     "heartRate": 164,
+    "speed": 13.5,
     "source": "ticwatch"
   },
   {
@@ -61,6 +95,7 @@
     "distance": 221.4,
     "stride": 135.8,
     "heartRate": 163,
+    "speed": 13.3,
     "source": "ticwatch"
   },
   {
@@ -69,6 +104,7 @@
     "distance": 214.7,
     "stride": 133.4,
     "heartRate": 164,
+    "speed": 12.9,
     "source": "ticwatch"
   },
   {
@@ -77,6 +113,7 @@
     "distance": 221,
     "stride": 134.8,
     "heartRate": 163,
+    "speed": 13.3,
     "source": "ticwatch"
   },
   {
@@ -85,6 +122,7 @@
     "distance": 233.1,
     "stride": 140.4,
     "heartRate": 161,
+    "speed": 14,
     "source": "ticwatch"
   },
   {
@@ -93,6 +131,7 @@
     "distance": 221.5,
     "stride": 135.9,
     "heartRate": 164,
+    "speed": 13.3,
     "source": "ticwatch"
   },
   {
@@ -101,6 +140,7 @@
     "distance": 222.2,
     "stride": 136.3,
     "heartRate": 165,
+    "speed": 13.3,
     "source": "ticwatch"
   },
   {
@@ -109,6 +149,7 @@
     "distance": 208.2,
     "stride": 134.3,
     "heartRate": 157,
+    "speed": 12.5,
     "source": "ticwatch"
   },
   {
@@ -117,6 +158,7 @@
     "distance": 204.5,
     "stride": 129.4,
     "heartRate": 155,
+    "speed": 12.3,
     "source": "ticwatch"
   },
   {
@@ -125,6 +167,7 @@
     "distance": 210.5,
     "stride": 130.7,
     "heartRate": 162,
+    "speed": 12.6,
     "source": "ticwatch"
   },
   {
@@ -133,6 +176,7 @@
     "distance": 219.5,
     "stride": 135.5,
     "heartRate": 159,
+    "speed": 13.2,
     "source": "ticwatch"
   },
   {
@@ -141,6 +185,7 @@
     "distance": 207.1,
     "stride": 129.5,
     "heartRate": 153,
+    "speed": 12.4,
     "source": "ticwatch"
   },
   {
@@ -149,6 +194,7 @@
     "distance": 208,
     "stride": 129.2,
     "heartRate": 155,
+    "speed": 12.5,
     "source": "ticwatch"
   },
   {
@@ -157,6 +203,7 @@
     "distance": 205.7,
     "stride": 129.4,
     "heartRate": 155,
+    "speed": 12.3,
     "source": "ticwatch"
   },
   {
@@ -165,6 +212,7 @@
     "distance": 206.7,
     "stride": 146.6,
     "heartRate": 155,
+    "speed": 12.4,
     "source": "ticwatch"
   },
   {
@@ -173,6 +221,7 @@
     "distance": 219,
     "stride": 136,
     "heartRate": 154,
+    "speed": 13.1,
     "source": "ticwatch"
   },
   {
@@ -181,6 +230,7 @@
     "distance": 216.3,
     "stride": 132.7,
     "heartRate": 154,
+    "speed": 13,
     "source": "ticwatch"
   },
   {
@@ -189,6 +239,7 @@
     "distance": 198.8,
     "stride": 137.1,
     "heartRate": 162,
+    "speed": 11.9,
     "source": "ticwatch"
   },
   {
@@ -197,6 +248,7 @@
     "distance": 238.8,
     "stride": 142.1,
     "heartRate": 162,
+    "speed": 14.3,
     "source": "ticwatch"
   },
   {
@@ -205,6 +257,7 @@
     "distance": 243.3,
     "stride": 143.1,
     "heartRate": 165,
+    "speed": 14.6,
     "source": "ticwatch"
   },
   {
@@ -213,6 +266,7 @@
     "distance": 239.6,
     "stride": 142.6,
     "heartRate": 166,
+    "speed": 14.4,
     "source": "ticwatch"
   },
   {
@@ -221,6 +275,7 @@
     "distance": 230.7,
     "stride": 140.7,
     "heartRate": 166,
+    "speed": 13.8,
     "source": "ticwatch"
   },
   {
@@ -229,6 +284,7 @@
     "distance": 247,
     "stride": 147,
     "heartRate": 165,
+    "speed": 14.8,
     "source": "ticwatch"
   },
   {
@@ -237,6 +293,7 @@
     "distance": 242,
     "stride": 143.2,
     "heartRate": 165,
+    "speed": 14.5,
     "source": "ticwatch"
   },
   {
@@ -245,6 +302,7 @@
     "distance": 246.2,
     "stride": 144,
     "heartRate": 167,
+    "speed": 14.8,
     "source": "ticwatch"
   },
   {
@@ -253,6 +311,7 @@
     "distance": 239.1,
     "stride": 146.7,
     "heartRate": 167,
+    "speed": 14.3,
     "source": "ticwatch"
   },
   {
@@ -261,6 +320,7 @@
     "distance": 253,
     "stride": 148,
     "heartRate": 171,
+    "speed": 15.2,
     "source": "ticwatch"
   },
   {
@@ -269,6 +329,7 @@
     "distance": 235.1,
     "stride": 145.1,
     "heartRate": 169,
+    "speed": 14.1,
     "source": "ticwatch"
   },
   {
@@ -277,6 +338,7 @@
     "distance": 256.9,
     "stride": 152,
     "heartRate": 169,
+    "speed": 15.4,
     "source": "ticwatch"
   },
   {
@@ -285,6 +347,7 @@
     "distance": 260,
     "stride": 148.6,
     "heartRate": 132,
+    "speed": 15.6,
     "source": "ticwatch"
   },
   {
@@ -293,6 +356,7 @@
     "distance": 251.8,
     "stride": 148.1,
     "heartRate": 139,
+    "speed": 15.1,
     "source": "ticwatch"
   },
   {
@@ -301,6 +365,7 @@
     "distance": 250,
     "stride": 147.9,
     "heartRate": 141,
+    "speed": 15,
     "source": "ticwatch"
   },
   {
@@ -309,6 +374,7 @@
     "distance": 257.7,
     "stride": 147.2,
     "heartRate": 138,
+    "speed": 15.5,
     "source": "ticwatch"
   },
   {
@@ -317,6 +383,7 @@
     "distance": 255.7,
     "stride": 147.8,
     "heartRate": 139,
+    "speed": 15.3,
     "source": "ticwatch"
   },
   {
@@ -325,6 +392,7 @@
     "distance": 254.2,
     "stride": 146.1,
     "heartRate": 141,
+    "speed": 15.3,
     "source": "ticwatch"
   },
   {
@@ -333,6 +401,7 @@
     "distance": 258.6,
     "stride": 148.6,
     "heartRate": 139,
+    "speed": 15.5,
     "source": "ticwatch"
   },
   {
@@ -341,6 +410,7 @@
     "distance": 247.2,
     "stride": 142.1,
     "heartRate": 135,
+    "speed": 14.8,
     "source": "ticwatch"
   },
   {
@@ -349,6 +419,7 @@
     "distance": 266.8,
     "stride": 149.9,
     "heartRate": 139,
+    "speed": 16,
     "source": "ticwatch"
   },
   {
@@ -357,6 +428,7 @@
     "distance": 264.6,
     "stride": 154.7,
     "heartRate": 141,
+    "speed": 15.9,
     "source": "ticwatch"
   },
   {
@@ -365,6 +437,7 @@
     "distance": 275.2,
     "stride": 152,
     "heartRate": 128,
+    "speed": 16.5,
     "source": "ticwatch"
   },
   {
@@ -373,6 +446,7 @@
     "distance": 103.1,
     "stride": 57.3,
     "heartRate": 141,
+    "speed": 6.2,
     "source": "ticwatch"
   },
   {
@@ -381,6 +455,7 @@
     "distance": 91.5,
     "stride": 50.5,
     "heartRate": 149,
+    "speed": 5.5,
     "source": "ticwatch"
   },
   {
@@ -389,6 +464,7 @@
     "distance": 91.5,
     "stride": 52,
     "heartRate": 154,
+    "speed": 5.5,
     "source": "ticwatch"
   },
   {
@@ -397,6 +473,7 @@
     "distance": 91.5,
     "stride": 55.8,
     "heartRate": 155,
+    "speed": 5.5,
     "source": "ticwatch"
   },
   {
@@ -405,6 +482,7 @@
     "distance": 91.5,
     "stride": 56.1,
     "heartRate": 159,
+    "speed": 5.5,
     "source": "ticwatch"
   },
   {
@@ -413,6 +491,7 @@
     "distance": 132.8,
     "stride": 83.5,
     "heartRate": 159,
+    "speed": 8,
     "source": "ticwatch"
   },
   {
@@ -421,6 +500,7 @@
     "distance": 74.5,
     "stride": 45.7,
     "heartRate": 150,
+    "speed": 4.5,
     "source": "ticwatch"
   },
   {
@@ -429,6 +509,7 @@
     "distance": 70.9,
     "stride": 43.8,
     "heartRate": 144,
+    "speed": 4.3,
     "source": "ticwatch"
   },
   {
@@ -437,22 +518,16 @@
     "distance": 73.6,
     "stride": 65.1,
     "heartRate": 137,
+    "speed": 4.4,
     "source": "ticwatch"
   },
   {
-    "time": "02:13",
-    "steps": 28,
-    "distance": 30.4,
-    "stride": 108.4,
-    "heartRate": 113,
-    "source": "ticwatch"
-  },
-  {
-    "time": "02:57",
-    "steps": 6,
-    "distance": 5.1,
-    "stride": 85,
-    "heartRate": 118,
+    "time": "01:26",
+    "steps": 72,
+    "distance": 52.2,
+    "stride": 72.5,
+    "heartRate": 0,
+    "speed": 3.1,
     "source": "ticwatch"
   }
 ]

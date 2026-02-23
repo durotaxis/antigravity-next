@@ -1,34 +1,20 @@
 [
   {
-    "time": "01:12",
-    "steps": 0,
-    "distance": 0.1,
-    "stride": 0,
-    "heartRate": 103,
-    "source": "ticwatch"
-  },
-  {
-    "time": "01:22",
-    "steps": 0,
-    "distance": 0.1,
-    "stride": 0,
-    "heartRate": 108,
-    "source": "ticwatch"
-  },
-  {
-    "time": "20:19",
-    "steps": 0,
-    "distance": 42.2,
-    "stride": 0,
-    "heartRate": 110,
-    "source": "ticwatch"
-  },
-  {
-    "time": "20:33",
-    "steps": 0,
+    "time": "20:35",
+    "steps": 6,
     "distance": 0,
     "stride": 0,
-    "heartRate": 107,
+    "heartRate": 0,
+    "speed": 0,
+    "source": "ticwatch"
+  },
+  {
+    "time": "20:36",
+    "steps": 8,
+    "distance": 0,
+    "stride": 0,
+    "heartRate": 0,
+    "speed": 0,
     "source": "ticwatch"
   }
 ]

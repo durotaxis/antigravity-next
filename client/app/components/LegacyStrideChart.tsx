@@ -30,6 +30,9 @@ type Props = {
   onClose: () => void;
 };
 
+// Legacy (old screen) chart appears much flatter, effectively around ~5:1.
+const CHART_ASPECT_RATIO = 5;
+
 export default function LegacyStrideChart({ date, apiBase, onClose }: Props) {
   const [data, setData] = useState<StridePoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -110,7 +113,7 @@ export default function LegacyStrideChart({ date, apiBase, onClose }: Props) {
             </div>
           )}
           {!loading && !error && hasPoints && (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" aspect={CHART_ASPECT_RATIO}>
               <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                 <XAxis

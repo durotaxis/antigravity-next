@@ -479,8 +479,11 @@ function processIntradayBuckets(buckets) {
     let unfilteredMaxSpeed = 0;
 
     (buckets || []).forEach(bucket => {
-        const timeMillis = parseInt(bucket.startTimeMillis);
-        const time = new Date(timeMillis).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        const timeMillis = Number.parseInt(bucket?.startTimeMillis, 10);
+        const time = Number.isFinite(timeMillis)
+            ? new Date(timeMillis).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+            : '00:00';
+        const datasets = Array.isArray(bucket?.dataset) ? bucket.dataset : [];
 
         let steps = 0;
         let distance = 0;
@@ -489,7 +492,7 @@ function processIntradayBuckets(buckets) {
         let isTicWatch = false;
         let bucketDistanceAll = 0;
 
-        bucket.dataset.forEach(ds => {
+        datasets.forEach(ds => {
             const sourceId = ds.dataSourceId || '';
             if (ds.point && ds.point.length > 0) {
                 const isWatchOrSync =
@@ -597,6 +600,12 @@ async function getIntradayMetricsWithMeta(dateString) {
                 unfilteredMaxSpeed: cachedMaxSpeed
             };
         } catch (e) {
+            try {
+                await fs.writeFile(finalCacheFile, JSON.stringify([], null, 2));
+                console.warn(`[GoogleFit] API failed and no intraday cache found. Wrote empty cache: ${finalCacheFile}`);
+            } catch {
+                // best-effort only
+            }
             return {
                 data: [],
                 unfilteredMaxSpeed: 0
@@ -610,6 +619,24 @@ async function getIntradayMetricsWithMeta(dateString) {
         await fs.writeFile(finalCacheFile, JSON.stringify(processed.chartData, null, 2));
     } else {
         console.warn(`[GoogleFit] Processed intraday chart data is empty for ${dateString}.`);
+        // Keep existing non-empty cache to avoid overwriting valid historical data on sparse API responses.
+        let keepExisting = false;
+        try {
+            const existingRaw = await fs.readFile(finalCacheFile, 'utf8');
+            const existing = JSON.parse(existingRaw);
+            if (Array.isArray(existing) && existing.length > 0) {
+                keepExisting = true;
+                console.log(`[GoogleFit] Keeping existing intraday cache for ${dateString} (${existing.length} points).`);
+            }
+        } catch {
+            // no existing cache
+        }
+
+        // Create an explicit empty cache marker so sync flow can complete deterministically.
+        if (!keepExisting) {
+            await fs.writeFile(finalCacheFile, JSON.stringify([], null, 2));
+            console.log(`[GoogleFit] Wrote empty intraday cache: ${finalCacheFile}`);
+        }
     }
 
     return {

@@ -228,8 +228,11 @@ function getPendingDateRange(checkpointKey) {
 function getPendingDateRangeWithFrom(checkpointKey, fromDate) {
     const today = getTodayLocalDateString();
     const checkpoint = getStoredValidDate(checkpointKey);
-    let start = normalizeRunDate(fromDate) || getDebugAnchorDate();
-    if (checkpoint && compareDateText(checkpoint, start) >= 0) {
+    const manualFrom = normalizeRunDate(fromDate);
+    let start = manualFrom || getDebugAnchorDate();
+    // Manual "From Date" is treated as explicit override.
+    // When specified, do not skip by checkpoint.
+    if (!manualFrom && checkpoint && compareDateText(checkpoint, start) >= 0) {
         start = nextDateText(checkpoint);
     }
     if (compareDateText(start, today) > 0) return [];
@@ -262,36 +265,51 @@ async function syncFitJsonRangeFromUi() {
     }
     const dates = getPendingDateRangeWithFrom(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
     if (dates.length === 0) {
-        alert('No pending FIT dates.');
-        return;
+        // If user explicitly chose a date, allow one-day sync even when checkpoint logic yields no range.
+        if (!manualFrom) {
+            alert('No pending FIT dates.');
+            return;
+        }
     }
+    const targetDates = dates.length > 0 ? dates : [manualFrom];
 
     let okCount = 0;
     let ngCount = 0;
     let lastSuccess = '';
     let firstFailure = '';
+    let firstFailureReason = '';
     const originalText = syncBtn ? syncBtn.textContent : '';
 
     if (syncBtn) {
         syncBtn.disabled = true;
-        syncBtn.textContent = `SYNCING 0/${dates.length}`;
+        syncBtn.textContent = `SYNCING 0/${targetDates.length}`;
     }
 
     try {
-        for (let i = 0; i < dates.length; i++) {
-            const d = dates[i];
+        for (let i = 0; i < targetDates.length; i++) {
+            const d = targetDates[i];
             try {
                 const res = await fetch(`/api/stride?date=${encodeURIComponent(d)}&sync=1`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                if (!res.ok) {
+                    let detail = '';
+                    try {
+                        const body = await res.json();
+                        detail = body && body.error ? String(body.error) : '';
+                    } catch {
+                        // ignore non-JSON error body
+                    }
+                    throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+                }
                 await res.json();
                 okCount += 1;
                 lastSuccess = d;
-            } catch (_e) {
+            } catch (e) {
                 ngCount += 1;
                 firstFailure = d;
+                firstFailureReason = e && e.message ? String(e.message) : '';
                 break;
             }
-            if (syncBtn) syncBtn.textContent = `SYNCING ${i + 1}/${dates.length}`;
+            if (syncBtn) syncBtn.textContent = `SYNCING ${i + 1}/${targetDates.length}`;
         }
     } finally {
         if (syncBtn) {
@@ -305,7 +323,8 @@ async function syncFitJsonRangeFromUi() {
     }
     updateDebugHints();
     if (firstFailure) {
-        alert(`FIT sync stopped at ${firstFailure}. success ${okCount}, failed ${ngCount}`);
+        const suffix = firstFailureReason ? `\nreason: ${firstFailureReason}` : '';
+        alert(`FIT sync stopped at ${firstFailure}. success ${okCount}, failed ${ngCount}${suffix}`);
     } else {
         alert(`FIT sync completed: success ${okCount}, failed ${ngCount}`);
     }
@@ -950,8 +969,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dateInput')?.addEventListener('change', () => {
         persistRunDateInput();
         batchSelectedFiles.clear();
-        setBatchPickerMessage('Date changed. Press IMPORT IMAGES to process images.');
-        renderBatchIdleState('Date updated. Press IMPORT IMAGES to process images.');
+        setBatchPickerMessage('Date changed. Press SYNC DAILY to process.');
+        renderBatchIdleState('Date updated. Press SYNC DAILY to process.');
     });
     document.getElementById('snapshotDateInput')?.addEventListener('change', () => {
         const snapshotInput = document.getElementById('snapshotDateInput');
@@ -962,7 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             updateDebugHints();
         }
-        renderBatchIdleState('Snapshot date updated. Press IMPORT IMAGES to import and analyze.');
+        renderBatchIdleState('Snapshot date updated. Press SYNC DAILY to run.');
     });
     document.getElementById('fitSyncFromDateInput')?.addEventListener('change', () => {
         const fromInput = document.getElementById('fitSyncFromDateInput');
@@ -984,8 +1003,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial History Load
     loadRunHistory();
-    setBatchPickerMessage('No images loaded yet. Press IMPORT IMAGES after confirming dates.');
-    renderBatchIdleState('Ready. Press IMPORT IMAGES to import/link images.');
+    setBatchPickerMessage('No images loaded yet. Press SYNC DAILY after confirming dates.');
+    renderBatchIdleState('Ready. Press SYNC DAILY to import/sync.');
 });
 
 async function loadRunHistory() {
@@ -1496,6 +1515,22 @@ async function runBatchFromScreen(options = {}) {
     }
 }
 
+async function syncDailySummaryFromCache(date) {
+    const runDate = normalizeRunDate(date);
+    if (!runDate) return { ok: false, skipped: true, reason: 'invalid-date' };
+
+    const res = await fetch(`/api/daily/${encodeURIComponent(runDate)}/sync-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = payload && payload.error ? String(payload.error) : `HTTP ${res.status}`;
+        throw new Error(`daily_summary sync failed (${runDate}): ${msg}`);
+    }
+    return payload || { success: true, skipped: true, reason: 'empty-payload' };
+}
+
 async function runImageImportFlow() {
     const btn = document.getElementById('imageImportBtn');
     const dateInput = document.getElementById('dateInput');
@@ -1506,7 +1541,7 @@ async function runImageImportFlow() {
     }
     const dates = getPendingDateRangeWithFrom(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
     if (dates.length === 0) {
-        alert('No pending image-import dates.');
+        alert('No pending daily-sync dates.');
         updateDebugHints();
         return;
     }
@@ -1521,7 +1556,7 @@ async function runImageImportFlow() {
 
     if (btn) {
         btn.disabled = true;
-        btn.textContent = `IMPORTING 0/${dates.length}`;
+        btn.textContent = `SYNCING 0/${dates.length}`;
     }
     try {
         for (let i = 0; i < dates.length; i++) {
@@ -1545,9 +1580,21 @@ async function runImageImportFlow() {
                 break;
             }
 
+            // If there are no linked images for this date, try cache-based sync.
+            // Server-side guard will skip creation when run signal is too weak.
+            if (batchResult.skipped === true || Number(batchResult.total || 0) === 0) {
+                try {
+                    await syncDailySummaryFromCache(d);
+                } catch (_syncErr) {
+                    failCount += 1;
+                    firstFailure = d;
+                    break;
+                }
+            }
+
             okCount += 1;
             lastSuccess = d;
-            if (btn) btn.textContent = `IMPORTING ${i + 1}/${dates.length}`;
+            if (btn) btn.textContent = `SYNCING ${i + 1}/${dates.length}`;
         }
     } finally {
         if (dateInput) dateInput.value = dateBackup;
@@ -1562,7 +1609,7 @@ async function runImageImportFlow() {
 
         if (btn) {
             btn.disabled = false;
-            btn.textContent = originalText || 'IMPORT IMAGES';
+            btn.textContent = originalText || 'SYNC DAILY';
         }
     }
 

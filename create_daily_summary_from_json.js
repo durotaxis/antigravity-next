@@ -26,60 +26,6 @@ function parseHmsToSeconds(hms) {
   return 0;
 }
 
-function toFiniteOrZero(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function cleanIntradayPoints(rawPoints) {
-  if (!Array.isArray(rawPoints) || rawPoints.length === 0) return [];
-
-  const points = rawPoints.map((p) => ({
-    ...p,
-    stride: toFiniteOrZero(p?.stride),
-    heartRate: toFiniteOrZero(p?.heartRate),
-    steps: toFiniteOrZero(p?.steps)
-  }));
-
-  // One-point gap interpolation: only when both neighbors are valid.
-  for (let i = 1; i < points.length - 1; i += 1) {
-    const prev = points[i - 1];
-    const cur = points[i];
-    const next = points[i + 1];
-
-    if (cur.stride <= 0 && prev.stride > 0 && next.stride > 0) {
-      cur.stride = Number(((prev.stride + next.stride) / 2).toFixed(1));
-    }
-
-    if (cur.heartRate <= 0 && prev.heartRate > 0 && next.heartRate > 0) {
-      cur.heartRate = Math.round((prev.heartRate + next.heartRate) / 2);
-    }
-  }
-
-  // Spike guard: unrealistic stride must be dropped.
-  for (const p of points) {
-    if (p.stride > 250) p.stride = 0;
-  }
-
-  return points;
-}
-
-function computeMaxStride5ptSma(points) {
-  const windowSize = 5;
-  if (!Array.isArray(points) || points.length < windowSize) return 0;
-
-  let max = 0;
-  for (let i = 0; i <= points.length - windowSize; i += 1) {
-    const window = points.slice(i, i + windowSize);
-    const valid = window.every((p) => Number(p?.stride) > 0 && Number(p?.heartRate) > 100);
-    if (!valid) continue;
-
-    const avg = window.reduce((sum, p) => sum + Number(p.stride), 0) / windowSize;
-    if (avg > max) max = avg;
-  }
-  return max;
-}
-
 async function computeDerivedFromCache(dateString) {
   const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
   const intradayFile = path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`);
@@ -217,6 +163,13 @@ async function computeDerivedFromCache(dateString) {
 
   if (rawPoints === 0 && intradayPoints === 0) return null;
 
+  // Align with app-side guards: treat very low cadence as noise and keep 0
+  // so DB merge can use stronger existing values.
+  if (rawAvgPitch > 0 && rawAvgPitch < 30) rawAvgPitch = 0;
+  if (rawMaxPitch > 0 && rawMaxPitch < 30) rawMaxPitch = 0;
+  if (intradayAvgPitch > 0 && intradayAvgPitch < 30) intradayAvgPitch = 0;
+  if (intradayMaxPitch > 0 && intradayMaxPitch < 30) intradayMaxPitch = 0;
+
   return {
     avg_speed: intradayAvgSpeed > 0 ? intradayAvgSpeed : rawAvgSpeed,
     max_speed: rawMaxSpeed > 0 ? Number(rawMaxSpeed.toFixed(1)) : Number(intradayMaxSpeed.toFixed(1)),
@@ -241,7 +194,8 @@ async function computeDailySummaryFromCache(dateString) {
     avg_speed: 0,
     max_speed: 0,
     avg_cadence: 0,
-    max_cadence: 0
+    max_cadence: 0,
+    has_running_activity: false
   };
 
   const derived = await computeDerivedFromCache(dateString);
@@ -276,7 +230,10 @@ async function computeDailySummaryFromCache(dateString) {
             for (const p of points) {
               const v = p?.value?.[0];
               const t = Number(v?.intVal);
-              if (Number.isFinite(t) && t === 8) bucketIsRun = true;
+              if (Number.isFinite(t) && t === 8) {
+                bucketIsRun = true;
+                out.has_running_activity = true;
+              }
             }
             continue;
           }
@@ -338,20 +295,21 @@ async function computeDailySummaryFromCache(dateString) {
 
   try {
     const raw = await fs.readFile(intradayFile, 'utf8');
-    const rawPoints = JSON.parse(raw);
-    const points = cleanIntradayPoints(rawPoints);
+    const points = JSON.parse(raw);
     if (Array.isArray(points) && points.length > 0) {
       let sumStride = 0;
       let countStride = 0;
+      let maxStride = 0;
       let sumHr = 0;
       let countHr = 0;
       let maxHr = 0;
 
       for (const p of points) {
         const stride = Number(p?.stride);
-        if (Number.isFinite(stride) && stride > 0) {
+        if (Number.isFinite(stride) && stride > 0 && stride <= 250) {
           sumStride += stride;
           countStride += 1;
+          if (stride > maxStride) maxStride = stride;
         }
 
         const hr = Number(p?.heartRate);
@@ -363,8 +321,7 @@ async function computeDailySummaryFromCache(dateString) {
       }
 
       out.avg_stride = countStride > 0 ? Number((sumStride / countStride).toFixed(1)) : 0;
-      const maxStride5pt = computeMaxStride5ptSma(points);
-      out.max_stride = maxStride5pt > 0 ? Number(maxStride5pt.toFixed(1)) : 0;
+      out.max_stride = maxStride > 0 ? Number(maxStride.toFixed(1)) : 0;
       out.hr_avg = countHr > 0 ? Math.round(sumHr / countHr) : 0;
       out.hr_max = maxHr > 0 ? Math.round(maxHr) : 0;
 
@@ -430,7 +387,7 @@ async function main() {
   let updated = 0;
   let skipped = 0;
   let failed = 0;
-  let excludedMaxStrideZero = 0;
+  let excludedNotRunning = 0;
 
   for (const date of dates) {
     try {
@@ -438,8 +395,8 @@ async function main() {
       if (debugDates.has(date)) {
         console.log(`[DEBUG] ${date} max_stride=${payload.max_stride} avg_stride=${payload.avg_stride} hr_avg=${payload.hr_avg}`);
       }
-      if (!(Number(payload.max_stride) > 0)) {
-        excludedMaxStrideZero += 1;
+      if (!payload.has_running_activity) {
+        excludedNotRunning += 1;
         continue;
       }
       await repo.saveDailySummary({
@@ -470,7 +427,7 @@ async function main() {
   console.log(`reset=${reset}`);
   console.log(`dates=${dates.length}`);
   console.log(`updated=${updated}`);
-  console.log(`excluded_max_stride_zero=${excludedMaxStrideZero}`);
+  console.log(`excluded_not_running=${excludedNotRunning}`);
   console.log(`failed=${failed}`);
   console.log(`skipped=${skipped}`);
 }

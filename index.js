@@ -268,6 +268,30 @@ function normalizeRunDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : '';
 }
 
+async function hasRunningActivitySignal(dateString) {
+  try {
+    const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
+    const raw = await fs.readFile(rawBucketsFile, 'utf8');
+    const buckets = JSON.parse(raw);
+    if (!Array.isArray(buckets) || buckets.length === 0) return false;
+
+    for (const bucket of buckets) {
+      for (const ds of bucket.dataset || []) {
+        const dsid = String(ds.dataSourceId || '').toLowerCase();
+        if (!dsid.includes('activity.summary') && !dsid.includes('activity.segment')) continue;
+        for (const p of ds.point || []) {
+          for (const v of p.value || []) {
+            if (Number(v?.intVal) === 8) return true;
+          }
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function resolveBatchRunDate(batchItem) {
   // Run date rule:
   // OCR extracted date first, then selected run date (input.date/runId) as fallback.
@@ -746,25 +770,23 @@ app.post('/api/daily/:date/sync-cache', async (req, res) => {
     const maxStride = Number(cacheMetrics.max_stride_cm || 0);
     const maxHr = Number(cacheMetrics.max_heart_rate || 0);
     const maxCadence = Number(cacheMetrics.max_cadence || 0);
-    const hasRunSignal =
-      distanceKm >= 1.0 ||
-      stepCount >= 1500 ||
-      maxStride > 0 ||
-      maxHr > 0 ||
-      maxCadence >= 120;
+    const hasRunningActivity = await hasRunningActivitySignal(date);
+    // New-row creation must be backed by explicit running activity markers (activity=8).
+    const hasRunSignal = hasRunningActivity;
 
     if (!existing && !hasRunSignal) {
       return res.json({
         success: true,
         skipped: true,
-        reason: 'insufficient_run_signal',
+        reason: 'insufficient_run_signal_or_not_running',
         date,
         metrics: {
           step_count: stepCount,
           total_distance_km: distanceKm,
           max_stride_cm: maxStride,
           max_heart_rate: maxHr,
-          max_cadence: maxCadence
+          max_cadence: maxCadence,
+          has_running_activity: hasRunningActivity
         }
       });
     }

@@ -5,14 +5,16 @@
     "distance": 38.7,
     "stride": 77.3,
     "heartRate": 108,
+    "speed": 2.3,
     "source": "ticwatch"
   },
   {
-    "time": "20:28",
-    "steps": 95,
-    "distance": 76.4,
-    "stride": 80.4,
-    "heartRate": 104,
+    "time": "00:12",
+    "steps": 147,
+    "distance": 141.4,
+    "stride": 96.2,
+    "heartRate": 0,
+    "speed": 8.5,
     "source": "ticwatch"
   }
 ]

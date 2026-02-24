@@ -68,14 +68,27 @@ function saveDailySummary(data) {
                 total_distance_km = CASE WHEN excluded.total_distance_km > 0 THEN excluded.total_distance_km ELSE total_distance_km END,
                 total_time = COALESCE(excluded.total_time, total_time),
                 calories_kcal = CASE WHEN excluded.calories_kcal > 0 THEN excluded.calories_kcal ELSE calories_kcal END,
-                max_stride = CASE WHEN excluded.max_stride > 0 THEN excluded.max_stride ELSE max_stride END,
+                -- Keep peak metrics monotonic: never overwrite with a lower positive value.
+                max_stride = CASE
+                    WHEN excluded.max_stride > COALESCE(max_stride, 0) THEN excluded.max_stride
+                    ELSE max_stride
+                END,
                 avg_stride = CASE WHEN excluded.avg_stride > 0 THEN excluded.avg_stride ELSE avg_stride END,
                 hr_avg = CASE WHEN excluded.hr_avg > 0 THEN excluded.hr_avg ELSE hr_avg END,
-                hr_max = CASE WHEN excluded.hr_max > 0 THEN excluded.hr_max ELSE hr_max END,
+                hr_max = CASE
+                    WHEN excluded.hr_max > COALESCE(hr_max, 0) THEN excluded.hr_max
+                    ELSE hr_max
+                END,
                 avg_cadence = CASE WHEN excluded.avg_cadence > 0 THEN excluded.avg_cadence ELSE avg_cadence END,
-                max_cadence = CASE WHEN excluded.max_cadence > 0 THEN excluded.max_cadence ELSE max_cadence END,
+                max_cadence = CASE
+                    WHEN excluded.max_cadence > COALESCE(max_cadence, 0) THEN excluded.max_cadence
+                    ELSE max_cadence
+                END,
                 avg_speed = CASE WHEN excluded.avg_speed > 0 THEN excluded.avg_speed ELSE avg_speed END,
-                max_speed = CASE WHEN excluded.max_speed > 0 THEN excluded.max_speed ELSE max_speed END,
+                max_speed = CASE
+                    WHEN excluded.max_speed > COALESCE(max_speed, 0) THEN excluded.max_speed
+                    ELSE max_speed
+                END,
                 message = COALESCE(excluded.message, message),
                 created_at = excluded.created_at
         `;

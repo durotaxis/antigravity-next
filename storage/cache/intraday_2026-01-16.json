@@ -1,5 +1,32 @@
 [
   {
+    "time": "02:00",
+    "steps": 63,
+    "distance": 45.8,
+    "stride": 72.7,
+    "heartRate": 0,
+    "speed": 2.7,
+    "source": "ticwatch"
+  },
+  {
+    "time": "02:01",
+    "steps": 130,
+    "distance": 129.5,
+    "stride": 99.6,
+    "heartRate": 64,
+    "speed": 7.8,
+    "source": "ticwatch"
+  },
+  {
+    "time": "02:02",
+    "steps": 157,
+    "distance": 217.3,
+    "stride": 138.4,
+    "heartRate": 87,
+    "speed": 13,
+    "source": "ticwatch"
+  },
+  {
     "time": "02:03",
     "steps": 161,
     "distance": 213.1,
@@ -261,12 +288,12 @@
     "source": "ticwatch"
   },
   {
-    "time": "02:45",
-    "steps": 103,
-    "distance": 66.2,
-    "stride": 64.3,
-    "heartRate": 102,
-    "speed": 4,
+    "time": "02:32",
+    "steps": 25,
+    "distance": 18.1,
+    "stride": 72.3,
+    "heartRate": 0,
+    "speed": 1.1,
     "source": "ticwatch"
   }
 ]

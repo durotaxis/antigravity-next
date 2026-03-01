@@ -1163,7 +1163,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // matches the latest filtering/smoothing logic in google_fit_service.
       try {
         
-        const fitData = null; // prefer local JSON cache to avoid API requests
+        const fitData = await googleFitService.getDailyMetrics(result.date);
         if (fitData) {
           
           fitMetrics = fitData;

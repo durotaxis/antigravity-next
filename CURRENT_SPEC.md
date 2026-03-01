@@ -20,7 +20,7 @@ Last updated: 2026-02-21
 ## 4. Date Rules
 - New screen image import (`/api/analyze`):
 - OCR extracted date is preferred.
-- If OCR date is missing, fallback to user-selected run date.
+- If OCR date is missing, set `run date` to the user-selected `Run Date (Upload Target)` value.
 - Legacy screen date meaning:
 - Legacy date is the operation target date (passed from New screen run date via `?date=` in normal flow).
 - It is used for viewing target and batch candidate scope.

@@ -75,25 +75,40 @@ def extract_time_range(text: str) -> str:
 
 
 def extract_steps(text: str) -> str:
-    # Prefer values near shoe/icon OCR noise ('$' is commonly recognized from the shoe icon).
+    # Collect candidates from shoe/icon area first, then generic comma/plain numbers.
     icon_hits = re.findall(r"[$¥]\s*(\d{1,3}(?:,\d{3})+)", text)
-    if icon_hits:
-        values = [int(x.replace(",", "")) for x in icon_hits]
-        filtered = [v for v in values if 200 <= v <= 50000]
-        if filtered:
-            return str(filtered[0])
-
     comma_nums = re.findall(r"\b\d{1,3}(?:,\d{3})+\b", text)
-    if comma_nums:
-        values = [int(x.replace(",", "")) for x in comma_nums]
-        filtered = [v for v in values if 200 <= v <= 50000]
-        if filtered:
-            # OCR variants may include a spurious prefixed digit (e.g. 85,501 vs 5,501).
-            return str(min(filtered))
-
     plain_nums = re.findall(r"\b\d{4,6}\b", text)
-    values = [int(x) for x in plain_nums if 200 <= int(x) <= 50000]
-    return str(max(values)) if values else ""
+
+    icon_values = [int(x.replace(",", "")) for x in icon_hits if x]
+    comma_values = [int(x.replace(",", "")) for x in comma_nums if x]
+    plain_values = [int(x) for x in plain_nums if x]
+
+    icon_filtered = [v for v in icon_values if 200 <= v <= 50000]
+    comma_filtered = [v for v in comma_values if 200 <= v <= 50000]
+    plain_filtered = [v for v in plain_values if 200 <= v <= 50000]
+
+    observed = set(icon_filtered + comma_filtered + plain_filtered)
+
+    # Handle prefixed-digit OCR noise only when both forms are observed
+    # (e.g. "45,608" and "5,608" in the same OCR text).
+    paired_trimmed = []
+    for v in observed:
+        s = str(v)
+        if len(s) < 5:
+            continue
+        t = int(s[1:])
+        if t in observed and 200 <= t <= 50000:
+            paired_trimmed.append(t)
+    if paired_trimmed:
+        return str(min(paired_trimmed))
+
+    # Keep icon preference when there is no paired-noise evidence.
+    if icon_filtered:
+        return str(min(icon_filtered))
+    if comma_filtered:
+        return str(min(comma_filtered))
+    return str(max(plain_filtered)) if plain_filtered else ""
 
 
 def extract_active_time(text: str) -> str:

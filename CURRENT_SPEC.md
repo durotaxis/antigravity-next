@@ -57,3 +57,8 @@ Last updated: 2026-02-21
 - `POST /api/daily` is a debug/manual correction path.
 - Provided `date` is written directly to `daily_summary.date`.
 - This path is not the primary production ingestion flow.
+
+## 10. Normal Ingest Order
+- ① Create JSON cache.
+- ② Create/Register `daily_summary`.
+- ③ Run OCR and update `daily_summary` with OCR results.

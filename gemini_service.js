@@ -29,6 +29,11 @@ function isRateLimitError(error) {
     );
 }
 
+function getErrorStatus(error) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    return Number.isFinite(status) ? status : 'unknown';
+}
+
 const THESIS_CONTENT = `
 筑波大学・榎本靖士 博士論文「長距離走動作のバイオメカニクス的評価法に関する研究」における分析手法と留意点：
 1. 動作の傾向把握（研究内での指標）：
@@ -74,6 +79,7 @@ async function generateAdvice(metrics, imagePaths = []) {
         };
         return await generateCoachAdvice(stats, imagePaths);
     } catch (e) {
+        console.error(`[GeminiError] status=${getErrorStatus(e)}`);
         if (isRateLimitError(e)) {
             return RATE_LIMIT_MESSAGE;
         }
@@ -125,6 +131,7 @@ async function generateCoachAdvice(stats, imagePaths = []) {
         return response.text().trim();
 
     } catch (error) {
+        console.error(`[GeminiError] status=${getErrorStatus(error)}`);
         if (isRateLimitError(error)) return RATE_LIMIT_MESSAGE;
         console.error("Gemini generateCoachAdvice failed:", error && error.message ? error.message : error);
         return ANALYSIS_UNAVAILABLE_MESSAGE;

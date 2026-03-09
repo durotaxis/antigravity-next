@@ -77,14 +77,22 @@ def extract_time_range(text: str) -> str:
 def extract_steps(text: str) -> str:
     # Collect candidates from shoe/icon area first, then generic comma/plain numbers.
     icon_hits = re.findall(r"[$¥]\s*(\d{1,3}(?:,\d{3})+)", text)
+    icon_plain_hits = re.findall(r"[$¥]\s*(\d{3,6})", text)
     comma_nums = re.findall(r"\b\d{1,3}(?:,\d{3})+\b", text)
-    plain_nums = re.findall(r"\b\d{4,6}\b", text)
+    plain_nums = re.findall(r"\b\d{3,6}\b", text)
 
     icon_values = [int(x.replace(",", "")) for x in icon_hits if x]
+    normalized_icon_plain_values = []
+    for raw in icon_plain_hits:
+        if not raw:
+            continue
+        normalized_icon_plain_values.append(int(raw))
+        if len(raw) >= 4 and raw.startswith("8"):
+            normalized_icon_plain_values.append(int(raw[1:]))
     comma_values = [int(x.replace(",", "")) for x in comma_nums if x]
     plain_values = [int(x) for x in plain_nums if x]
 
-    icon_filtered = [v for v in icon_values if 200 <= v <= 50000]
+    icon_filtered = [v for v in (icon_values + normalized_icon_plain_values) if 200 <= v <= 50000]
     comma_filtered = [v for v in comma_values if 200 <= v <= 50000]
     plain_filtered = [v for v in plain_values if 200 <= v <= 50000]
 

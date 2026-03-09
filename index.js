@@ -844,84 +844,11 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
     const { runId } = req.params;
     const { filenames } = req.body;
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
-
-    const storeDir = path.join(__dirname, 'public', 'assets', 'store');
-    const results = [];
-    const isUnsafeFilename = (name) => !name || name.includes('..') || name.includes('/') || name.includes('\\');
-    const buildErrorRow = (file, code, error) => ({ file, status: 'error', code, error });
-
-    for (const rawName of filenames) {
-      const filename = String(rawName || '').trim();
-      if (isUnsafeFilename(filename)) {
-        results.push(buildErrorRow(filename, 'INVALID_FILENAME', 'Invalid filename'));
-        continue;
-      }
-
-      const inboxPath = path.join(imageService.INBOX_DIR, filename);
-      try {
-        await fs.access(inboxPath);
-      } catch {
-        results.push(buildErrorRow(filename, 'FILE_NOT_FOUND', 'File not found'));
-        continue;
-      }
-
-      const ext = path.extname(filename).toLowerCase();
-      const fileBuffer = await fs.readFile(inboxPath);
-      const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-      const storedFilename = `${hash}${ext}`;
-      const storePath = path.join(storeDir, storedFilename);
-
-      let asset = await imageRepo.findAssetByHash(hash);
-      let createdAssetId = null;
-      if (!asset) {
-        await fs.copyFile(inboxPath, storePath);
-        const assetId = await imageRepo.createAsset(hash, storedFilename, filename);
-        createdAssetId = assetId;
-        asset = { asset_id: assetId };
-      }
-
-      const rollbackCreatedAsset = async () => {
-        if (!createdAssetId) return;
-        await imageRepo.deleteAssetWithFile(createdAssetId).catch(() => { });
-      };
-
-      let analyzed = null;
-      try {
-        analyzed = await ocrComponent.analyzeScreenOcr(storedFilename, 'python');
-      } catch (ocrErr) {
-        await rollbackCreatedAsset();
-        results.push(buildErrorRow(
-          filename,
-          'OCR_FAILED',
-          ocrErr && ocrErr.message ? String(ocrErr.message) : 'OCR failed'
-        ));
-        continue;
-      }
-
-      const ocrRunDate = normalizeRunDate(analyzed && analyzed.date);
-      if (!ocrRunDate) {
-        await rollbackCreatedAsset();
-        results.push(buildErrorRow(
-          filename,
-          'MISSING_RUN_DATE',
-          'OCR date could not be determined. Import was rolled back.'
-        ));
-        continue;
-      }
-
-      await imageRepo.updateAssetMetricsById(asset.asset_id, analyzed || {});
-      await imageRepo.linkImageToRun(ocrRunDate, asset.asset_id);
-      if (runId && runId !== ocrRunDate) {
-        await imageRepo.unlinkImageFromRun(runId, asset.asset_id).catch(() => { });
-      }
-
-      results.push({ file: filename, status: 'success', run_id: ocrRunDate, asset_id: asset.asset_id });
-    }
-
+    const results = await imageService.importSelectedFiles(filenames, runId);
     const failed = results.filter((row) => row && row.status !== 'success');
     if (failed.length > 0) {
       return res.status(422).json({
-        error: 'Some images failed to import because OCR run date could not be determined.',
+        error: 'Some selected images failed to import.',
         code: 'IMPORT_PARTIAL_FAILED',
         results
       });

@@ -1086,17 +1086,11 @@ async function deleteRun(runId, runDate) {
 // --- Image Management Logic ---
 
 function ensurePickerButton(date) {
-    const summarySection = document.getElementById('summary');
-    if (!summarySection) return;
-
-    const existingBtn = document.getElementById('openPickerBtn');
-    if (existingBtn) existingBtn.remove();
-
-    const btn = document.createElement('div');
-    btn.id = 'openPickerBtn';
-    btn.textContent = '+ Select Image from Phone Link';
-    btn.onclick = () => openInboxModal(date);
-    summarySection.appendChild(btn);
+    const btn = document.getElementById('openPickerBtn');
+    if (!btn) return;
+    const normalizedDate = String(date || '').trim();
+    btn.disabled = !normalizedDate;
+    btn.onclick = normalizedDate ? () => openInboxModal(normalizedDate) : null;
 }
 
 async function checkAndRenderImages(date) {
@@ -1106,9 +1100,6 @@ async function checkAndRenderImages(date) {
     // Remove existing image container if any
     const existingContainer = document.querySelector('.run-images-container');
     if (existingContainer) existingContainer.remove();
-    const existingBtn = document.getElementById('openPickerBtn');
-    if (existingBtn) existingBtn.remove();
-
     try {
         const res = await fetch(`/api/runs/${date}/images`);
         if (!res.ok) throw new Error(`Failed to fetch images: ${res.status}`);

@@ -13,7 +13,7 @@ const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
-const GEMINI_RATE_LIMIT_MESSAGE = geminiService.RATE_LIMIT_MESSAGE || "利用回数が制限を超えました。米国時間0:00のリセット後に再試行してください。";
+const GEMINI_RATE_LIMIT_MESSAGE = geminiService.RATE_LIMIT_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -1598,4 +1598,3 @@ if (require.main === module) {
 }
 
 module.exports = app;
-

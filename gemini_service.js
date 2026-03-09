@@ -10,10 +10,11 @@ const path = require('path');
 const USER_HEIGHT_CM = 172;
 const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。米国時間0:00のリセット後に再試行してください。";
 const ANALYSIS_UNAVAILABLE_MESSAGE = "AI Analysis is currently unavailable.";
+const TEMPORARY_UNAVAILABLE_MESSAGE = "現在利用が制限されています。しばらくお待ちください。";
 
 function isRateLimitError(error) {
     const status = Number(error?.status || error?.statusCode || error?.response?.status);
-    if (Number.isFinite(status) && status === 429) return true;
+    if (Number.isFinite(status) && (status === 429 || status === 503)) return true;
 
     const code = String(error?.code || error?.response?.data?.error?.status || '').toUpperCase();
     if (code.includes('RESOURCE_EXHAUSTED')) return true;
@@ -21,9 +22,11 @@ function isRateLimitError(error) {
     const msg = String(error?.message || error || '').toLowerCase();
     return (
         msg.includes('429') ||
+        msg.includes('503') ||
         msg.includes('too many request') ||
         msg.includes('too many requests') ||
         msg.includes('rate limit') ||
+        msg.includes('service unavailable') ||
         msg.includes('quota') ||
         msg.includes('resource_exhausted')
     );
@@ -81,7 +84,7 @@ async function generateAdvice(metrics, imagePaths = []) {
     } catch (e) {
         console.error(`[GeminiError] status=${getErrorStatus(e)}`);
         if (isRateLimitError(e)) {
-            return RATE_LIMIT_MESSAGE;
+            return TEMPORARY_UNAVAILABLE_MESSAGE;
         }
         console.error("Gemini generateAdvice failed:", e && e.message ? e.message : e);
         return ANALYSIS_UNAVAILABLE_MESSAGE;
@@ -132,10 +135,10 @@ async function generateCoachAdvice(stats, imagePaths = []) {
 
     } catch (error) {
         console.error(`[GeminiError] status=${getErrorStatus(error)}`);
-        if (isRateLimitError(error)) return RATE_LIMIT_MESSAGE;
+        if (isRateLimitError(error)) return TEMPORARY_UNAVAILABLE_MESSAGE;
         console.error("Gemini generateCoachAdvice failed:", error && error.message ? error.message : error);
         return ANALYSIS_UNAVAILABLE_MESSAGE;
     }
 }
 
-module.exports = { generateAdvice, generateCoachAdvice, RATE_LIMIT_MESSAGE };
+module.exports = { generateAdvice, generateCoachAdvice, RATE_LIMIT_MESSAGE: TEMPORARY_UNAVAILABLE_MESSAGE };

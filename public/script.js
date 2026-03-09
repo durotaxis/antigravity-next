@@ -497,6 +497,14 @@ function shouldTriggerAdvice(date, summary) {
     return !hasNonEmptyMessage(summary);
 }
 
+function hasRunningDataForAdvice(data) {
+    if (!Array.isArray(data) || data.length === 0) return false;
+    const runningPoints = data.filter((d) => Number(d?.steps) > 140);
+    if (runningPoints.length < 3) return false;
+    const totalRunningSteps = runningPoints.reduce((acc, d) => acc + (Number(d?.steps) || 0), 0);
+    return totalRunningSteps >= 400;
+}
+
 function renderSavedAdvice(summary) {
     const container = document.getElementById('daily-message-container');
     const textSpan = document.getElementById('daily-message-text');
@@ -646,7 +654,10 @@ async function loadData(options = {}) {
         checkAndRenderImages(date);
 
         const dailySummary = await fetchDailySummary(date);
-        const canTriggerAdvice = triggerAdvice && shouldTriggerAdvice(date, dailySummary);
+        const canTriggerAdvice =
+            triggerAdvice &&
+            shouldTriggerAdvice(date, dailySummary) &&
+            hasRunningDataForAdvice(data);
 
         // --- Call AI Advice (only when daily_summary exists and message is empty) ---
         if (canTriggerAdvice) {

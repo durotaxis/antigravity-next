@@ -249,13 +249,36 @@ function getRestingHeartRate() {
     return hr;
 }
 
+function getHeartRateZoneGuide() {
+    const maxHr = getEstimatedMaxHeartRate();
+    const restHr = getRestingHeartRate();
+    if (!(maxHr > 0)) return { maxText: '', avgText: '' };
+
+    const lsdLower = Math.round(maxHr * 0.60);
+    const lsdUpper = Math.round(maxHr * 0.70);
+
+    if (!(restHr > 0) || restHr >= maxHr) {
+        return {
+            maxText: '',
+            avgText: `LSD RANGE ${lsdLower}-${lsdUpper} bpm`
+        };
+    }
+
+    const lthr = Math.round((maxHr - restHr) * 0.85 + restHr);
+    const z2Lower = Math.round((maxHr - restHr) * 0.60 + restHr);
+    const z2Upper = Math.round((maxHr - restHr) * 0.70 + restHr);
+    return {
+        maxText: `LTHR ${lthr}`,
+        avgText: `LSD RANGE ${lsdLower}-${lsdUpper} / Z2 ${z2Lower}-${z2Upper} bpm`
+    };
+}
+
 function renderHeartRateGuide() {
     const formula = document.getElementById('hrFormulaInfo');
     const target = document.getElementById('hrTargetInfo');
     if (!formula || !target) return;
 
     const maxHr = getEstimatedMaxHeartRate();
-    const restHr = getRestingHeartRate();
 
     formula.textContent = 'Max HR = 220 - age';
 
@@ -264,18 +287,7 @@ function renderHeartRateGuide() {
         return;
     }
 
-    const lsdLower = Math.round(maxHr * 0.60);
-    const lsdUpper = Math.round(maxHr * 0.70);
-
-    if (!(restHr > 0) || restHr >= maxHr) {
-        target.textContent = `Max HR ${maxHr} / LSD RANGE ${lsdLower}-${lsdUpper} bpm / LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest`;
-        return;
-    }
-
-    const lthr = Math.round((maxHr - restHr) * 0.85 + restHr);
-    const z2Lower = Math.round((maxHr - restHr) * 0.60 + restHr);
-    const z2Upper = Math.round((maxHr - restHr) * 0.70 + restHr);
-    target.textContent = `Max HR ${maxHr} / LSD RANGE ${lsdLower}-${lsdUpper} / LTHR ${lthr} / Z2 ${z2Lower}-${z2Upper} bpm`;
+    target.textContent = 'LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
 }
 
 function compareDateText(a, b) {
@@ -926,6 +938,7 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
     const heartRatePercent = estimatedMaxHeartRate > 0 && Number(maxHR) > 0
         ? ` (${Math.round((Number(maxHR) / estimatedMaxHeartRate) * 100)}%)`
         : '';
+    const heartRateZoneGuide = getHeartRateZoneGuide();
 
     return `
         <div class="glass-card summary-grid">
@@ -942,10 +955,12 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
             <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
                 <span class="stat-label">Max Heart Rate</span>
                 <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm${heartRatePercent}</span>
+                ${heartRateZoneGuide.maxText ? `<span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">${heartRateZoneGuide.maxText}</span>` : ''}
             </div>
             <div class="stat-item">
                 <span class="stat-label">Avg Heart Rate</span>
                 <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
+                ${heartRateZoneGuide.avgText ? `<span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">${heartRateZoneGuide.avgText}</span>` : ''}
             </div>
         </div>
     `;

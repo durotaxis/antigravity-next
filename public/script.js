@@ -187,6 +187,36 @@ function saveHeightInput() {
     localStorage.setItem('profile.height_cm', rounded);
 }
 
+function restoreAgeInput() {
+    const input = document.getElementById('ageInput');
+    if (!input) return;
+    const saved = String(localStorage.getItem('profile.age') || '').trim();
+    if (/^\d{1,3}$/.test(saved)) {
+        input.value = saved;
+    }
+}
+
+function saveAgeInput() {
+    const input = document.getElementById('ageInput');
+    if (!input) return;
+    const raw = String(input.value || '').trim();
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 1 || v > 120) {
+        alert('Age must be between 1 and 120.');
+        return;
+    }
+    const rounded = String(Math.round(v));
+    input.value = rounded;
+    localStorage.setItem('profile.age', rounded);
+}
+
+function getEstimatedMaxHeartRate() {
+    const saved = String(localStorage.getItem('profile.age') || '').trim();
+    const age = Number(saved);
+    if (!Number.isFinite(age) || age < 1 || age > 120) return 0;
+    return Math.max(0, 220 - age);
+}
+
 function compareDateText(a, b) {
     return String(a || '').localeCompare(String(b || ''));
 }
@@ -831,6 +861,10 @@ async function getGeminiAdvice(date, maxStride, data) {
 function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
     const gapSign = totalGap > 0 ? '-' : '+';
     const absGap = Math.abs(totalGap).toFixed(1);
+    const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
+    const heartRatePercent = estimatedMaxHeartRate > 0 && Number(maxHR) > 0
+        ? ` (${Math.round((Number(maxHR) / estimatedMaxHeartRate) * 100)}%)`
+        : '';
 
     return `
         <div class="glass-card summary-grid">
@@ -846,7 +880,7 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
             </div>
             <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
                 <span class="stat-label">Max Heart Rate</span>
-                <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm</span>
+                <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm${heartRatePercent}</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">Avg Heart Rate</span>
@@ -984,6 +1018,7 @@ function renderChart(data) {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     restoreHeightInput();
+    restoreAgeInput();
     restoreRunDateInput();
     restoreSnapshotDateInput();
     restoreFitSyncFromDateInput();
@@ -1029,6 +1064,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     document.getElementById('saveHeightBtn')?.addEventListener('click', saveHeightInput);
+    document.getElementById('saveAgeBtn')?.addEventListener('click', saveAgeInput);
     // Modal Event Listeners
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('inboxModal').addEventListener('click', (e) => {

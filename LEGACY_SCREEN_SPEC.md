@@ -27,7 +27,8 @@ The legacy screen contains these major areas:
   - `SYNC DAILY`
   - `CLEAR RUN`
   - `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)`
-  - `SAVE HEIGHT`
+- `SAVE HEIGHT`
+  - `SAVE AGE`
 - Run history area
   - Existing runs list
   - Delete action
@@ -343,7 +344,41 @@ Stores the user's height setting used by legacy-screen-related calculations and 
 This button saves height only.
 It does not trigger sync or OCR.
 
-## 11. Run History
+## 11. SAVE AGE
+
+### 11.1 Purpose
+
+Stores the user's age setting for legacy-screen-only heart-rate context.
+
+### 11.2 Scope
+
+This button saves age only.
+It does not trigger sync or OCR.
+
+### 11.3 Persistence
+
+The current implementation stores age in browser local storage.
+
+### 11.4 Derived value
+
+The legacy screen uses:
+
+- `estimated max heart rate = 220 - age`
+
+This is a display-side derived value in the current old-screen implementation.
+
+### 11.5 Current display behavior
+
+The legacy summary card can show:
+
+- `Max Heart Rate`
+- `Max Heart Rate (xx%)`
+
+where the percentage is:
+
+- observed max heart rate divided by `220 - age`
+
+## 12. Run History
 
 ### 11.1 Purpose
 
@@ -359,7 +394,7 @@ It deletes the run by date/ID through the shared delete endpoint.
 
 This path should not be confused with the intended debug-only semantics of `CLEAR RUN`.
 
-## 12. Lightbox and Image Viewing
+## 13. Lightbox and Image Viewing
 
 The old screen can:
 
@@ -368,7 +403,7 @@ The old screen can:
 
 Image unlink/delete from lightbox is currently disabled.
 
-## 13. Current Functional Separation
+## 14. Current Functional Separation
 
 The intended separation of legacy debug tools is:
 
@@ -395,7 +430,7 @@ Additional interpretation notes:
   - is intended to separate FIT/JSON-side cleanup from DAILY/image-side cleanup
   - but the current implementation is still only a partial approximation of that intent
 
-## 14. Known Areas Where Specification and Implementation Still Diverge
+## 15. Known Areas Where Specification and Implementation Still Diverge
 
 At the time of writing, the following areas are still under active alignment:
 

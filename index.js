@@ -365,13 +365,13 @@ async function persistBatchItem(batchItem) {
   }
 
   await imageRepo.updateAssetMetricsById(asset.asset_id, {
-    step_count: summary.step_count,
-    total_distance_km: summary.total_distance_km,
-    total_time: summary.total_time,
-    avg_speed: summary.avg_speed,
-    avg_heart_rate: summary.hr_avg,
-    calories_kcal: summary.calories_kcal,
-    avg_stride_cm: summary.avg_stride
+    step_count: currentStepCount > 0 ? currentStepCount : null,
+    total_distance_km: currentTotalDistanceKm > 0 ? currentTotalDistanceKm : null,
+    total_time: currentTotalTime || null,
+    avg_speed: currentAvgSpeed > 0 ? currentAvgSpeed : null,
+    avg_heart_rate: currentHrAvg > 0 ? currentHrAvg : null,
+    calories_kcal: currentCaloriesKcal > 0 ? currentCaloriesKcal : null,
+    avg_stride_cm: currentAvgStride > 0 ? currentAvgStride : null
   });
   await imageRepo.linkImageToRun(runDate, asset.asset_id);
 
@@ -610,9 +610,39 @@ app.get('/api/runs', async (req, res) => {
 app.delete('/api/runs/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const changes = await repo.deleteRun(id);
+    const mode = String((req.query && req.query.mode) || '').trim().toLowerCase();
+    const changes = await repo.deleteRun(id, {
+      removeAssets: mode !== 'summary_only'
+    });
     if (changes === 0) return res.status(404).json({ error: 'Run not found' });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/debug/cache/:date', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.params && req.params.date);
+    if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
+
+    const cacheDir = path.join(__dirname, 'storage', 'cache');
+    const targets = [
+      path.join(cacheDir, `raw_buckets_${date}.json`),
+      path.join(cacheDir, `intraday_${date}.json`)
+    ];
+
+    let deleted = 0;
+    for (const target of targets) {
+      try {
+        await fs.unlink(target);
+        deleted += 1;
+      } catch (err) {
+        if (!err || err.code !== 'ENOENT') throw err;
+      }
+    }
+
+    res.json({ success: true, deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -842,9 +872,12 @@ app.get('/api/inbox/preview/:filename', (req, res) => {
 app.post('/api/runs/:runId/import-selected', async (req, res) => {
   try {
     const { runId } = req.params;
-    const { filenames } = req.body;
+    const { filenames, skipAdvice, skipSummary } = req.body || {};
     if (!Array.isArray(filenames)) return res.status(400).json({ error: 'Invalid input' });
-    const results = await imageService.importSelectedFiles(filenames, runId);
+    const results = await imageService.importSelectedFiles(filenames, runId, {
+      skipAdvice: skipAdvice === true,
+      skipSummary: skipSummary === true
+    });
     const failed = results.filter((row) => row && row.status !== 'success');
     if (failed.length > 0) {
       return res.status(422).json({

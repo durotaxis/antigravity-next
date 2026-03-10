@@ -405,6 +405,11 @@ function normalizeDigitsOnly(text) {
     return String(text || '').replace(/[^0-9]/g, '');
 }
 
+function getSelectedClearMode() {
+    const selected = document.querySelector('input[name="clearMode"]:checked');
+    return selected ? String(selected.value || '').trim() : 'daily';
+}
+
 async function importInboxImagesForBatchDate() {
     const dateInput = document.getElementById('dateInput');
     const runDate = dateInput ? String(dateInput.value || '').trim() : '';
@@ -977,6 +982,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
     document.getElementById('imageImportBtn')?.addEventListener('click', runImageImportFlow);
+    document.getElementById('clearDebugBtn')?.addEventListener('click', clearDebugTarget);
     document.getElementById('dateInput')?.addEventListener('change', () => {
         persistRunDateInput();
         batchSelectedFiles.clear();
@@ -1016,6 +1022,11 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRunHistory();
     setBatchPickerMessage('No images loaded yet. Press SYNC DAILY after confirming dates.');
     renderBatchIdleState('Ready. Press SYNC DAILY to import/sync.');
+    const clearDateInput = document.getElementById('clearDateInput');
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    if (clearDateInput && snapshotInput && !String(clearDateInput.value || '').trim()) {
+        clearDateInput.value = String(snapshotInput.value || '').trim();
+    }
 });
 
 async function loadRunHistory() {
@@ -1257,7 +1268,9 @@ async function importSelectedImages() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                filenames: Array.from(selectedFiles)
+                filenames: Array.from(selectedFiles),
+                skipSummary: true,
+                skipAdvice: true
             })
         });
 
@@ -1288,6 +1301,57 @@ async function importSelectedImages() {
             btn.textContent = originalText;
             btn.disabled = false;
         }, 2000);
+    }
+}
+
+async function clearDebugTarget() {
+    const clearDateInput = document.getElementById('clearDateInput');
+    const targetDate = clearDateInput ? normalizeRunDate(clearDateInput.value) : '';
+    if (!targetDate) {
+        alert('Clear date is required.');
+        return;
+    }
+
+    const mode = getSelectedClearMode();
+    const btn = document.getElementById('clearDebugBtn');
+    const originalText = btn ? btn.textContent : '';
+    const actionLabel = mode === 'fit_json' ? 'FIT JSON cache' : 'daily data';
+    const confirmed = window.confirm(`Clear ${actionLabel} for ${targetDate}?`);
+    if (!confirmed) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'CLEARING...';
+    }
+
+    try {
+        let res;
+        if (mode === 'fit_json') {
+            res = await fetch(`/api/debug/cache/${encodeURIComponent(targetDate)}`, {
+                method: 'DELETE'
+            });
+        } else {
+            res = await fetch(`/api/runs/${encodeURIComponent(targetDate)}?mode=summary_only`, {
+                method: 'DELETE'
+            });
+        }
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(payload?.error ? String(payload.error) : `Clear failed: ${res.status}`);
+        }
+
+        await loadData({ triggerAdvice: false });
+        await loadRunHistory();
+        checkAndRenderImages(targetDate);
+        alert(`Cleared ${actionLabel} for ${targetDate}.`);
+    } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : 'Clear failed');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText || 'CLEAR RUN';
+        }
     }
 }
 

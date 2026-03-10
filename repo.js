@@ -230,10 +230,11 @@ function getAllRuns() {
 /**
  * Delete a run by ID (rowid)
  */
-function deleteRunByDate(date) {
+function deleteRunByDate(date, options = {}) {
     return (async () => {
         if (!date) return 0;
         const runId = date;
+        const removeAssets = !(options && options.removeAssets === false);
 
         const all = (sql, params = []) => new Promise((resolve, reject) => {
             db.all(sql, params, (err, rows) => {
@@ -260,14 +261,16 @@ function deleteRunByDate(date) {
         await run('DELETE FROM run_images WHERE run_id = ?', [runId]);
         const changes = await run('DELETE FROM daily_summary WHERE date = ?', [runId]);
 
-        // Clean up orphaned assets + files
-        for (const row of assetRows) {
-            const assetId = row.asset_id;
-            if (!assetId) continue;
-            const hasOtherLink = await get('SELECT 1 AS ok FROM run_images WHERE asset_id = ? LIMIT 1', [assetId]);
-            if (!hasOtherLink) {
-                try { await imageRepo.deleteAssetWithFile(assetId); } catch (e) {
-                    console.error('Error deleting orphaned asset:', e.message || e);
+        if (removeAssets) {
+            // Clean up orphaned assets + files
+            for (const row of assetRows) {
+                const assetId = row.asset_id;
+                if (!assetId) continue;
+                const hasOtherLink = await get('SELECT 1 AS ok FROM run_images WHERE asset_id = ? LIMIT 1', [assetId]);
+                if (!hasOtherLink) {
+                    try { await imageRepo.deleteAssetWithFile(assetId); } catch (e) {
+                        console.error('Error deleting orphaned asset:', e.message || e);
+                    }
                 }
             }
         }
@@ -276,7 +279,7 @@ function deleteRunByDate(date) {
     })();
 }
 
-function deleteRun(idOrDate) {
+function deleteRun(idOrDate, options = {}) {
     return new Promise((resolve, reject) => {
         const idStr = String(idOrDate ?? '').trim();
         if (!idStr) return resolve(0);
@@ -285,7 +288,7 @@ function deleteRun(idOrDate) {
         const isRowId = Number.isFinite(idNum) && idNum > 0 && String(idNum) === idStr;
 
         if (!isRowId) {
-            return deleteRunByDate(idStr).then(resolve, reject);
+            return deleteRunByDate(idStr, options).then(resolve, reject);
         }
 
         // 1. Get the date (run_id) first to delete linked images
@@ -294,11 +297,11 @@ function deleteRun(idOrDate) {
             if (err) return reject(err);
             if (!row) {
                 // Fallback: treat id as date if rowid lookup failed
-                return deleteRunByDate(idStr).then(resolve, reject);
+                return deleteRunByDate(idStr, options).then(resolve, reject);
             }
 
             // Delegate to date-based delete to ensure orphan cleanup.
-            deleteRunByDate(row.date).then(resolve, reject);
+            deleteRunByDate(row.date, options).then(resolve, reject);
         });
     });
 }

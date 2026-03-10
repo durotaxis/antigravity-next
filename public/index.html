@@ -100,12 +100,26 @@
                     <span id="imageImportHint" class="batch-toggle"></span>
                 </div>
                 <div class="control-primary">
-                    <label for="heightCmInput" class="batch-toggle">Height(cm)</label>
-                    <input type="number" id="heightCmInput" min="100" max="250" step="1" placeholder="170">
-                    <button id="saveHeightBtn" class="btn-primary" type="button">SAVE HEIGHT</button>
+                    <input type="date" id="clearDateInput" title="Date (CLEAR DEBUG)">
+                    <button id="clearDebugBtn" class="btn-primary" type="button">CLEAR RUN</button>
+                    <div class="control-options inline-options">
+                        <label class="batch-toggle">
+                            <input type="radio" name="clearMode" id="clearModeFitJson" value="fit_json">
+                            <span>Fit JSON</span>
+                        </label>
+                        <label class="batch-toggle">
+                            <input type="radio" name="clearMode" id="clearModeDaily" value="daily" checked>
+                            <span>Daily</span>
+                        </label>
+                    </div>
                 </div>
                 <div class="control-primary">
                     <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select Image from Phone Link (without SYNC DAILY)</button>
+                </div>
+                <div class="control-primary">
+                    <label for="heightCmInput" class="batch-toggle">Height(cm)</label>
+                    <input type="number" id="heightCmInput" min="100" max="250" step="1" placeholder="170">
+                    <button id="saveHeightBtn" class="btn-primary" type="button">SAVE HEIGHT</button>
                 </div>
             </section>
 

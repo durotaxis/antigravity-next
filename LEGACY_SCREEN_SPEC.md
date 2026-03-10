@@ -29,6 +29,7 @@ The legacy screen contains these major areas:
   - `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)`
 - `SAVE HEIGHT`
   - `SAVE AGE`
+  - `SAVE REST HR`
 - Run history area
   - Existing runs list
   - Delete action
@@ -378,7 +379,33 @@ where the percentage is:
 
 - observed max heart rate divided by `220 - age`
 
-## 12. Run History
+## 12. SAVE REST HR
+
+### 12.1 Purpose
+
+Stores resting heart rate for old-screen-only heart-rate guide display.
+
+### 12.2 Scope
+
+This button saves resting heart rate only.
+It does not trigger sync or OCR.
+
+### 12.3 Persistence
+
+The current implementation stores resting heart rate in browser local storage.
+
+### 12.4 Derived values
+
+The legacy debug display can compute:
+
+- `HRmax = 220 - age`
+- `LTHR = (HRmax - HRrest) * 0.85 + HRrest`
+- `Z2 lower = (HRmax - HRrest) * 0.60 + HRrest`
+- `Z2 upper = (HRmax - HRrest) * 0.70 + HRrest`
+
+These are current old-screen display-side helper values only.
+
+## 13. Run History
 
 ### 11.1 Purpose
 
@@ -394,7 +421,7 @@ It deletes the run by date/ID through the shared delete endpoint.
 
 This path should not be confused with the intended debug-only semantics of `CLEAR RUN`.
 
-## 13. Lightbox and Image Viewing
+## 14. Lightbox and Image Viewing
 
 The old screen can:
 
@@ -403,7 +430,7 @@ The old screen can:
 
 Image unlink/delete from lightbox is currently disabled.
 
-## 14. Current Functional Separation
+## 15. Current Functional Separation
 
 The intended separation of legacy debug tools is:
 
@@ -430,7 +457,7 @@ Additional interpretation notes:
   - is intended to separate FIT/JSON-side cleanup from DAILY/image-side cleanup
   - but the current implementation is still only a partial approximation of that intent
 
-## 15. Known Areas Where Specification and Implementation Still Diverge
+## 16. Known Areas Where Specification and Implementation Still Diverge
 
 At the time of writing, the following areas are still under active alignment:
 

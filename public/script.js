@@ -208,6 +208,7 @@ function saveAgeInput() {
     const rounded = String(Math.round(v));
     input.value = rounded;
     localStorage.setItem('profile.age', rounded);
+    renderHeartRateGuide();
 }
 
 function getEstimatedMaxHeartRate() {
@@ -215,6 +216,66 @@ function getEstimatedMaxHeartRate() {
     const age = Number(saved);
     if (!Number.isFinite(age) || age < 1 || age > 120) return 0;
     return Math.max(0, 220 - age);
+}
+
+function restoreRestingHrInput() {
+    const input = document.getElementById('restingHrInput');
+    if (!input) return;
+    const saved = String(localStorage.getItem('profile.rest_hr') || '').trim();
+    if (/^\d{2,3}$/.test(saved)) {
+        input.value = saved;
+    }
+}
+
+function saveRestingHrInput() {
+    const input = document.getElementById('restingHrInput');
+    if (!input) return;
+    const raw = String(input.value || '').trim();
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 30 || v > 120) {
+        alert('Resting HR must be between 30 and 120.');
+        return;
+    }
+    const rounded = String(Math.round(v));
+    input.value = rounded;
+    localStorage.setItem('profile.rest_hr', rounded);
+    renderHeartRateGuide();
+}
+
+function getRestingHeartRate() {
+    const saved = String(localStorage.getItem('profile.rest_hr') || '').trim();
+    const hr = Number(saved);
+    if (!Number.isFinite(hr) || hr < 30 || hr > 120) return 0;
+    return hr;
+}
+
+function renderHeartRateGuide() {
+    const formula = document.getElementById('hrFormulaInfo');
+    const target = document.getElementById('hrTargetInfo');
+    if (!formula || !target) return;
+
+    const maxHr = getEstimatedMaxHeartRate();
+    const restHr = getRestingHeartRate();
+
+    formula.textContent = 'Max HR = 220 - age';
+
+    if (!(maxHr > 0)) {
+        target.textContent = 'LSD RANGE = HRmax x 0.60-0.70 / LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
+        return;
+    }
+
+    const lsdLower = Math.round(maxHr * 0.60);
+    const lsdUpper = Math.round(maxHr * 0.70);
+
+    if (!(restHr > 0) || restHr >= maxHr) {
+        target.textContent = `Max HR ${maxHr} / LSD RANGE ${lsdLower}-${lsdUpper} bpm / LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest`;
+        return;
+    }
+
+    const lthr = Math.round((maxHr - restHr) * 0.85 + restHr);
+    const z2Lower = Math.round((maxHr - restHr) * 0.60 + restHr);
+    const z2Upper = Math.round((maxHr - restHr) * 0.70 + restHr);
+    target.textContent = `Max HR ${maxHr} / LSD RANGE ${lsdLower}-${lsdUpper} / LTHR ${lthr} / Z2 ${z2Lower}-${z2Upper} bpm`;
 }
 
 function compareDateText(a, b) {
@@ -1019,10 +1080,12 @@ function renderChart(data) {
 document.addEventListener('DOMContentLoaded', () => {
     restoreHeightInput();
     restoreAgeInput();
+    restoreRestingHrInput();
     restoreRunDateInput();
     restoreSnapshotDateInput();
     restoreFitSyncFromDateInput();
     restoreAdviceToggles();
+    renderHeartRateGuide();
     bindAdviceToggles();
 
     loadData({ triggerAdvice: false });
@@ -1065,6 +1128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('saveHeightBtn')?.addEventListener('click', saveHeightInput);
     document.getElementById('saveAgeBtn')?.addEventListener('click', saveAgeInput);
+    document.getElementById('saveRestHrBtn')?.addEventListener('click', saveRestingHrInput);
     // Modal Event Listeners
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('inboxModal').addEventListener('click', (e) => {

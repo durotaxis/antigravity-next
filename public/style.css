@@ -169,7 +169,18 @@ h1 {
     width: 100%;
 }
 
-#heightCmInput {
+#debugControls .control-primary:has(#heightCmInput),
+#debugControls .control-primary:has(#ageInput),
+#debugControls .control-primary:has(#restingHrInput) {
+    display: grid;
+    grid-template-columns: 72px 96px 240px minmax(240px, 1fr);
+    align-items: center;
+    gap: 16px;
+}
+
+#heightCmInput,
+#ageInput,
+#restingHrInput {
     width: 96px;
 }
 
@@ -212,7 +223,10 @@ input[type="date"]:focus {
 #syncJsonBtn,
 #imageImportBtn,
 #clearDebugBtn,
-#saveHeightBtn {
+#saveHeightBtn,
+#saveAgeBtn,
+#saveRestHrBtn {
+    width: 240px;
     min-width: 240px;
     min-height: 48px;
     text-align: center;
@@ -225,6 +239,10 @@ input[type="date"]:focus {
     color: var(--text-secondary);
     font-size: 0.85rem;
     line-height: 1.2;
+}
+
+.debug-side-info {
+    min-width: 240px;
 }
 
 .debug-frame-label {

@@ -120,12 +120,19 @@
                     <label for="heightCmInput" class="batch-toggle">Height(cm)</label>
                     <input type="number" id="heightCmInput" min="100" max="250" step="1" placeholder="170">
                     <button id="saveHeightBtn" class="btn-primary" type="button">SAVE HEIGHT</button>
+                    <span id="heightInfo" class="batch-toggle debug-side-info"></span>
                 </div>
                 <div class="control-primary">
                     <label for="ageInput" class="batch-toggle">Age</label>
                     <input type="number" id="ageInput" min="1" max="120" step="1" placeholder="50">
                     <button id="saveAgeBtn" class="btn-primary" type="button">SAVE AGE</button>
-                    <span class="batch-toggle">Max HR = 220 - age</span>
+                    <span id="hrFormulaInfo" class="batch-toggle debug-side-info">Max HR = 220 - age</span>
+                </div>
+                <div class="control-primary">
+                    <label for="restingHrInput" class="batch-toggle">Rest HR</label>
+                    <input type="number" id="restingHrInput" min="30" max="120" step="1" placeholder="60">
+                    <button id="saveRestHrBtn" class="btn-primary" type="button">SAVE REST HR</button>
+                    <span id="hrTargetInfo" class="batch-toggle debug-side-info">LTHR / Z2 will appear here</span>
                 </div>
             </section>
 

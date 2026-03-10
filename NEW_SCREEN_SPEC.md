@@ -116,6 +116,16 @@ It also handles:
 - OCR failure response
 - missing run date response
 
+More specifically:
+
+- duplicate upload
+  - reuses the existing imported asset/data and reloads the page
+- OCR failure
+  - keeps the imported image but reports that analysis values could not be extracted
+  - does not immediately reload the page in that branch
+- missing run date
+  - asks the user to set or confirm the upload target date and retry
+
 ## 6. New Screen Ingest Behavior
 
 The new screen uses the single-image ingest path.
@@ -130,6 +140,14 @@ That path performs:
 - image metric persistence
 - `daily_summary` creation or update
 - advice generation/update in the server flow
+
+The new screen therefore combines:
+
+- one uploaded image
+- OCR result
+- cache/Fit-derived supplemental metrics
+- same-date summary merge behavior
+- possible advice/message persistence
 
 The new screen is therefore the single-image normal ingestion flow.
 

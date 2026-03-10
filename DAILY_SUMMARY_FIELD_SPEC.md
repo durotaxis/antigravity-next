@@ -154,6 +154,37 @@ These are the final database-level rules.
 
 The same fields are written differently depending on the route.
 
+## 5.1 Legacy chart sync path (`GET /api/stride?sync=1`)
+
+This is not a full summary-construction route.
+
+It is a limited fill path used by the legacy screen.
+
+### Source of values
+
+This path derives values from intraday chart data.
+
+### Intended behavior
+
+It can fill missing values on an already-existing `daily_summary` row.
+
+Typical fill candidates:
+
+- `avg_stride`
+- `max_stride`
+- `hr_avg`
+- `hr_max`
+- `avg_cadence`
+- `max_cadence`
+- `avg_speed`
+- `max_speed`
+
+### Important limits
+
+- it does not create a new `daily_summary` row when none exists
+- it is intended to fill only missing/non-positive fields
+- it is not the primary path for `step_count`, `total_distance_km`, or `total_time`
+
 ## 6. `POST /api/daily/:date/sync-cache`
 
 This is the cache-driven day summary path.
@@ -196,6 +227,16 @@ This route builds values from cache-derived metrics:
 ### 6.3 Semantics
 
 This route treats cache as the source of truth for the day-level summary.
+
+In the legacy debug model, this route represents the FIT/JSON side of the day.
+
+### 6.4 Run-signal gate for new-row creation
+
+This route does not blindly create a new row from cache.
+
+When no existing `daily_summary` row exists, creation is gated by explicit running-activity signal checks.
+
+That means cache availability by itself is not always sufficient to create a brand-new day row.
 
 ## 7. `POST /api/analyze`
 
@@ -316,6 +357,8 @@ This route is not pure OCR and not pure cache.
 
 It is a merged summary route with same-day accumulation behavior.
 
+It is the primary normal-ingest path for the new screen.
+
 ## 8. `POST /api/analyze/batch`
 
 This is the legacy batch persistence path through `persistBatchItem()`.
@@ -376,6 +419,17 @@ This is the OCR-batch accumulation route.
 
 It assumes each processed item contributes to the same day summary unless OCR/fallback date resolution points elsewhere.
 
+In the legacy debug model, this route represents the OCR-side daily aggregation path.
+
+### 8.4 Image-side persistence
+
+The batch path also updates matching `image_assets` rows for the processed filenames.
+
+Current intended image-side rule:
+
+- write the OCR values for that image item
+- do not write merged day-summary totals back into `image_assets`
+
 ## 9. `POST /api/daily`
 
 This is the manual/debug correction path.
@@ -395,6 +449,15 @@ This route only writes:
 
 It is not a full daily-summary reconstruction route.
 It is a partial manual patch route.
+
+## 9.1 Legacy `+ SELECT` note
+
+The intended legacy `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)` behavior is:
+
+- create or reuse image/link records
+- do not create or update `daily_summary`
+
+This keeps image import separate from OCR-side summary aggregation.
 
 ## 10. Advice Update Routes
 
@@ -463,3 +526,10 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 - `message` persists unless overwritten by a non-null incoming message.
 - Max fields are generally monotonic at the DB level.
 - Avg fields are overwrite-at-save fields, but many routes pre-merge them before calling `saveDailySummary`.
+
+## 13. Known Areas Still Requiring Specification Alignment
+
+- How `CLEAR RUN` should restore or remove `daily_summary` by mode
+- Whether cache deletion should remain visible after immediate UI refresh
+- How OCR-side `daily_summary` construction should interact with an already-existing FIT/JSON-derived row
+- Which fields are owned by FIT/JSON versus OCR when both are present for the same date

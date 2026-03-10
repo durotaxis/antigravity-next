@@ -65,6 +65,11 @@ Different controls use different date inputs:
 Legacy screen dates are operation target dates.
 They are not guaranteed to be OCR-derived dates.
 
+Additional note:
+
+- `CLEAR RUN` is a single-date debug operation
+- unlike `SYNC FIT JSON`, it is not defined as a range traversal flow
+
 ## 5. RUN ANALYZER
 
 ### 5.1 Purpose
@@ -80,6 +85,8 @@ When the user presses `RUN ANALYZER`, the screen:
 - Renders summary values
 - Loads linked images
 - Loads daily message if present
+
+In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 
 ### 5.3 Data sources
 
@@ -102,6 +109,27 @@ The current behavior is:
 The intent is:
 
 - Before a real run exists, viewing should avoid unnecessary side effects
+
+### 5.5 Summary fill behavior triggered by legacy chart load
+
+The legacy chart path can act as a limited backfill path for an existing day.
+
+The current implementation can fill missing values such as:
+
+- `avg_stride`
+- `max_stride`
+- `hr_avg`
+- `hr_max`
+- `avg_cadence`
+- `max_cadence`
+- `avg_speed`
+- `max_speed`
+
+Important limits:
+
+- it does not create a new `daily_summary` row when none exists
+- it only fills fields that are currently missing or non-positive
+- it does not intentionally overwrite an already-populated field through this path
 
 ## 6. SYNC FIT JSON
 
@@ -161,6 +189,7 @@ This stage:
 - Imports matched files through `import-selected`
 - Creates or reuses `image_assets`
 - Creates or reuses `run_images`
+- Does not create or update `daily_summary` in the intended debug flow
 
 ### 7.4 OCR batch stage
 
@@ -173,9 +202,26 @@ This stage:
 - Creates or updates OCR metrics on `image_assets`
 - Creates or updates `daily_summary`
 
+This stage is responsible for the OCR-side daily-summary persistence.
+It should be treated separately from the image-import stage.
+
+Current persistence shape:
+
+- per-image OCR data is written to `image_assets`
+- per-day OCR results are merged into `daily_summary`
+- the batch summary path currently merges against any already-existing same-date `daily_summary`
+
+Because of that, `SYNC DAILY` can interact with an already-existing cache-derived summary unless the day is explicitly cleared or rebuilt.
+
 ### 7.5 Fallback behavior
 
-If no linked image exists for the date, the flow may fall back to cache-based `daily_summary` synchronization.
+If OCR batch has no effective image work for the date, the flow may fall back to cache-based `daily_summary` synchronization.
+
+In practice this includes cases where:
+
+- no linked image exists
+- batch processing is skipped
+- batch total is zero
 
 ### 7.6 Role in the system
 
@@ -202,9 +248,13 @@ The import creates or reuses:
 - `image_assets`
 - `run_images`
 
+The import is an image/link preparation step only.
+
 ### 8.3 What it does not do
 
 By itself, it does not run OCR batch aggregation.
+
+By current intended behavior, it also does not create or update `daily_summary`.
 
 That is why the button text explicitly says:
 
@@ -241,6 +291,8 @@ At minimum, this concerns:
 - Google Fit JSON cache files
 - cache-derived `daily_summary`
 
+The image/OCR side should remain untouched in this mode.
+
 ### 9.4 Intended DAILY behavior
 
 When `Daily` is selected, the intended behavior is:
@@ -253,11 +305,27 @@ That means:
 - remove image/OCR side data
 - then restore `daily_summary` from the remaining FIT JSON side if needed
 
+The FIT JSON cache itself should remain in place in this mode.
+
 ### 9.5 Current state
 
 The current implementation is not yet aligned with the intended clear specification.
 
 The current button exists, but its behavior is still under review.
+
+The currently observed gaps include:
+
+- `FIT JSON` clear can remove cache files, but immediate screen refresh can recreate them
+- `DAILY` clear behavior is not yet equivalent to "remove everything created by `SYNC DAILY` and then restore cache-derived summary"
+
+Current observed implementation shape:
+
+- `FIT JSON`
+  - deletes cache files for the selected date
+  - then the SPA update path can immediately fetch data again
+- `DAILY`
+  - currently goes through the summary-only delete path
+  - therefore current behavior is narrower than the intended "remove all `SYNC DAILY` artifacts"
 
 ## 10. SAVE HEIGHT
 
@@ -284,6 +352,8 @@ It is a stronger cleanup path than the current `CLEAR RUN` implementation.
 
 It deletes the run by date/ID through the shared delete endpoint.
 
+This path should not be confused with the intended debug-only semantics of `CLEAR RUN`.
+
 ## 12. Lightbox and Image Viewing
 
 The old screen can:
@@ -307,3 +377,24 @@ The intended separation of legacy debug tools is:
   - cleanup entry point for one of the above two paths
 
 This separation is the current conceptual model for the old screen.
+
+Additional interpretation notes:
+
+- `RUN ANALYZER`
+  - is mainly a viewing path
+  - but it can also fill missing `daily_summary` metric fields on an already-existing row
+- `+ SELECT IMAGE FROM PHONE LINK`
+  - is intended as an image preparation step only
+  - it should not be treated as a complete day-summary build path
+- `CLEAR RUN`
+  - is intended to separate FIT/JSON-side cleanup from DAILY/image-side cleanup
+  - but the current implementation is still only a partial approximation of that intent
+
+## 14. Known Areas Where Specification and Implementation Still Diverge
+
+At the time of writing, the following areas are still under active alignment:
+
+- the exact cleanup semantics of `CLEAR RUN`
+- whether and when FIT JSON cache should visibly "stay deleted" after a clear
+- how `SYNC DAILY` should treat an already-existing cache-derived `daily_summary`
+- how OCR-derived day totals and cache-derived day totals should coexist in `daily_summary`

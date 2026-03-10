@@ -249,12 +249,17 @@ The import creates or reuses:
 - `run_images`
 
 The import is an image/link preparation step only.
+It is also a single-target-date debug import step.
 
 ### 8.3 What it does not do
 
 By itself, it does not run OCR batch aggregation.
 
 By current intended behavior, it also does not create or update `daily_summary`.
+
+In the current debug design, if the selected filenames indicate multiple dates or a date different from the chosen target date, the import should fail instead of mixing multiple dates into one run date.
+
+Operationally, the chosen target date here is the currently selected `RUN ANALYZER` date.
 
 That is why the button text explicitly says:
 

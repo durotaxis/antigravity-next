@@ -456,6 +456,8 @@ The intended legacy `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)` behavi
 
 - create or reuse image/link records
 - do not create or update `daily_summary`
+- reject mixed filename-derived dates in the debug UI before import
+- reject files whose filename-derived date does not match the current `RUN ANALYZER` target date
 
 This keeps image import separate from OCR-side summary aggregation.
 

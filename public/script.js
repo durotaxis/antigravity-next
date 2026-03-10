@@ -79,6 +79,24 @@ function normalizeRunDate(value) {
     return isValidRunDate(normalized) ? normalized : '';
 }
 
+function extractRunDateFromFilename(filename) {
+    const raw = String(filename || '').trim();
+    if (!raw) return '';
+    const normalized = raw.replace(/\s+/g, '');
+
+    let match = normalized.match(/(\d{4})[-_]?(\d{2})[-_]?(\d{2})/);
+    if (match) {
+        return `${match[1]}-${match[2]}-${match[3]}`;
+    }
+
+    match = normalized.match(/(\d{1,2})[-_](\d{1,2})[-_](\d{4})/);
+    if (match) {
+        return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+    }
+
+    return '';
+}
+
 function getTodayLocalDateString() {
     const now = new Date();
     const year = now.getFullYear();
@@ -1264,6 +1282,21 @@ async function importSelectedImages() {
     btn.disabled = true;
 
     try {
+        const selectedDates = Array.from(new Set(
+            Array.from(selectedFiles)
+                .map(extractRunDateFromFilename)
+                .filter(Boolean)
+        ));
+        const hasMixedDates = selectedDates.length > 1;
+        const hasDifferentTargetDate = selectedDates.length === 1 && selectedDates[0] !== currentRunDate;
+        if (hasMixedDates || hasDifferentTargetDate) {
+            const detected = selectedDates.length > 0 ? selectedDates.join(', ') : '(unknown)';
+            alert(`Import failed: selected images do not match the RUN ANALYZER date.\nRUN ANALYZER date: ${currentRunDate}\nDetected: ${detected}\nPlease fix the RUN ANALYZER date and try again.`);
+            btn.textContent = originalText;
+            btn.disabled = false;
+            return;
+        }
+
         const res = await fetch(`/api/runs/${currentRunDate}/import-selected`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

@@ -379,6 +379,14 @@ where the percentage is:
 
 - observed max heart rate divided by `220 - age`
 
+### 11.6 New environment behavior
+
+In a new browser/device environment:
+
+- seeing a number in the `Age` input is not sufficient by itself
+- the user must enter and save the value in that environment
+- until `SAVE AGE` is executed there, age-based helper references may remain unavailable
+
 ## 12. SAVE REST HR
 
 ### 12.1 Purpose
@@ -404,6 +412,14 @@ The legacy debug display can compute:
 - `Z2 upper = (HRmax - HRrest) * 0.70 + HRrest`
 
 These are current old-screen display-side helper values only.
+
+### 12.5 New environment behavior
+
+In a new browser/device environment:
+
+- seeing a number in the `Rest HR` input is not sufficient by itself
+- the user must enter and save the value in that environment
+- until `SAVE REST HR` is executed there, resting-HR-based helper references may remain unavailable
 
 ## 13. Run History
 

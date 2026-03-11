@@ -170,16 +170,20 @@ h1 {
     width: 100%;
 }
 
-#debugControls .control-primary:has(#heightCmInput),
-#debugControls .control-primary:has(#ageInput),
-#debugControls .control-primary:has(#restingHrInput),
 #setupControls .control-primary:has(#heightCmInput),
 #setupControls .control-primary:has(#ageInput),
 #setupControls .control-primary:has(#restingHrInput) {
-    display: grid;
-    grid-template-columns: 72px 96px 240px minmax(240px, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 16px;
+}
+
+#setupControls .control-primary:has(#heightCmInput) .debug-side-info,
+#setupControls .control-primary:has(#ageInput) .debug-side-info,
+#setupControls .control-primary:has(#restingHrInput) .debug-side-info {
+    flex-basis: 100%;
+    margin-top: -4px;
 }
 
 #heartRateComputedRow {
@@ -199,7 +203,7 @@ h1 {
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    min-width: 72px;
+    width: 120px;
     min-height: 36px;
     padding: 0 10px;
     border-radius: 8px;
@@ -267,6 +271,14 @@ input[type="date"]:focus {
 
 .debug-side-info {
     min-width: 240px;
+}
+
+#setupControls .debug-side-info {
+    display: block;
+    flex-basis: 100%;
+    white-space: normal;
+    line-height: 1.35;
+    margin-top: -4px;
 }
 
 .debug-frame-label {

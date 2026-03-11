@@ -284,6 +284,7 @@ function getHeartRateZoneGuide() {
 function renderHeartRateGuide() {
     const formula = document.getElementById('hrFormulaInfo');
     const target = document.getElementById('hrTargetInfo');
+    const targetZ2 = document.getElementById('hrTargetInfoZ2');
     const maxHrEl = document.getElementById('computedMaxHr');
     const lthrEl = document.getElementById('computedLthr');
     const lsdEl = document.getElementById('computedLsd');
@@ -293,7 +294,8 @@ function renderHeartRateGuide() {
     const guide = getHeartRateZoneGuide();
 
     formula.textContent = 'Max HR = 220 - age';
-    target.textContent = 'LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
+    target.textContent = 'LTHR = (HRmax - HRrest) x 0.85 + HRrest';
+    if (targetZ2) targetZ2.textContent = 'Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
     if (maxHrEl) maxHrEl.textContent = guide.maxHrText;
     if (lthrEl) lthrEl.textContent = guide.maxText;
     if (lsdEl) lsdEl.textContent = guide.avgText;

@@ -165,23 +165,47 @@ h1 {
     justify-content: flex-start;
 }
 
-#debugControls .control-primary {
+#debugControls .control-primary,
+#setupControls .control-primary {
     width: 100%;
 }
 
 #debugControls .control-primary:has(#heightCmInput),
 #debugControls .control-primary:has(#ageInput),
-#debugControls .control-primary:has(#restingHrInput) {
+#debugControls .control-primary:has(#restingHrInput),
+#setupControls .control-primary:has(#heightCmInput),
+#setupControls .control-primary:has(#ageInput),
+#setupControls .control-primary:has(#restingHrInput) {
     display: grid;
     grid-template-columns: 72px 96px 240px minmax(240px, 1fr);
     align-items: center;
     gap: 16px;
 }
 
+#heartRateComputedRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
 #heightCmInput,
 #ageInput,
 #restingHrInput {
     width: 96px;
+}
+
+#setupControls label.batch-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-width: 72px;
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    box-sizing: border-box;
 }
 
 #analyzerControls .control-primary {

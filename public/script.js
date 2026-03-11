@@ -209,11 +209,13 @@ function saveAgeInput() {
     input.value = rounded;
     localStorage.setItem('profile.age', rounded);
     renderHeartRateGuide();
+    refreshSummaryHeartRateGuide();
 }
 
 function getEstimatedMaxHeartRate() {
-    const saved = String(localStorage.getItem('profile.age') || '').trim();
-    const age = Number(saved);
+    const input = document.getElementById('ageInput');
+    const raw = input ? String(input.value || '').trim() : '';
+    const age = Number(raw);
     if (!Number.isFinite(age) || age < 1 || age > 120) return 0;
     return Math.max(0, 220 - age);
 }
@@ -240,11 +242,13 @@ function saveRestingHrInput() {
     input.value = rounded;
     localStorage.setItem('profile.rest_hr', rounded);
     renderHeartRateGuide();
+    refreshSummaryHeartRateGuide();
 }
 
 function getRestingHeartRate() {
-    const saved = String(localStorage.getItem('profile.rest_hr') || '').trim();
-    const hr = Number(saved);
+    const input = document.getElementById('restingHrInput');
+    const raw = input ? String(input.value || '').trim() : '';
+    const hr = Number(raw);
     if (!Number.isFinite(hr) || hr < 30 || hr > 120) return 0;
     return hr;
 }
@@ -252,15 +256,17 @@ function getRestingHeartRate() {
 function getHeartRateZoneGuide() {
     const maxHr = getEstimatedMaxHeartRate();
     const restHr = getRestingHeartRate();
-    if (!(maxHr > 0)) return { maxText: '', avgText: '' };
+    if (!(maxHr > 0)) return { maxHrText: 'Max HR: -', maxText: 'LTHR: -', avgText: 'LSD: -', avgSubText: 'Z2: -' };
 
     const lsdLower = Math.round(maxHr * 0.60);
     const lsdUpper = Math.round(maxHr * 0.70);
 
     if (!(restHr > 0) || restHr >= maxHr) {
         return {
-            maxText: '',
-            avgText: `LSD RANGE ${lsdLower}-${lsdUpper} bpm`
+            maxHrText: `Max HR: ${maxHr}`,
+            maxText: 'LTHR: -',
+            avgText: `LSD: ${lsdLower}-${lsdUpper}`,
+            avgSubText: 'Z2: -'
         };
     }
 
@@ -268,26 +274,70 @@ function getHeartRateZoneGuide() {
     const z2Lower = Math.round((maxHr - restHr) * 0.60 + restHr);
     const z2Upper = Math.round((maxHr - restHr) * 0.70 + restHr);
     return {
-        maxText: `LTHR ${lthr}`,
-        avgText: `LSD RANGE ${lsdLower}-${lsdUpper} / Z2 ${z2Lower}-${z2Upper} bpm`
+        maxHrText: `Max HR: ${maxHr}`,
+        maxText: `LTHR: ${lthr}`,
+        avgText: `LSD: ${lsdLower}-${lsdUpper}`,
+        avgSubText: `Z2: ${z2Lower}-${z2Upper} bpm`
     };
 }
 
 function renderHeartRateGuide() {
     const formula = document.getElementById('hrFormulaInfo');
     const target = document.getElementById('hrTargetInfo');
+    const maxHrEl = document.getElementById('computedMaxHr');
+    const lthrEl = document.getElementById('computedLthr');
+    const lsdEl = document.getElementById('computedLsd');
+    const z2El = document.getElementById('computedZ2');
     if (!formula || !target) return;
 
-    const maxHr = getEstimatedMaxHeartRate();
+    const guide = getHeartRateZoneGuide();
 
     formula.textContent = 'Max HR = 220 - age';
-
-    if (!(maxHr > 0)) {
-        target.textContent = 'LSD RANGE = HRmax x 0.60-0.70 / LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
-        return;
-    }
-
     target.textContent = 'LTHR = (HRmax - HRrest) x 0.85 + HRrest / Z2 = (HRmax - HRrest) x 0.60-0.70 + HRrest';
+    if (maxHrEl) maxHrEl.textContent = guide.maxHrText;
+    if (lthrEl) lthrEl.textContent = guide.maxText;
+    if (lsdEl) lsdEl.textContent = guide.avgText;
+    if (z2El) z2El.textContent = guide.avgSubText;
+}
+
+function refreshSummaryHeartRateGuide() {
+    const summaryRoot = document.querySelector('#summary .summary-grid');
+    if (!summaryRoot) return;
+
+    const statItems = summaryRoot.querySelectorAll('.stat-item');
+    if (!statItems || statItems.length < 4) return;
+
+    const maxHeartRateItem = statItems[2];
+    const avgHeartRateItem = statItems[3];
+    const maxValue = maxHeartRateItem.querySelector('.stat-value');
+    const avgValue = avgHeartRateItem.querySelector('.stat-value');
+    if (!maxValue || !avgValue) return;
+
+    const maxHrMatch = String(maxValue.textContent || '').match(/(\d+)/);
+    const avgHrMatch = String(avgValue.textContent || '').match(/(\d+)/);
+    const maxHr = maxHrMatch ? Number(maxHrMatch[1]) : 0;
+    const avgHr = avgHrMatch ? Number(avgHrMatch[1]) : 0;
+    const heartRateGuide = getHeartRateZoneGuide();
+    const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
+    const heartRatePercent = estimatedMaxHeartRate > 0 && maxHr > 0
+        ? ` (${Math.round((maxHr / estimatedMaxHeartRate) * 100)}%)`
+        : '';
+
+    maxValue.textContent = `${maxHr ? Math.round(maxHr) : '-'} bpm${heartRatePercent}`;
+    avgValue.textContent = `${avgHr ? Math.round(avgHr) : '-'} bpm`;
+
+    const maxGuideText = heartRateGuide.maxText;
+    const avgGuideText = heartRateGuide.avgText;
+    const avgGuideSubText = heartRateGuide.avgSubText;
+
+    const maxGuide = maxHeartRateItem.querySelector('.heart-rate-guide-max');
+    if (maxGuide) maxGuide.textContent = maxGuideText;
+
+    const avgGuide = avgHeartRateItem.querySelector('.heart-rate-guide-avg');
+    if (avgGuide) avgGuide.textContent = avgGuideText;
+
+    const avgGuideSub = avgHeartRateItem.querySelector('.heart-rate-guide-avg-sub');
+    if (avgGuideSub) avgGuideSub.textContent = avgGuideSubText;
 }
 
 function compareDateText(a, b) {
@@ -771,7 +821,8 @@ async function loadData(options = {}) {
         const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
 
         const totalGap = WR_STRIDE - maxStride;
-        summaryContainer.innerHTML = renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR);
+        const heartRateGuide = getHeartRateZoneGuide();
+        summaryContainer.innerHTML = renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, heartRateGuide);
 
         // --- Render Chart ---
         renderChart(data);
@@ -931,14 +982,16 @@ async function getGeminiAdvice(date, maxStride, data) {
     }
 }
 
-function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
+function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
     const gapSign = totalGap > 0 ? '-' : '+';
     const absGap = Math.abs(totalGap).toFixed(1);
     const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
     const heartRatePercent = estimatedMaxHeartRate > 0 && Number(maxHR) > 0
         ? ` (${Math.round((Number(maxHR) / estimatedMaxHeartRate) * 100)}%)`
         : '';
-    const heartRateZoneGuide = getHeartRateZoneGuide();
+    const maxGuideText = heartRateGuide.maxText || 'LTHR: -';
+    const avgGuideText = heartRateGuide.avgText || 'LSD: -';
+    const avgGuideSubText = heartRateGuide.avgSubText || 'Z2: -';
 
     return `
         <div class="glass-card summary-grid">
@@ -955,12 +1008,13 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR) {
             <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
                 <span class="stat-label">Max Heart Rate</span>
                 <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm${heartRatePercent}</span>
-                ${heartRateZoneGuide.maxText ? `<span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">${heartRateZoneGuide.maxText}</span>` : ''}
+                <span class="stat-label heart-rate-guide-max" style="font-size: 0.75rem; margin-top: 4px;">${maxGuideText}</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">Avg Heart Rate</span>
                 <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
-                ${heartRateZoneGuide.avgText ? `<span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">${heartRateZoneGuide.avgText}</span>` : ''}
+                <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideText}</span>
+                <span class="stat-label heart-rate-guide-avg-sub" style="font-size: 0.75rem; margin-top: 2px;">${avgGuideSubText}</span>
             </div>
         </div>
     `;

@@ -1459,10 +1459,9 @@ async function importSelectedImages() {
                 .filter(Boolean)
         ));
         const hasMixedDates = selectedDates.length > 1;
-        const hasDifferentTargetDate = selectedDates.length === 1 && selectedDates[0] !== currentRunDate;
-        if (hasMixedDates || hasDifferentTargetDate) {
+        if (hasMixedDates) {
             const detected = selectedDates.length > 0 ? selectedDates.join(', ') : '(unknown)';
-            alert(`Import failed: selected images do not match the RUN ANALYZER date.\nRUN ANALYZER date: ${currentRunDate}\nDetected: ${detected}\nPlease fix the RUN ANALYZER date and try again.`);
+            alert(`Import failed: selected images contain mixed detected dates.\nDetected: ${detected}\nPlease select images from a single detected date and try again.`);
             btn.textContent = originalText;
             btn.disabled = false;
             return;

@@ -253,6 +253,59 @@ function mergeTimeSum(currentHms, existingHms) {
   return sum > 0 ? secondsToHms(sum) : null;
 }
 
+function correctBatchSummaryStepNoise(stepCount, totalTime, totalDistanceKm) {
+  const rawSteps = Number(stepCount || 0);
+  const sec = parseHmsToSeconds(totalTime);
+  const distanceKm = Number(totalDistanceKm || 0);
+  if (!(rawSteps > 0) || !(sec > 0)) {
+    return {
+      step_count: rawSteps,
+      avg_cadence: 0,
+      avg_stride_cm: 0,
+      corrected: false
+    };
+  }
+
+  const rawCadence = Math.round(rawSteps / (sec / 60));
+  if (rawCadence <= 200) {
+    return {
+      step_count: rawSteps,
+      avg_cadence: rawCadence,
+      avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / rawSteps).toFixed(1)) : 0,
+      corrected: false
+    };
+  }
+
+  console.log(`[SYNC DAILY step correction] raw_step_count=${rawSteps} total_time=${totalTime} raw_avg_cadence=${rawCadence}`);
+
+  const rawText = String(Math.round(rawSteps));
+  if (rawText.length < 2) {
+    return {
+      step_count: rawSteps,
+      avg_cadence: rawCadence,
+      avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / rawSteps).toFixed(1)) : 0,
+      corrected: false
+    };
+  }
+
+  const trimmedSteps = Number(rawText.slice(1));
+  if (!(trimmedSteps > 0)) {
+    return {
+      step_count: rawSteps,
+      avg_cadence: rawCadence,
+      avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / rawSteps).toFixed(1)) : 0,
+      corrected: false
+    };
+  }
+
+  return {
+    step_count: trimmedSteps,
+    avg_cadence: Math.round(trimmedSteps / (sec / 60)),
+    avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / trimmedSteps).toFixed(1)) : 0,
+    corrected: true
+  };
+}
+
 function toBool(value, defaultValue = false) {
   if (value === undefined || value === null) return defaultValue;
   const text = String(value).trim().toLowerCase();
@@ -325,18 +378,32 @@ async function persistBatchItem(batchItem) {
   const currentMaxCadence = Number(data.max_cadence || 0);
   const currentAvgSpeed = Number(data.avg_speed || 0);
   const currentMaxSpeed = Number(data.max_speed || 0);
+  const correctedSummaryMetrics = correctBatchSummaryStepNoise(
+    currentStepCount,
+    currentTotalTime,
+    currentTotalDistanceKm
+  );
+  const summaryStepCount = correctedSummaryMetrics.step_count > 0
+    ? correctedSummaryMetrics.step_count
+    : currentStepCount;
+  const summaryAvgStride = correctedSummaryMetrics.avg_stride_cm > 0
+    ? correctedSummaryMetrics.avg_stride_cm
+    : currentAvgStride;
+  const summaryAvgCadence = correctedSummaryMetrics.avg_cadence > 0
+    ? correctedSummaryMetrics.avg_cadence
+    : currentAvgCadence;
 
   const summary = {
     date: runDate,
-    step_count: Math.round(mergePositiveSum(currentStepCount, existingSummary && existingSummary.step_count, 0)),
+    step_count: Math.round(mergePositiveSum(summaryStepCount, existingSummary && existingSummary.step_count, 0)),
     total_distance_km: mergePositiveSum(currentTotalDistanceKm, existingSummary && existingSummary.total_distance_km, 2),
     total_time: mergeTimeSum(currentTotalTime, existingSummary && existingSummary.total_time),
     calories_kcal: Math.round(mergePositiveSum(currentCaloriesKcal, existingSummary && existingSummary.calories_kcal, 0)),
     max_stride: mergePositiveMax(currentMaxStride, existingSummary && existingSummary.max_stride, 1),
-    avg_stride: mergePositiveAverage(currentAvgStride, existingSummary && existingSummary.avg_stride, 1),
+    avg_stride: mergePositiveAverage(summaryAvgStride, existingSummary && existingSummary.avg_stride, 1),
     hr_max: mergePositiveMax(currentHrMax, existingSummary && existingSummary.hr_max, 0),
     hr_avg: mergePositiveAverage(currentHrAvg, existingSummary && existingSummary.hr_avg, 0),
-    avg_cadence: mergePositiveAverage(currentAvgCadence, existingSummary && existingSummary.avg_cadence, 0),
+    avg_cadence: mergePositiveAverage(summaryAvgCadence, existingSummary && existingSummary.avg_cadence, 0),
     max_cadence: mergePositiveMax(currentMaxCadence, existingSummary && existingSummary.max_cadence, 0),
     avg_speed: mergePositiveAverage(currentAvgSpeed, existingSummary && existingSummary.avg_speed, 1),
     max_speed: mergePositiveMax(currentMaxSpeed, existingSummary && existingSummary.max_speed, 1),

@@ -96,26 +96,11 @@ def extract_steps(text: str) -> str:
     comma_filtered = [v for v in comma_values if 200 <= v <= 50000]
     plain_filtered = [v for v in plain_values if 200 <= v <= 50000]
 
-    observed = set(icon_filtered + comma_filtered + plain_filtered)
-
-    # Handle prefixed-digit OCR noise only when both forms are observed
-    # (e.g. "45,608" and "5,608" in the same OCR text).
-    paired_trimmed = []
-    for v in observed:
-        s = str(v)
-        if len(s) < 5:
-            continue
-        t = int(s[1:])
-        if t in observed and 200 <= t <= 50000:
-            paired_trimmed.append(t)
-    if paired_trimmed:
-        return str(min(paired_trimmed))
-
-    # Keep icon preference when there is no paired-noise evidence.
+    # Keep icon preference, but avoid biasing toward shorter/smaller candidates.
     if icon_filtered:
-        return str(min(icon_filtered))
+        return str(max(icon_filtered))
     if comma_filtered:
-        return str(min(comma_filtered))
+        return str(max(comma_filtered))
     return str(max(plain_filtered)) if plain_filtered else ""
 
 

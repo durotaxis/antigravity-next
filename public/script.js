@@ -1006,6 +1006,9 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, totalSeconds,
     const mm = Math.floor(((Number(totalSeconds) || 0) % 3600) / 60);
     const ss = Math.floor((Number(totalSeconds) || 0) % 60);
     const totalTimeText = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    const distancePerStepText = Number(totalSteps) > 0
+        ? ((Number(totalDistanceMeters) / Number(totalSteps)) * 100).toFixed(1)
+        : '-';
 
     return `
         <div class="glass-card" style="display: grid; gap: 18px;">
@@ -1044,6 +1047,10 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, totalSeconds,
                 <div class="stat-item">
                     <span class="stat-label">DIST (M)</span>
                     <span class="stat-value" style="color: #00f2ff;">${Number(totalDistanceMeters || 0).toFixed(1)}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">DIST / STEPS x100</span>
+                    <span class="stat-value" style="color: #7af0b8;">${distancePerStepText === '-' ? '-' : `${distancePerStepText}`}</span>
                 </div>
             </div>
         </div>
@@ -1546,7 +1553,12 @@ async function clearDebugTarget() {
     const mode = getSelectedClearMode();
     const btn = document.getElementById('clearDebugBtn');
     const originalText = btn ? btn.textContent : '';
-    const actionLabel = mode === 'fit_json' ? 'FIT JSON cache' : 'daily data';
+    const actionLabel =
+        mode === 'fit_json'
+            ? 'FIT JSON cache'
+            : mode === 'image_reset'
+                ? 'images and OCR data'
+                : 'daily data';
     const confirmed = window.confirm(`Clear ${actionLabel} for ${targetDate}?`);
     if (!confirmed) return;
 
@@ -1559,6 +1571,10 @@ async function clearDebugTarget() {
         let res;
         if (mode === 'fit_json') {
             res = await fetch(`/api/debug/cache/${encodeURIComponent(targetDate)}`, {
+                method: 'DELETE'
+            });
+        } else if (mode === 'image_reset') {
+            res = await fetch(`/api/runs/${encodeURIComponent(targetDate)}?mode=image_reset`, {
                 method: 'DELETE'
             });
         } else {

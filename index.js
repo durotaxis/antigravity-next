@@ -620,6 +620,67 @@ async function computeDailySummaryFromCache(dateString) {
   return out;
 }
 
+async function syncDailySummaryFromCache(date) {
+  // Best-effort cache refresh for this date.
+  try {
+    await googleFitService.getIntradayMetrics(date);
+  } catch {
+    // Continue with existing cache files when API is unavailable.
+  }
+
+  const existing = await repo.getDailySummary(date);
+  const cacheMetrics = await computeDailySummaryFromCache(date);
+  const distanceKm = Number(cacheMetrics.total_distance_km || 0);
+  const stepCount = Number(cacheMetrics.step_count || 0);
+  const maxStride = Number(cacheMetrics.max_stride_cm || 0);
+  const maxHr = Number(cacheMetrics.max_heart_rate || 0);
+  const maxCadence = Number(cacheMetrics.max_cadence || 0);
+  const hasRunningActivity = await hasRunningActivitySignal(date);
+  const hasRunSignal = hasRunningActivity;
+
+  if (!existing && !hasRunSignal) {
+    return {
+      success: true,
+      skipped: true,
+      reason: 'insufficient_run_signal_or_not_running',
+      date,
+      metrics: {
+        step_count: stepCount,
+        total_distance_km: distanceKm,
+        max_stride_cm: maxStride,
+        max_heart_rate: maxHr,
+        max_cadence: maxCadence,
+        has_running_activity: hasRunningActivity
+      }
+    };
+  }
+
+  await repo.saveDailySummary({
+    date,
+    step_count: Number(cacheMetrics.step_count || 0),
+    total_distance_km: Number(cacheMetrics.total_distance_km || 0),
+    total_time: cacheMetrics.total_time || null,
+    calories_kcal: Number(cacheMetrics.calories_kcal || 0),
+    avg_stride: Number(cacheMetrics.avg_stride_cm || 0),
+    max_stride: Number(cacheMetrics.max_stride_cm || 0),
+    hr_avg: Number(cacheMetrics.avg_heart_rate || 0),
+    hr_max: Number(cacheMetrics.max_heart_rate || 0),
+    avg_cadence: Number(cacheMetrics.avg_cadence || 0),
+    max_cadence: Number(cacheMetrics.max_cadence || 0),
+    avg_speed: Number(cacheMetrics.avg_speed || 0),
+    max_speed: Number(cacheMetrics.max_speed || 0)
+  });
+
+  const summary = await repo.getDailySummary(date);
+  return {
+    success: true,
+    source: 'cache',
+    date,
+    created: !existing,
+    summary
+  };
+}
+
 // --- Security & Config ---
 // 蜈ｨ繧ｪ繝ｪ繧ｸ繝ｳ險ｱ蜿ｯ (繧ｹ繝槭・縺九ｉ縺ｮ謗･邯壹ｒ繧ｹ繝繝ｼ繧ｺ縺ｫ)
 app.use(cors({ origin: true, credentials: true }));
@@ -685,6 +746,18 @@ app.delete('/api/runs/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const mode = String((req.query && req.query.mode) || '').trim().toLowerCase();
+    if (mode === 'image_reset') {
+      const existingSummary = await repo.getDailySummary(id);
+      const linkedImages = await imageRepo.getImagesForRun(id);
+      if (!existingSummary && (!Array.isArray(linkedImages) || linkedImages.length === 0)) {
+        return res.status(404).json({ error: 'Run not found' });
+      }
+
+      await repo.deleteRun(id, { removeAssets: true });
+      const restored = await syncDailySummaryFromCache(id);
+      return res.json({ success: true, restored });
+    }
+
     const changes = await repo.deleteRun(id, {
       removeAssets: mode !== 'summary_only'
     });
@@ -859,66 +932,8 @@ app.post('/api/daily/:date/sync-cache', async (req, res) => {
   try {
     const date = normalizeRunDate(req.params && req.params.date);
     if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
-
-    // Best-effort cache refresh for this date.
-    try {
-      await googleFitService.getIntradayMetrics(date);
-    } catch {
-      // Continue with existing cache files when API is unavailable.
-    }
-
-    const existing = await repo.getDailySummary(date);
-    const cacheMetrics = await computeDailySummaryFromCache(date);
-    const distanceKm = Number(cacheMetrics.total_distance_km || 0);
-    const stepCount = Number(cacheMetrics.step_count || 0);
-    const maxStride = Number(cacheMetrics.max_stride_cm || 0);
-    const maxHr = Number(cacheMetrics.max_heart_rate || 0);
-    const maxCadence = Number(cacheMetrics.max_cadence || 0);
-    const hasRunningActivity = await hasRunningActivitySignal(date);
-    // New-row creation must be backed by explicit running activity markers (activity=8).
-    const hasRunSignal = hasRunningActivity;
-
-    if (!existing && !hasRunSignal) {
-      return res.json({
-        success: true,
-        skipped: true,
-        reason: 'insufficient_run_signal_or_not_running',
-        date,
-        metrics: {
-          step_count: stepCount,
-          total_distance_km: distanceKm,
-          max_stride_cm: maxStride,
-          max_heart_rate: maxHr,
-          max_cadence: maxCadence,
-          has_running_activity: hasRunningActivity
-        }
-      });
-    }
-
-    await repo.saveDailySummary({
-      date,
-      step_count: Number(cacheMetrics.step_count || 0),
-      total_distance_km: Number(cacheMetrics.total_distance_km || 0),
-      total_time: cacheMetrics.total_time || null,
-      calories_kcal: Number(cacheMetrics.calories_kcal || 0),
-      avg_stride: Number(cacheMetrics.avg_stride_cm || 0),
-      max_stride: Number(cacheMetrics.max_stride_cm || 0),
-      hr_avg: Number(cacheMetrics.avg_heart_rate || 0),
-      hr_max: Number(cacheMetrics.max_heart_rate || 0),
-      avg_cadence: Number(cacheMetrics.avg_cadence || 0),
-      max_cadence: Number(cacheMetrics.max_cadence || 0),
-      avg_speed: Number(cacheMetrics.avg_speed || 0),
-      max_speed: Number(cacheMetrics.max_speed || 0)
-    });
-
-    const summary = await repo.getDailySummary(date);
-    res.json({
-      success: true,
-      source: 'cache',
-      date,
-      created: !existing,
-      summary
-    });
+    const payload = await syncDailySummaryFromCache(date);
+    res.json(payload);
   } catch (err) {
     console.error('Daily cache sync error:', err);
     res.status(500).json({ error: err.message });

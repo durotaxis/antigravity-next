@@ -771,14 +771,9 @@ async function loadData(options = {}) {
         let maxIndex = 0;
 
         data.forEach((d, i) => {
-            // Filter: Ignore if unrealistic Stride > 300cm (Safety)
-            // Note: Heart rate filtering is already applied by the backend's "Hybrid Filter"
-            // but we keep high-intensity focus for the highlight.
+            // Peak stride highlight should reflect the actual maximum stride in the run.
             const val = d.stride;
-            const currentHR = d.heartRate;
-            const hasGoodHeartRate = (currentHR !== undefined && currentHR !== null && currentHR > 100);
-
-            if (val > maxStrideVal && hasGoodHeartRate) {
+            if (val > maxStrideVal) {
                 maxStrideVal = val;
                 maxIndex = i;
             }
@@ -822,9 +817,22 @@ async function loadData(options = {}) {
         });
         const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
 
+        const totalSeconds = Math.max(0, data.length * 60);
+        const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
+        const totalDistanceMeters = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
         const totalGap = WR_STRIDE - maxStride;
         const heartRateGuide = getHeartRateZoneGuide();
-        summaryContainer.innerHTML = renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, heartRateGuide);
+        summaryContainer.innerHTML = renderSummary(
+            maxStride,
+            maxTime,
+            totalGap,
+            maxHR,
+            avgHR,
+            totalSeconds,
+            totalSteps,
+            totalDistanceMeters,
+            heartRateGuide
+        );
 
         // --- Render Chart ---
         renderChart(data);
@@ -984,7 +992,7 @@ async function getGeminiAdvice(date, maxStride, data) {
     }
 }
 
-function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
+function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, totalSeconds, totalSteps, totalDistanceMeters, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
     const gapSign = totalGap > 0 ? '-' : '+';
     const absGap = Math.abs(totalGap).toFixed(1);
     const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
@@ -994,29 +1002,49 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, heartRateGuid
     const maxGuideText = heartRateGuide.maxText || 'LTHR: -';
     const avgGuideText = heartRateGuide.avgText || 'LSD: -';
     const avgGuideSubText = heartRateGuide.avgSubText || 'Z2: -';
+    const hh = Math.floor((Number(totalSeconds) || 0) / 3600);
+    const mm = Math.floor(((Number(totalSeconds) || 0) % 3600) / 60);
+    const ss = Math.floor((Number(totalSeconds) || 0) % 60);
+    const totalTimeText = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 
     return `
-        <div class="glass-card summary-grid">
-            <div class="stat-item">
-                <span class="stat-label">Peak Performance</span>
-                <span class="stat-value highlight">${maxStride.toFixed(1)} cm</span>
-                <span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">At ${maxTime}</span>
+        <div class="glass-card" style="display: grid; gap: 18px;">
+            <div class="summary-grid">
+                <div class="stat-item">
+                    <span class="stat-label">Peak Performance</span>
+                    <span class="stat-value highlight">${maxStride.toFixed(1)} cm</span>
+                    <span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">At ${maxTime}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">VS World Record</span>
+                    <span class="stat-value negative">${gapSign}${absGap} cm</span>
+                    <span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">Target: ${WR_STRIDE} cm</span>
+                </div>
+                <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
+                    <span class="stat-label">Max Heart Rate</span>
+                    <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm${heartRatePercent}</span>
+                    <span class="stat-label heart-rate-guide-max" style="font-size: 0.75rem; margin-top: 4px;">${maxGuideText}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Avg Heart Rate</span>
+                    <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
+                    <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideText}</span>
+                    <span class="stat-label heart-rate-guide-avg-sub" style="font-size: 0.75rem; margin-top: 2px;">${avgGuideSubText}</span>
+                </div>
             </div>
-            <div class="stat-item">
-                <span class="stat-label">VS World Record</span>
-                <span class="stat-value negative">${gapSign}${absGap} cm</span>
-                <span class="stat-label" style="font-size: 0.75rem; margin-top: 4px;">Target: ${WR_STRIDE} cm</span>
-            </div>
-            <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
-                <span class="stat-label">Max Heart Rate</span>
-                <span class="stat-value" style="color: #ff4444;">${maxHR ? Math.round(maxHR) : '-'} bpm${heartRatePercent}</span>
-                <span class="stat-label heart-rate-guide-max" style="font-size: 0.75rem; margin-top: 4px;">${maxGuideText}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Avg Heart Rate</span>
-                <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
-                <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideText}</span>
-                <span class="stat-label heart-rate-guide-avg-sub" style="font-size: 0.75rem; margin-top: 2px;">${avgGuideSubText}</span>
+            <div class="summary-grid">
+                <div class="stat-item">
+                    <span class="stat-label">TIME</span>
+                    <span class="stat-value" style="color: #9cc8ff;">${totalTimeText}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">STEPS</span>
+                    <span class="stat-value" style="color: #ffffff;">${Math.round(totalSteps || 0).toLocaleString()}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">DIST (M)</span>
+                    <span class="stat-value" style="color: #00f2ff;">${Number(totalDistanceMeters || 0).toFixed(1)}</span>
+                </div>
             </div>
         </div>
     `;

@@ -281,6 +281,30 @@ function updateAssetMetricsById(assetId, metrics) {
     });
 }
 
+function countOcrPersistedAssetsForRun(runId) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            SELECT COUNT(*) AS count
+            FROM run_images r
+            JOIN image_assets a ON a.asset_id = r.asset_id
+            WHERE r.run_id = ?
+              AND (
+                  a.steps IS NOT NULL
+                  OR a.total_distance IS NOT NULL
+                  OR a.total_time IS NOT NULL
+                  OR a.avg_speed IS NOT NULL
+                  OR a.avg_heart_rate IS NOT NULL
+                  OR a.calories IS NOT NULL
+                  OR a.avg_stride IS NOT NULL
+              )
+        `;
+        db.get(sql, [runId], (err, row) => {
+            if (err) return reject(err);
+            resolve(Number(row && row.count ? row.count : 0));
+        });
+    });
+}
+
 module.exports = {
     createAsset,
     registerAsset,
@@ -292,6 +316,7 @@ module.exports = {
     unlinkImageFromRun,
     updateAssetMetrics,
     updateAssetMetricsById,
+    countOcrPersistedAssetsForRun,
     deleteAssetWithFile
 };
 

@@ -365,6 +365,7 @@ async function persistBatchItem(batchItem) {
   }
 
   const existingSummary = await repo.getDailySummary(runDate);
+  const existingOcrAssetCount = await imageRepo.countOcrPersistedAssetsForRun(runDate);
   const data = (batchItem && batchItem.data && typeof batchItem.data === 'object') ? batchItem.data : {};
   const currentStepCount = Number(data.step_count || 0);
   const currentTotalDistanceKm = Number(data.total_distance_km || 0);
@@ -378,6 +379,12 @@ async function persistBatchItem(batchItem) {
   const currentMaxCadence = Number(data.max_cadence || 0);
   const currentAvgSpeed = Number(data.avg_speed || 0);
   const currentMaxSpeed = Number(data.max_speed || 0);
+  const isFirstOcrAssetForRun =
+    existingOcrAssetCount === 0 && (
+      currentStepCount > 0 ||
+      currentTotalDistanceKm > 0 ||
+      !!currentTotalTime
+    );
   const correctedSummaryMetrics = correctBatchSummaryStepNoise(
     currentStepCount,
     currentTotalTime,
@@ -395,9 +402,9 @@ async function persistBatchItem(batchItem) {
 
   const summary = {
     date: runDate,
-    step_count: Math.round(mergePositiveSum(summaryStepCount, existingSummary && existingSummary.step_count, 0)),
-    total_distance_km: mergePositiveSum(currentTotalDistanceKm, existingSummary && existingSummary.total_distance_km, 2),
-    total_time: mergeTimeSum(currentTotalTime, existingSummary && existingSummary.total_time),
+    step_count: Math.round(mergePositiveSum(summaryStepCount, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.step_count), 0)),
+    total_distance_km: mergePositiveSum(currentTotalDistanceKm, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.total_distance_km), 2),
+    total_time: mergeTimeSum(currentTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time)),
     calories_kcal: Math.round(mergePositiveSum(currentCaloriesKcal, existingSummary && existingSummary.calories_kcal, 0)),
     max_stride: mergePositiveMax(currentMaxStride, existingSummary && existingSummary.max_stride, 1),
     avg_stride: mergePositiveAverage(summaryAvgStride, existingSummary && existingSummary.avg_stride, 1),
@@ -1168,7 +1175,14 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
       // 笘・Optimization: Check if summary already exists before calling Fit API
       const existingSummary = await repo.getDailySummary(result.date);
+      const existingOcrAssetCount = await imageRepo.countOcrPersistedAssetsForRun(result.date);
       const cacheMetrics = await computeDailySummaryFromCache(result.date);
+      const isFirstOcrAssetForRun =
+        existingOcrAssetCount === 0 && (
+          Number(result.step_count || 0) > 0 ||
+          Number(result.total_distance_km || 0) > 0 ||
+          !!result.total_time
+        );
 
       const summaryStepCount = pickPositive(result.step_count, cacheMetrics.step_count);
       const summaryTotalDistanceKm = pickPositive(result.total_distance_km, cacheMetrics.total_distance_km);
@@ -1288,9 +1302,9 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       const mergedAvgCadence = mergePositiveAverage(finalAvgCadence, existingSummary && existingSummary.avg_cadence, 0);
       const mergedMaxSpeed = mergePositiveMax(finalMaxSpeed, existingSummary && existingSummary.max_speed, 1);
       const mergedAvgSpeed = mergePositiveAverage(finalAvgSpeed, existingSummary && existingSummary.avg_speed, 1);
-      const mergedStepCount = Math.round(mergePositiveSum(summaryStepCount, existingSummary && existingSummary.step_count, 0));
-      const mergedTotalDistanceKm = mergePositiveSum(summaryTotalDistanceKm, existingSummary && existingSummary.total_distance_km, 2);
-      const mergedTotalTime = mergeTimeSum(summaryTotalTime, existingSummary && existingSummary.total_time);
+      const mergedStepCount = Math.round(mergePositiveSum(summaryStepCount, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.step_count), 0));
+      const mergedTotalDistanceKm = mergePositiveSum(summaryTotalDistanceKm, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.total_distance_km), 2);
+      const mergedTotalTime = mergeTimeSum(summaryTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time));
 
       await repo.saveDailySummary({
         date: result.date,

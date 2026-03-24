@@ -1484,31 +1484,18 @@ async function importSelectedImages() {
 
     const btn = document.getElementById('importBtn');
     const originalText = btn.textContent;
+    const selectedMode = document.querySelector('input[name="batchOcrMode"]:checked');
+    const ocrMode = selectedMode ? String(selectedMode.value || 'python').trim() : 'python';
     btn.textContent = 'Importing...';
     btn.disabled = true;
 
     try {
-        const selectedDates = Array.from(new Set(
-            Array.from(selectedFiles)
-                .map(extractRunDateFromFilename)
-                .filter(Boolean)
-        ));
-        const hasMixedDates = selectedDates.length > 1;
-        if (hasMixedDates) {
-            const detected = selectedDates.length > 0 ? selectedDates.join(', ') : '(unknown)';
-            alert(`Import failed: selected images contain mixed detected dates.\nDetected: ${detected}\nPlease select images from a single detected date and try again.`);
-            btn.textContent = originalText;
-            btn.disabled = false;
-            return;
-        }
-
-        const res = await fetch(`/api/runs/${currentRunDate}/import-selected`, {
+        const res = await fetch('/api/images/import-auto-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 filenames: Array.from(selectedFiles),
-                skipSummary: true,
-                skipAdvice: true
+                ocr_mode: ocrMode
             })
         });
 
@@ -1527,10 +1514,21 @@ async function importSelectedImages() {
             throw new Error(payload?.error ? String(payload.error) : 'Import failed');
         }
 
+        const successCount = Number(payload?.success_count || 0);
+        const failedCount = Number(payload?.failed_count || 0);
+        const resolvedDates = Array.from(new Set(
+            (Array.isArray(payload?.results) ? payload.results : [])
+                .filter((row) => row && row.status === 'success' && row.resolved_date)
+                .map((row) => String(row.resolved_date))
+        ));
+
         const dateToRefresh = currentRunDate; // Capture before clearing
         closeModal();
         // Refresh images area
+        await loadData({ triggerAdvice: false });
+        await loadRunHistory();
         checkAndRenderImages(dateToRefresh);
+        alert(`Imported ${successCount} image(s). Failed: ${failedCount}.${resolvedDates.length > 0 ? `\nLinked dates: ${resolvedDates.join(', ')}` : ''}`);
 
     } catch (err) {
         console.error(err);

@@ -244,24 +244,27 @@ It allows the user to:
 - Browse Phone Link images
 - Select one or more images
 - Import them into the application
+- Run OCR for each selected image
+- Resolve the run date from OCR per image
+- Auto-link each successful image to the corresponding date-specific `daily_summary`
 
 The import creates or reuses:
 
 - `image_assets`
 - `run_images`
 
-The import is an image/link preparation step only.
-It is also a single-target-date debug import step.
+When OCR resolves multiple different dates, the selected images may be linked to multiple different run dates in one operation.
 
 ### 8.3 What it does not do
 
-By itself, it does not run OCR batch aggregation.
+It does not use the current `RUN ANALYZER` date as a temporary run link target.
 
-By current intended behavior, it also does not create or update `daily_summary`.
+It does not create a temporary same-date link and then move the image later.
 
-In the current debug design, if the selected filenames indicate multiple dates or a date different from the chosen target date, the import should fail instead of mixing multiple dates into one run date.
+If OCR date resolution fails for an image, that image is treated as an import failure.
 
-Operationally, the chosen target date here is the currently selected `RUN ANALYZER` date.
+If the OCR-resolved date has no `daily_summary`, the system attempts cache/FIT reconstruction first.
+Only dates with an available `daily_summary` receive links.
 
 That is why the button text explicitly says:
 
@@ -269,8 +272,8 @@ That is why the button text explicitly says:
 
 ### 8.4 Role in the system
 
-This is a manual preparation/import step.
-It is not the complete OCR aggregation flow.
+This is now a direct OCR-assisted image import and auto-link step.
+It is not the legacy batch OCR accumulation flow used by `SYNC DAILY`.
 
 ## 9. CLEAR RUN
 

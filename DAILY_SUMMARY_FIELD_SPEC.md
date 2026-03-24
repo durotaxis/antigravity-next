@@ -454,14 +454,18 @@ It is a partial manual patch route.
 
 ## 9.1 Legacy `+ SELECT` note
 
-The intended legacy `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)` behavior is:
+The current legacy `+ SELECT IMAGE FROM PHONE LINK (without SYNC DAILY)` behavior is:
 
-- create or reuse image/link records
-- do not create or update `daily_summary`
-- reject mixed filename-derived dates in the debug UI before import
-- reject files whose filename-derived date does not match the current `RUN ANALYZER` target date
+- create or reuse `image_assets`
+- run OCR per selected image
+- resolve the target run date from OCR per image
+- if the OCR-resolved date has no `daily_summary`, attempt cache/FIT reconstruction first
+- create `run_images` only for images whose OCR-resolved date has an available `daily_summary`
+- allow one import operation to link images to multiple different dates
+- report partial success / failure back to the UI
 
-This keeps image import separate from OCR-side summary aggregation.
+This route is no longer a fixed `RUN ANALYZER`-date image-link import.
+It is an OCR-date-driven auto-link route.
 
 ## 10. Advice Update Routes
 

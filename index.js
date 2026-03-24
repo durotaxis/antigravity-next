@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const repo = require('./repo');
 const imageRepo = require('./image_repo');
 const imageService = require('./image_service');
@@ -681,6 +682,53 @@ async function syncDailySummaryFromCache(date) {
   };
 }
 
+async function importInboxFilesToAssets(filenames = []) {
+  const results = [];
+  for (const file of filenames) {
+    try {
+      const inboxPath = path.join(imageService.INBOX_DIR, file);
+      try {
+        await fs.access(inboxPath);
+      } catch {
+        results.push({ file, status: 'error', error: 'File not found' });
+        continue;
+      }
+
+      const fileBuffer = await fs.readFile(inboxPath);
+      const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+      const ext = path.extname(file).toLowerCase();
+      const storedFilename = `${fileHash}${ext}`;
+      const storePath = path.join(__dirname, 'public/assets/store', storedFilename);
+
+      let asset = await imageRepo.findAssetByHash(fileHash);
+      if (!asset) {
+        await fs.copyFile(inboxPath, storePath);
+        const assetId = await imageRepo.createAsset(fileHash, storedFilename, file);
+        asset = {
+          asset_id: assetId,
+          stored_filename: storedFilename,
+          original_filename: file
+        };
+      }
+
+      results.push({
+        file,
+        status: 'success',
+        asset_id: asset.asset_id,
+        stored_filename: asset.stored_filename || storedFilename,
+        original_filename: asset.original_filename || file
+      });
+    } catch (err) {
+      results.push({
+        file,
+        status: 'error',
+        error: err && err.message ? String(err.message) : 'Import failed'
+      });
+    }
+  }
+  return results;
+}
+
 // --- Security & Config ---
 // 蜈ｨ繧ｪ繝ｪ繧ｸ繝ｳ險ｱ蜿ｯ (繧ｹ繝槭・縺九ｉ縺ｮ謗･邯壹ｒ繧ｹ繝繝ｼ繧ｺ縺ｫ)
 app.use(cors({ origin: true, credentials: true }));
@@ -981,6 +1029,96 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
   }
 });
 
+app.post('/api/images/import-auto-link', async (req, res) => {
+  try {
+    const { filenames, ocr_mode } = req.body || {};
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: 'filenames is required' });
+    }
+
+    const requestedMode = String(ocr_mode || 'python').toLowerCase().trim() === 'vision' ? 'vision' : 'python';
+    const imported = await importInboxFilesToAssets(filenames);
+    const results = [];
+
+    for (const row of imported) {
+      if (!row || row.status !== 'success' || !row.stored_filename || !row.asset_id) {
+        results.push(row);
+        continue;
+      }
+
+      try {
+        const analyzed = await ocrComponent.analyzeScreenOcr(row.stored_filename, requestedMode);
+        const resolvedDate = analyzed && analyzed.date ? String(analyzed.date).trim() : '';
+        if (!resolvedDate) {
+          results.push({
+            file: row.file,
+            asset_id: row.asset_id,
+            stored_filename: row.stored_filename,
+            status: 'error',
+            error: 'OCR date not found'
+          });
+          continue;
+        }
+
+        let summary = await repo.getDailySummary(resolvedDate);
+        if (!summary) {
+          await syncDailySummaryFromCache(resolvedDate);
+          summary = await repo.getDailySummary(resolvedDate);
+        }
+        if (!summary) {
+          results.push({
+            file: row.file,
+            asset_id: row.asset_id,
+            stored_filename: row.stored_filename,
+            resolved_date: resolvedDate,
+            status: 'error',
+            error: 'daily_summary not available for OCR date'
+          });
+          continue;
+        }
+
+        await imageRepo.updateAssetMetricsById(row.asset_id, {
+          step_count: Number(analyzed && analyzed.step_count) > 0 ? Number(analyzed.step_count) : null,
+          total_distance_km: Number(analyzed && analyzed.total_distance_km) > 0 ? Number(analyzed.total_distance_km) : null,
+          total_time: analyzed && analyzed.total_time ? String(analyzed.total_time) : null,
+          avg_speed: Number(analyzed && analyzed.avg_speed) > 0 ? Number(analyzed.avg_speed) : null,
+          avg_heart_rate: Number(analyzed && analyzed.avg_heart_rate) > 0 ? Number(analyzed.avg_heart_rate) : null,
+          calories_kcal: Number(analyzed && analyzed.calories_kcal) > 0 ? Number(analyzed.calories_kcal) : null,
+          avg_stride_cm: Number(analyzed && analyzed.avg_stride_cm) > 0 ? Number(analyzed.avg_stride_cm) : null
+        });
+        await imageRepo.linkImageToRun(resolvedDate, row.asset_id);
+
+        results.push({
+          file: row.file,
+          asset_id: row.asset_id,
+          stored_filename: row.stored_filename,
+          resolved_date: resolvedDate,
+          status: 'success'
+        });
+      } catch (err) {
+        results.push({
+          file: row.file,
+          asset_id: row.asset_id,
+          stored_filename: row.stored_filename,
+          status: 'error',
+          error: err && err.message ? String(err.message) : 'Auto-link failed'
+        });
+      }
+    }
+
+    const success = results.filter((r) => r && r.status === 'success').length;
+    const failed = results.length - success;
+    res.json({
+      success_count: success,
+      failed_count: failed,
+      requested_mode: requestedMode,
+      results
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/runs/:runId/images', async (req, res) => {
   try {
     const { runId } = req.params;
@@ -1020,7 +1158,6 @@ app.delete('/api/runs/:runId/images/:assetId', async (req, res) => {
 // --- Upload & Analysis (Core Feature) ---
 
 const multer = require('multer');
-const crypto = require('crypto');
 const storage = multer.diskStorage({
   destination: function (req, file, cb) { cb(null, 'public/assets/store/') },
   filename: function (req, file, cb) {

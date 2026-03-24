@@ -1184,7 +1184,22 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           !!result.total_time
         );
 
-      const summaryStepCount = pickPositive(result.step_count, cacheMetrics.step_count);
+      const correctedSummaryMetrics = correctBatchSummaryStepNoise(
+        Number(result.step_count || 0),
+        result.total_time || null,
+        Number(result.total_distance_km || 0)
+      );
+      const correctedStepCount = correctedSummaryMetrics.step_count > 0
+        ? correctedSummaryMetrics.step_count
+        : Number(result.step_count || 0);
+      const correctedAvgStride = correctedSummaryMetrics.avg_stride_cm > 0
+        ? correctedSummaryMetrics.avg_stride_cm
+        : Number(result.avg_stride_cm || 0);
+      const correctedAvgCadence = correctedSummaryMetrics.avg_cadence > 0
+        ? correctedSummaryMetrics.avg_cadence
+        : Number(result.avg_cadence || 0);
+
+      const summaryStepCount = pickPositive(correctedStepCount, cacheMetrics.step_count);
       const summaryTotalDistanceKm = pickPositive(result.total_distance_km, cacheMetrics.total_distance_km);
       const summaryTotalTime = pickText(result.total_time, cacheMetrics.total_time);
       const summaryCaloriesKcal = pickPositive(result.calories_kcal, cacheMetrics.calories_kcal);
@@ -1229,7 +1244,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         : (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
           : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride : 0;
 
-      const safeAvgStride = (result.avg_stride_cm > 0) ? result.avg_stride_cm
+      const safeAvgStride = (correctedAvgStride > 0) ? correctedAvgStride
         : (fitMetrics.avg_stride_cm > 0) ? fitMetrics.avg_stride_cm
           : (existingSummary && existingSummary.avg_stride > 0) ? existingSummary.avg_stride : 0;
 
@@ -1251,7 +1266,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       })();
 
       let finalAvgCadence = pickPositive(
-        result.avg_cadence,
+        correctedAvgCadence,
         pickPositive(
           cacheMetrics.avg_cadence,
           pickPositive(

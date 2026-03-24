@@ -278,12 +278,13 @@ It is not the complete OCR aggregation flow.
 
 `CLEAR RUN` is intended to remove artifacts created by one of the two debug synchronization paths.
 
-### 9.2 Intended modes
+### 9.2 Current modes
 
-The button has two modes:
+The button currently has three modes:
 
 - `Fit JSON`
 - `Daily`
+- `Images Reset`
 
 ### 9.3 Intended FIT JSON behavior
 
@@ -300,32 +301,31 @@ At minimum, this concerns:
 
 The image/OCR side should remain untouched in this mode.
 
-### 9.4 Intended DAILY behavior
+### 9.4 Current DAILY behavior
 
-When `Daily` is selected, the intended behavior is:
+When `Daily` is selected, the current behavior is:
 
-- Remove artifacts created by `SYNC DAILY`
-- Keep the FIT/JSON side intact
+- Delete the selected date through the summary-only delete path
+- Remove `run_images` rows for that date
+- Remove the `daily_summary` row for that date
+- Keep `image_assets` in place
+- Do not restore `daily_summary` from cache automatically
 
-That means:
+This is narrower than "remove all `SYNC DAILY` artifacts and rebuild from FIT/JSON".
 
-- remove image/OCR side data
-- then restore `daily_summary` from the remaining FIT JSON side if needed
+### 9.5 Current IMAGES RESET behavior
 
-The FIT JSON cache itself should remain in place in this mode.
+When `Images Reset` is selected, the current behavior is:
 
-### 9.5 Current state
+- Delete `run_images` rows for the selected date
+- Delete orphaned `image_assets` rows linked only to that date
+- Delete the corresponding files under `public/assets/store`
+- Delete the existing `daily_summary` row for the selected date
+- Recreate `daily_summary` from cache / FIT JSON using `sync-cache` semantics
 
-The current implementation is not yet aligned with the intended clear specification.
+This mode is the image/OCR cleanup path that restores the date back to JSON-only daily-summary values.
 
-The current button exists, but its behavior is still under review.
-
-The currently observed gaps include:
-
-- `FIT JSON` clear can remove cache files, but immediate screen refresh can recreate them
-- `DAILY` clear behavior is not yet equivalent to "remove everything created by `SYNC DAILY` and then restore cache-derived summary"
-
-Current observed implementation shape:
+### 9.6 Current state
 
 - `FIT JSON`
   - deletes cache files for the selected date
@@ -333,6 +333,8 @@ Current observed implementation shape:
 - `DAILY`
   - currently goes through the summary-only delete path
   - therefore current behavior is narrower than the intended "remove all `SYNC DAILY` artifacts"
+- `Images Reset`
+  - is the current mode that removes linked images and restores the cache-driven `daily_summary`
 
 ## 10. SAVE HEIGHT
 
@@ -434,6 +436,14 @@ The run history delete path is already implemented.
 It is a stronger cleanup path than the current `CLEAR RUN` implementation.
 
 It deletes the run by date/ID through the shared delete endpoint.
+
+Current behavior:
+
+- removes `run_images` for the selected run/date
+- deletes the `daily_summary` row for the selected run/date
+- removes orphaned `image_assets`
+- deletes orphaned files from `public/assets/store`
+- does not restore `daily_summary` from cache automatically
 
 This path should not be confused with the intended debug-only semantics of `CLEAR RUN`.
 

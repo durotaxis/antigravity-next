@@ -230,6 +230,8 @@ This route treats cache as the source of truth for the day-level summary.
 
 In the legacy debug model, this route represents the FIT/JSON side of the day.
 
+This route is also reused by the legacy `CLEAR RUN` `Images Reset` mode to restore a date back to cache-derived values after image/OCR artifacts are removed.
+
 ### 6.4 Run-signal gate for new-row creation
 
 This route does not blindly create a new row from cache.

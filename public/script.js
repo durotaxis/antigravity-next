@@ -659,6 +659,11 @@ function hasNonEmptyMessage(summary) {
     return !!(summary && typeof summary.message === 'string' && summary.message.trim().length > 0);
 }
 
+function isTemporaryUnavailableMessage(summary) {
+    const text = summary && typeof summary.message === 'string' ? summary.message.trim() : '';
+    return text === '現在利用が制限されています。しばらくお待ちください。';
+}
+
 async function fetchDailySummary(date) {
     try {
         const res = await fetch(`/api/daily/${encodeURIComponent(date)}`);
@@ -672,7 +677,7 @@ async function fetchDailySummary(date) {
 function shouldTriggerAdvice(date, summary) {
     if (!isValidRunDate(date)) return false;
     if (!summary) return false;
-    return !hasNonEmptyMessage(summary);
+    return !hasNonEmptyMessage(summary) || isTemporaryUnavailableMessage(summary);
 }
 
 function hasRunningDataForAdvice(data) {

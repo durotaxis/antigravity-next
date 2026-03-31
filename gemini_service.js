@@ -8,7 +8,6 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const USER_HEIGHT_CM = 172;
-const RATE_LIMIT_MESSAGE = "利用回数が制限を超えました。米国時間0:00のリセット後に再試行してください。";
 const ANALYSIS_UNAVAILABLE_MESSAGE = "AI Analysis is currently unavailable.";
 const TEMPORARY_UNAVAILABLE_MESSAGE = "現在利用が制限されています。しばらくお待ちください。";
 
@@ -35,6 +34,13 @@ function isRateLimitError(error) {
 function getErrorStatus(error) {
     const status = Number(error?.status || error?.statusCode || error?.response?.status);
     return Number.isFinite(status) ? status : 'unknown';
+}
+
+function formatErrorStatusLabel(error) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    if (status === 429) return '429 Too Many Requests';
+    if (status === 503) return '503 Service Unavailable';
+    return String(getErrorStatus(error));
 }
 
 const THESIS_CONTENT = `
@@ -82,7 +88,7 @@ async function generateAdvice(metrics, imagePaths = []) {
         };
         return await generateCoachAdvice(stats, imagePaths);
     } catch (e) {
-        console.error(`[GeminiError] status=${getErrorStatus(e)}`);
+        console.error(`[GeminiError] status=${formatErrorStatusLabel(e)}`);
         if (isRateLimitError(e)) {
             return TEMPORARY_UNAVAILABLE_MESSAGE;
         }
@@ -134,11 +140,11 @@ async function generateCoachAdvice(stats, imagePaths = []) {
         return response.text().trim();
 
     } catch (error) {
-        console.error(`[GeminiError] status=${getErrorStatus(error)}`);
+        console.error(`[GeminiError] status=${formatErrorStatusLabel(error)}`);
         if (isRateLimitError(error)) return TEMPORARY_UNAVAILABLE_MESSAGE;
         console.error("Gemini generateCoachAdvice failed:", error && error.message ? error.message : error);
         return ANALYSIS_UNAVAILABLE_MESSAGE;
     }
 }
 
-module.exports = { generateAdvice, generateCoachAdvice, RATE_LIMIT_MESSAGE: TEMPORARY_UNAVAILABLE_MESSAGE };
+module.exports = { generateAdvice, generateCoachAdvice, TEMPORARY_UNAVAILABLE_MESSAGE };

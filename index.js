@@ -14,7 +14,7 @@ const googleFitService = require('./google_fit_service');
 
 const app = express();
 const port = 3000;
-const GEMINI_RATE_LIMIT_MESSAGE = geminiService.RATE_LIMIT_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
+const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -1511,10 +1511,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_speed: mergedMaxSpeed
         }, [req.file.path]);
 
-        const adviceToSave = (advice === GEMINI_RATE_LIMIT_MESSAGE &&
+        const adviceToSave = (advice === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE &&
           existingSummary &&
           String(existingSummary.message || '').trim().length > 0 &&
-          String(existingSummary.message || '').trim() !== GEMINI_RATE_LIMIT_MESSAGE)
+          String(existingSummary.message || '').trim() !== GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE)
           ? existingSummary.message
           : advice;
 

@@ -254,6 +254,13 @@ function mergeTimeSum(currentHms, existingHms) {
   return sum > 0 ? secondsToHms(sum) : null;
 }
 
+function calculateAverageStrideCm(totalDistanceKm, stepCount) {
+  const distanceKm = Number(totalDistanceKm || 0);
+  const steps = Number(stepCount || 0);
+  if (!(distanceKm > 0) || !(steps > 0)) return 0;
+  return Number(((distanceKm * 100000) / steps).toFixed(1));
+}
+
 function correctBatchSummaryStepNoise(stepCount, totalTime, totalDistanceKm) {
   const rawSteps = Number(stepCount || 0);
   const sec = parseHmsToSeconds(totalTime);
@@ -408,15 +415,17 @@ async function persistBatchItem(batchItem) {
     total_time: mergeTimeSum(currentTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time)),
     calories_kcal: Math.round(mergePositiveSum(currentCaloriesKcal, existingSummary && existingSummary.calories_kcal, 0)),
     max_stride: mergePositiveMax(currentMaxStride, existingSummary && existingSummary.max_stride, 1),
-    avg_stride: mergePositiveAverage(summaryAvgStride, existingSummary && existingSummary.avg_stride, 1),
+    avg_stride: 0,
     hr_max: mergePositiveMax(currentHrMax, existingSummary && existingSummary.hr_max, 0),
-    hr_avg: mergePositiveAverage(currentHrAvg, existingSummary && existingSummary.hr_avg, 0),
-    avg_cadence: mergePositiveAverage(summaryAvgCadence, existingSummary && existingSummary.avg_cadence, 0),
+    hr_avg: mergePositiveAverage(currentHrAvg, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.hr_avg), 0),
+    avg_cadence: mergePositiveAverage(summaryAvgCadence, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_cadence), 0),
     max_cadence: mergePositiveMax(currentMaxCadence, existingSummary && existingSummary.max_cadence, 0),
-    avg_speed: mergePositiveAverage(currentAvgSpeed, existingSummary && existingSummary.avg_speed, 1),
+    avg_speed: mergePositiveAverage(currentAvgSpeed, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_speed), 1),
     max_speed: mergePositiveMax(currentMaxSpeed, existingSummary && existingSummary.max_speed, 1),
     message: null
   };
+  summary.avg_stride = calculateAverageStrideCm(summary.total_distance_km, summary.step_count)
+    || mergePositiveAverage(summaryAvgStride, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_stride), 1);
 
   await repo.saveDailySummary(summary);
 
@@ -1462,16 +1471,17 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       // Merge when the same run date already has OCR-derived values from another screenshot.
       // max*: keep the strongest value, avg*: average current and existing to avoid last-write-wins drift.
       const mergedMaxStride = mergePositiveMax(safeMaxStride, existingSummary && existingSummary.max_stride, 1);
-      const mergedAvgStride = mergePositiveAverage(safeAvgStride, existingSummary && existingSummary.avg_stride, 1);
       const mergedMaxHR = mergePositiveMax(safeMaxHR, existingSummary && existingSummary.hr_max, 0);
-      const mergedAvgHR = mergePositiveAverage(safeAvgHR, existingSummary && existingSummary.hr_avg, 0);
+      const mergedAvgHR = mergePositiveAverage(safeAvgHR, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.hr_avg), 0);
       const mergedMaxCadence = mergePositiveMax(finalMaxCadence, existingSummary && existingSummary.max_cadence, 0);
-      const mergedAvgCadence = mergePositiveAverage(finalAvgCadence, existingSummary && existingSummary.avg_cadence, 0);
+      const mergedAvgCadence = mergePositiveAverage(finalAvgCadence, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_cadence), 0);
       const mergedMaxSpeed = mergePositiveMax(finalMaxSpeed, existingSummary && existingSummary.max_speed, 1);
-      const mergedAvgSpeed = mergePositiveAverage(finalAvgSpeed, existingSummary && existingSummary.avg_speed, 1);
+      const mergedAvgSpeed = mergePositiveAverage(finalAvgSpeed, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_speed), 1);
       const mergedStepCount = Math.round(mergePositiveSum(summaryStepCount, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.step_count), 0));
       const mergedTotalDistanceKm = mergePositiveSum(summaryTotalDistanceKm, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.total_distance_km), 2);
       const mergedTotalTime = mergeTimeSum(summaryTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time));
+      const mergedAvgStride = calculateAverageStrideCm(mergedTotalDistanceKm, mergedStepCount)
+        || mergePositiveAverage(safeAvgStride, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_stride), 1);
 
       await repo.saveDailySummary({
         date: result.date,

@@ -95,6 +95,9 @@ These are the final database-level rules.
   - stored as positive number or `NULL`
 - Update:
   - overwrite when incoming value is `> 0`
+  - in the current OCR day-summary flows, this field is treated as a derived metric
+  - when both `total_distance_km` and `step_count` are positive, `avg_stride` is recalculated as:
+    - `total_distance_km * 100000 / step_count`
 
 ### 4.7 `hr_avg`
 
@@ -337,15 +340,23 @@ After resolution, same-date values are merged with the existing row:
 - `max_stride`
   - positive max
 - `avg_stride`
-  - positive average
+  - on the first OCR-persisted image for the day, existing `avg_stride` is not reused
+  - after merged `step_count` and `total_distance_km` are known, recompute from:
+    - `total_distance_km * 100000 / step_count`
+  - fallback to positive average only when recalculation is not possible
 - `hr_max`
   - positive max
 - `hr_avg`
   - positive average
+  - on the first OCR-persisted image for the day, existing `hr_avg` is not reused
 - `max_cadence`
   - positive max
 - `avg_cadence`
   - positive average
+  - on the first OCR-persisted image for the day, existing `avg_cadence` is not reused
+- `avg_speed`
+  - positive average
+  - on the first OCR-persisted image for the day, existing `avg_speed` is not reused
 - `max_speed`
   - positive max
 - `avg_speed`
@@ -399,17 +410,23 @@ The route merges each OCR item into the existing day summary as follows:
 - `max_stride`
   - positive max
 - `avg_stride`
-  - positive average
+  - on the first OCR-persisted image for the day, existing `avg_stride` is not reused
+  - after merged `step_count` and `total_distance_km` are known, recompute from:
+    - `total_distance_km * 100000 / step_count`
+  - fallback to positive average only when recalculation is not possible
 - `hr_max`
   - positive max
 - `hr_avg`
   - positive average
+  - on the first OCR-persisted image for the day, existing `hr_avg` is not reused
 - `avg_cadence`
   - positive average
+  - on the first OCR-persisted image for the day, existing `avg_cadence` is not reused
 - `max_cadence`
   - positive max
 - `avg_speed`
   - positive average
+  - on the first OCR-persisted image for the day, existing `avg_speed` is not reused
 - `max_speed`
   - positive max
 - `message`

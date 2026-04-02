@@ -398,6 +398,22 @@ function getPendingDateRange(checkpointKey) {
     return listDateRange(start, today);
 }
 
+function getSinglePendingState(checkpointKey, targetDate) {
+    const normalizedTarget = normalizeRunDate(targetDate);
+    const checkpoint = getStoredValidDate(checkpointKey);
+    if (!normalizedTarget) {
+        return { target: '', checkpoint: checkpoint || '-', pendingCount: 0 };
+    }
+    if (!checkpoint) {
+        return { target: normalizedTarget, checkpoint: '-', pendingCount: 1 };
+    }
+    return {
+        target: normalizedTarget,
+        checkpoint,
+        pendingCount: compareDateText(normalizedTarget, checkpoint) > 0 ? 1 : 0
+    };
+}
+
 function getPendingDateRangeWithFrom(checkpointKey, fromDate) {
     const today = getTodayLocalDateString();
     const checkpoint = getStoredValidDate(checkpointKey);
@@ -413,19 +429,23 @@ function getPendingDateRangeWithFrom(checkpointKey, fromDate) {
 }
 
 function updateDebugHints() {
-    const anchor = getDebugAnchorDate();
-    const fitCheckpoint = getStoredValidDate(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY) || '-';
-    const imageCheckpoint = getStoredValidDate(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY) || '-';
-    const fitRange = getPendingDateRange(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY);
-    const imageRange = getPendingDateRange(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY);
+    const fitSyncFromInput = document.getElementById('fitSyncFromDateInput');
+    const fitTarget = fitSyncFromInput ? normalizeRunDate(fitSyncFromInput.value) : '';
+    const snapshotInput = document.getElementById('snapshotDateInput');
+    const dateInput = document.getElementById('dateInput');
+    const imageTarget = snapshotInput && normalizeRunDate(snapshotInput.value)
+        ? normalizeRunDate(snapshotInput.value)
+        : (dateInput ? normalizeRunDate(dateInput.value) : '');
+    const fitState = getSinglePendingState(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, fitTarget);
+    const imageState = getSinglePendingState(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, imageTarget);
 
     const fitHint = document.getElementById('fitSyncHint');
     if (fitHint) {
-        fitHint.textContent = `anchor ${anchor} / checkpoint ${fitCheckpoint} / pending ${fitRange.length}`;
+        fitHint.textContent = `target ${fitState.target || '-'} / pending ${fitState.pendingCount}`;
     }
     const imageHint = document.getElementById('imageImportHint');
     if (imageHint) {
-        imageHint.textContent = `anchor ${anchor} / checkpoint ${imageCheckpoint} / pending ${imageRange.length}`;
+        imageHint.textContent = `target ${imageState.target || '-'} / pending ${imageState.pendingCount}`;
     }
 }
 
@@ -433,18 +453,21 @@ async function syncFitJsonRangeFromUi() {
     const syncBtn = document.getElementById('syncJsonBtn');
     const fromInput = document.getElementById('fitSyncFromDateInput');
     const manualFrom = fromInput ? normalizeRunDate(fromInput.value) : '';
-    if (manualFrom) {
-        markDebugAnchorDate(manualFrom);
+    const targetDate = manualFrom || getDebugAnchorDate();
+    if (!targetDate) {
+        alert('FIT sync date is required.');
+        return;
     }
-    const dates = getPendingDateRangeWithFrom(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
-    if (dates.length === 0) {
-        // If user explicitly chose a date, allow one-day sync even when checkpoint logic yields no range.
-        if (!manualFrom) {
-            alert('No pending FIT dates.');
+    markDebugAnchorDate(targetDate);
+    const targetDates = [targetDate];
+    const pendingState = getSinglePendingState(FIT_SYNC_CHECKPOINT_DATE_STORAGE_KEY, targetDate);
+    if (pendingState.pendingCount === 0) {
+        const shouldContinue = confirm(`${targetDate} is not pending. Run SYNC FIT JSON for this date again?`);
+        if (!shouldContinue) {
+            updateDebugHints();
             return;
         }
     }
-    const targetDates = dates.length > 0 ? dates : [manualFrom];
 
     let okCount = 0;
     let ngCount = 0;
@@ -1852,14 +1875,20 @@ async function runImageImportFlow() {
     const dateInput = document.getElementById('dateInput');
     const snapshotInput = document.getElementById('snapshotDateInput');
     const manualFrom = snapshotInput ? normalizeRunDate(snapshotInput.value) : '';
-    if (manualFrom) {
-        markDebugAnchorDate(manualFrom);
-    }
-    const dates = getPendingDateRangeWithFrom(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, manualFrom);
-    if (dates.length === 0) {
-        alert('No pending daily-sync dates.');
-        updateDebugHints();
+    const targetDate = manualFrom || (dateInput ? normalizeRunDate(dateInput.value) : '');
+    if (!targetDate) {
+        alert('Daily sync date is required.');
         return;
+    }
+    markDebugAnchorDate(targetDate);
+    const dates = [targetDate];
+    const pendingState = getSinglePendingState(IMAGE_IMPORT_CHECKPOINT_DATE_STORAGE_KEY, targetDate);
+    if (pendingState.pendingCount === 0) {
+        const shouldContinue = confirm(`${targetDate} is not pending. Run SYNC DAILY for this date again?`);
+        if (!shouldContinue) {
+            updateDebugHints();
+            return;
+        }
     }
 
     const dateBackup = dateInput ? String(dateInput.value || '') : '';

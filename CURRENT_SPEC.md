@@ -1,6 +1,6 @@
 # Current Spec (Adopted)
 
-Last updated: 2026-02-21
+Last updated: 2026-03-10
 
 ## 1. Purpose
 - This document is the single source of truth for currently adopted behavior.

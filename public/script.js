@@ -769,12 +769,17 @@ async function loadData(options = {}) {
             if (strideChartInstance) {
                 strideChartInstance.destroy(); // Safety: Destroy existing chart
             }
+            if (speedChartInstance) {
+                speedChartInstance.destroy();
+            }
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
             summaryContainer.innerHTML = ''; // Clear summary
 
             // Reset chart area to be blank/clean
             const ctx = document.getElementById('strideChart').getContext('2d');
             ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            const speedCtx = document.getElementById('speedChart').getContext('2d');
+            speedCtx.clearRect(0, 0, speedCtx.canvas.width, speedCtx.canvas.height);
 
             // Reset Daily Message (Rest Day)
             const restMessageContainer = document.getElementById('daily-message-container');
@@ -1127,6 +1132,7 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxCadence, a
 
 // Chart Global Variable
 let strideChartInstance = null;
+let speedChartInstance = null;
 
 // Helper: Calculate Simple Moving Average
 function calculateSMA(data, windowSize) {
@@ -1147,23 +1153,29 @@ function calculateSMA(data, windowSize) {
 }
 
 function renderChart(data) {
-    const ctx = document.getElementById('strideChart').getContext('2d');
+    const strideCtx = document.getElementById('strideChart').getContext('2d');
+    const speedCtx = document.getElementById('speedChart').getContext('2d');
 
     // Destroy existing chart to prevent overlap
     if (strideChartInstance) {
         strideChartInstance.destroy();
+    }
+    if (speedChartInstance) {
+        speedChartInstance.destroy();
     }
 
     const times = data.map(d => d.time);
     const strides = data.map(d => d.stride);
     // Since backend already sends 5-pt SMA data, we don't need another SMA filter here
     const smaStrides = strides;
+    const speeds = data.map(d => Number(d.speed) > 0 ? Number(d.speed) : null);
+    const pitches = data.map(d => Number(d.steps) > 0 ? Number(d.steps) : null);
 
     // Heart Rate: Use directly (Backend also smooths this to 5-pt SMA)
     const heartRatesRaw = data.map(d => d.heartRate || 0);
     const heartRatesSMA = heartRatesRaw.map(v => v > 0 ? v : null);
 
-    strideChartInstance = new Chart(ctx, {
+    strideChartInstance = new Chart(strideCtx, {
         type: 'line',
         data: {
             labels: times,
@@ -1234,6 +1246,88 @@ function renderChart(data) {
                         drawOnChartArea: false // Hide grid for this axis 
                     },
                     ticks: { color: '#ff0055' },
+                    beginAtZero: false
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#eee' }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        }
+    });
+
+    speedChartInstance = new Chart(speedCtx, {
+        type: 'line',
+        data: {
+            labels: times,
+            datasets: [
+                {
+                    label: 'Speed',
+                    data: speeds,
+                    borderColor: '#7af0b8',
+                    backgroundColor: 'rgba(122, 240, 184, 0.08)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y-speed'
+                },
+                {
+                    label: 'Pitch',
+                    data: pitches,
+                    borderColor: '#ffd166',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.35,
+                    fill: false,
+                    yAxisID: 'y-pitch'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: { color: '#eee' }
+                },
+                'y-speed': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Speed (km/h)',
+                        color: '#7af0b8'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#7af0b8' },
+                    beginAtZero: false
+                },
+                'y-pitch': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Pitch (spm)',
+                        color: '#ffd166'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    },
+                    ticks: { color: '#ffd166' },
                     beginAtZero: false
                 }
             },

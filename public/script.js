@@ -836,14 +836,23 @@ async function loadData(options = {}) {
         let maxHR = 0;
         let sumHR = 0;
         let countHR = 0;
+        let maxSpeed = 0;
+        let sumSpeed = 0;
+        let countSpeed = 0;
         data.forEach(d => {
             if (d.heartRate > 0) {
                 if (d.heartRate > maxHR) maxHR = d.heartRate;
                 sumHR += d.heartRate;
                 countHR++;
             }
+            if (d.speed > 0) {
+                sumSpeed += d.speed;
+                countSpeed++;
+            }
+            if (d.speed > maxSpeed) maxSpeed = d.speed;
         });
         const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
+        const avgSpeed = countSpeed > 0 ? (sumSpeed / countSpeed) : 0;
 
         const totalSeconds = Math.max(0, data.length * 60);
         const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
@@ -856,6 +865,8 @@ async function loadData(options = {}) {
             totalGap,
             maxHR,
             avgHR,
+            maxSpeed,
+            avgSpeed,
             totalSeconds,
             totalSteps,
             totalDistanceMeters,
@@ -1020,7 +1031,7 @@ async function getGeminiAdvice(date, maxStride, data) {
     }
 }
 
-function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, totalSeconds, totalSteps, totalDistanceMeters, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
+function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxSpeed, avgSpeed, totalSeconds, totalSteps, totalDistanceMeters, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
     const gapSign = totalGap > 0 ? '-' : '+';
     const absGap = Math.abs(totalGap).toFixed(1);
     const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
@@ -1061,6 +1072,14 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, totalSeconds,
                     <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
                     <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideText}</span>
                     <span class="stat-label heart-rate-guide-avg-sub" style="font-size: 0.75rem; margin-top: 2px;">${avgGuideSubText}</span>
+                </div>
+                <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
+                    <span class="stat-label">Max Speed</span>
+                    <span class="stat-value" style="color: #00f2ff;">${Number(maxSpeed) > 0 ? Number(maxSpeed).toFixed(1) : '-'} km/h</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Avg Speed</span>
+                    <span class="stat-value" style="color: #7af0b8;">${Number(avgSpeed) > 0 ? Number(avgSpeed).toFixed(1) : '-'} km/h</span>
                 </div>
             </div>
             <div class="summary-grid">

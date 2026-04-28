@@ -88,6 +88,19 @@ When the user presses `RUN ANALYZER`, the screen:
 - Loads linked images
 - Loads daily message if present
 
+The legacy summary card currently displays:
+
+- `Peak Performance`
+- `VS World Record`
+- `Max Heart Rate`
+- `Avg Heart Rate`
+- `Max Speed`
+- `Avg Speed`
+- `TIME`
+- `STEPS`
+- `DIST (M)`
+- `DIST / STEPS x100`
+
 In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 
 ### 5.3 Data sources

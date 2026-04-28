@@ -69,9 +69,15 @@
             </div>
 
             <section class="glass-card">
-                <h3
-                    style="margin-bottom: 15px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
-                    1km Splits</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
+                    <h3
+                        style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
+                        1km Splits</h3>
+                    <div style="display:flex; gap:8px;">
+                        <button id="copySplitsJsonBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">JSON</button>
+                        <button id="copySplitsMdBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">MD</button>
+                    </div>
+                </div>
                 <div class="data-table-container">
                     <table id="lapTable">
                         <thead>
@@ -225,6 +231,19 @@
             <button id="lbCloseBtn" class="lb-control-btn close" title="Close">Close</button>
         </div>
         <img id="lightboxImg" class="lightbox-content" src="" alt="Full View">
+    </div>
+
+    <div id="clipboardModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 id="clipboardModalTitle">Copy Output</h2>
+                <button id="closeClipboardModalBtn" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="clipboardModalText"
+                    style="width:100%; min-height:360px; background:#111; color:#f3f4f6; border:1px solid #333; border-radius:8px; padding:12px; font-family:Consolas, monospace; font-size:0.9rem;"></textarea>
+            </div>
+        </div>
     </div>
 
     <!-- Logic -->

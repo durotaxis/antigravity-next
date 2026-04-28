@@ -774,6 +774,174 @@ function renderSavedAdvice(summary) {
     }
 }
 
+let currentLapSplitExport = null;
+
+function setLapExportState(payload) {
+    currentLapSplitExport = payload || null;
+}
+
+function buildLapSplitsExportPayload(dateString, sessions = [], data = []) {
+    const runSessions = (Array.isArray(sessions) ? sessions : [])
+        .filter((session) => Number(session && session.activityType) === 8)
+        .sort((a, b) => Number(a && a.startTimeMillis) - Number(b && b.startTimeMillis));
+    const normalizedSessions = runSessions.length > 0
+        ? runSessions.map((session, index) => {
+            const sessionNumber = index + 1;
+            const splits = buildPerKmSplitsForSession(data, session, sessionNumber, dateString, runSessions.length);
+            return {
+                session_number: sessionNumber,
+                id: session.id,
+                name: session.name,
+                activity_type: session.activityType,
+                start_time_millis: session.startTimeMillis,
+                end_time_millis: session.endTimeMillis,
+                start_time_local: formatSessionTimeRange(session).split('-')[0] || '',
+                end_time_local: formatSessionTimeRange(session).split('-')[1] || '',
+                minute_points_used: Array.isArray(data) ? data.filter((point) => pointBelongsToSession(point, session, dateString)).length : 0,
+                splits: splits.map((lap) => ({
+                    lap: lap.lapLabel,
+                    distance: lap.distanceLabel,
+                    avg_speed: lap.avgSpeed,
+                    avg_pitch: lap.avgPitch,
+                    avg_hr: lap.avgHr,
+                    avg_stride: lap.avgStride,
+                    distance_meters: lap.distanceMeters,
+                    elapsed_seconds: lap.elapsedSeconds
+                }))
+            };
+        })
+        : [{
+            session_number: 1,
+            id: null,
+            name: 'All Day',
+            activity_type: null,
+            start_time_millis: null,
+            end_time_millis: null,
+            start_time_local: '',
+            end_time_local: '',
+            minute_points_used: Array.isArray(data) ? data.length : 0,
+            splits: buildPerKmSplitsForSession(data, null, 1, dateString, 1).map((lap) => ({
+                lap: lap.lapLabel,
+                distance: lap.distanceLabel,
+                avg_speed: lap.avgSpeed,
+                avg_pitch: lap.avgPitch,
+                avg_hr: lap.avgHr,
+                avg_stride: lap.avgStride,
+                distance_meters: lap.distanceMeters,
+                elapsed_seconds: lap.elapsedSeconds
+            }))
+        }];
+
+    return {
+        date: dateString,
+        generated_at: new Date().toISOString(),
+        source: {
+            intraday_file: `storage/cache/intraday_${dateString}.json`,
+            sessions_file: `storage/cache/sessions_${dateString}.json`
+        },
+        sessions: normalizedSessions
+    };
+}
+
+function buildLapSplitsMarkdown(payload) {
+    if (!payload || !Array.isArray(payload.sessions) || payload.sessions.length === 0) {
+        return '# 1km Splits\n\nNo split data available.';
+    }
+
+    const lines = [`# 1km Splits`, ``, `Date: ${payload.date}`, ``];
+    payload.sessions.forEach((session) => {
+        const title = session.name ? `${session.session_number}. ${session.name}` : `Session ${session.session_number}`;
+        lines.push(`## ${title}`);
+        if (session.start_time_local || session.end_time_local) {
+            lines.push(`- Time: ${session.start_time_local || '-'}-${session.end_time_local || '-'}`);
+        }
+        lines.push(`- Minute points used: ${session.minute_points_used}`);
+        lines.push(``);
+        lines.push(`| Lap | Distance | Avg Speed | Avg Pitch | Avg HR | Avg Stride |`);
+        lines.push(`|---|---|---:|---:|---:|---:|`);
+        (session.splits || []).forEach((lap) => {
+            lines.push(`| ${lap.lap} | ${lap.distance} | ${Number(lap.avg_speed || 0).toFixed(1)} | ${lap.avg_pitch || '-'} | ${lap.avg_hr || '-'} | ${Number(lap.avg_stride || 0).toFixed(1)} |`);
+        });
+        lines.push(``);
+    });
+    return lines.join('\n');
+}
+
+async function copyTextToClipboard(text) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+        return true;
+    }
+    return legacyCopyTextToClipboard(text);
+}
+
+function legacyCopyTextToClipboard(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    let ok = false;
+    try {
+        ok = document.execCommand('copy');
+    } finally {
+        textarea.remove();
+    }
+    return ok;
+}
+
+function openClipboardModal(title, text) {
+    const modal = document.getElementById('clipboardModal');
+    const titleEl = document.getElementById('clipboardModalTitle');
+    const textarea = document.getElementById('clipboardModalText');
+    if (!modal || !titleEl || !textarea) return;
+    titleEl.textContent = title;
+    textarea.value = text;
+    modal.style.display = 'flex';
+    textarea.focus();
+    textarea.select();
+}
+
+function closeClipboardModal() {
+    const modal = document.getElementById('clipboardModal');
+    if (!modal) return;
+    modal.style.display = 'none';
+}
+
+async function copyLapSplitsAsJson() {
+    if (!currentLapSplitExport) {
+        alert('No split data available. Run ANALYZER first.');
+        return;
+    }
+    const text = JSON.stringify(currentLapSplitExport, null, 2);
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+        alert('JSON copied to clipboard.');
+        return;
+    }
+    openClipboardModal('JSON Output', text);
+    alert('Clipboard unavailable. Opened JSON in a copyable window.');
+}
+
+async function copyLapSplitsAsMarkdown() {
+    if (!currentLapSplitExport) {
+        alert('No split data available. Run ANALYZER first.');
+        return;
+    }
+    const text = buildLapSplitsMarkdown(currentLapSplitExport);
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+        alert('MD copied to clipboard.');
+        return;
+    }
+    openClipboardModal('MD Output', text);
+    alert('Clipboard unavailable. Opened MD in a copyable window.');
+}
+
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
@@ -784,6 +952,7 @@ async function loadData(options = {}) {
     const tbody = document.querySelector('#resultTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const syncJsonBtn = document.getElementById('syncJsonBtn');
+    setLapExportState(null);
 
     if (analyzeBtn) analyzeBtn.disabled = true;
     if (syncJsonBtn) syncJsonBtn.disabled = true;
@@ -814,6 +983,7 @@ async function loadData(options = {}) {
 
         const data = await res.json();
         const sessions = await fetchDailySessions(date);
+        setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         if (lapTbody) {
             renderLapTableRows(lapTbody, buildPerKmSplits(data, sessions, date));
         }
@@ -832,6 +1002,7 @@ async function loadData(options = {}) {
             if (lapTbody) {
                 lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
             }
+            setLapExportState(null);
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
             summaryContainer.innerHTML = ''; // Clear summary
 
@@ -977,6 +1148,7 @@ async function loadData(options = {}) {
 
     } catch (error) {
         console.error(error);
+        setLapExportState(null);
         if (lapTbody) {
             lapTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading splits: ${error.message}</td></tr>`;
         }
@@ -1108,7 +1280,9 @@ function finalizeLapAccumulator(lap, sessionNumber = 1, totalSessions = 1) {
         avgSpeed,
         avgPitch,
         avgHr,
-        avgStride
+        avgStride,
+        distanceMeters: Number(lap.distanceMeters.toFixed(1)),
+        elapsedSeconds: Number(lap.timeSeconds.toFixed(1))
     };
 }
 
@@ -1565,6 +1739,20 @@ document.addEventListener('DOMContentLoaded', () => {
         loadData({ triggerAdvice: true });
     });
     document.getElementById('syncJsonBtn')?.addEventListener('click', syncFitJsonRangeFromUi);
+    document.getElementById('copySplitsJsonBtn')?.addEventListener('click', async () => {
+        try {
+            await copyLapSplitsAsJson();
+        } catch (err) {
+            alert(`Failed to copy JSON: ${err.message}`);
+        }
+    });
+    document.getElementById('copySplitsMdBtn')?.addEventListener('click', async () => {
+        try {
+            await copyLapSplitsAsMarkdown();
+        } catch (err) {
+            alert(`Failed to copy MD: ${err.message}`);
+        }
+    });
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
     document.getElementById('imageImportBtn')?.addEventListener('click', runImageImportFlow);
@@ -1603,6 +1791,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('inboxModal').addEventListener('click', (e) => {
         if (e.target === document.getElementById('inboxModal')) closeModal();
+    });
+    document.getElementById('closeClipboardModalBtn')?.addEventListener('click', closeClipboardModal);
+    document.getElementById('clipboardModal')?.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('clipboardModal')) closeClipboardModal();
     });
     document.getElementById('importBtn').addEventListener('click', importSelectedImages);
 

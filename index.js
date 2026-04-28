@@ -865,6 +865,17 @@ app.get('/api/daily/:date', async (req, res) => {
 
 });
 
+app.get('/api/sessions/:date', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.params && req.params.date);
+    if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
+    const sessions = await googleFitService.fetchSessionsForDate(date);
+    res.json(Array.isArray(sessions) ? sessions : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2.6 Get Intraday Stride Data (For Chart)
 app.get('/api/stride', async (req, res) => {
   try {

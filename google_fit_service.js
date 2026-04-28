@@ -13,6 +13,17 @@ function toLocalDateString(date = new Date()) {
     return `${y}-${m}-${d}`;
 }
 
+function getLocalDayBounds(dateString) {
+    const date = new Date(dateString);
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+    const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+    return { start, end };
+}
+
+function toRfc3339(date) {
+    return new Date(date).toISOString();
+}
+
 function countActiveBuckets(buckets) {
     if (!Array.isArray(buckets) || buckets.length === 0) return 0;
     let active = 0;
@@ -106,6 +117,58 @@ async function fetchIntradayBuckets(dateString) {
         if (cachedBuckets && activeBuckets > 0) {
             console.warn(`[GoogleFit] API fetch failed for ${dateString}. Falling back to RAW cache (active=${activeBuckets}): ${err.message}`);
             return cachedBuckets;
+        }
+        throw err;
+    }
+}
+
+async function fetchSessionsForDate(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const sessionsCacheFile = path.join(CACHE_DIR, `sessions_${dateString}.json`);
+    const isToday = dateString === toLocalDateString();
+    let cachedSessions = null;
+
+    try {
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+        const rawCached = await fs.readFile(sessionsCacheFile, 'utf8');
+        cachedSessions = JSON.parse(rawCached);
+        if (!isToday && Array.isArray(cachedSessions)) {
+            console.log(`[GoogleFit] Using session cache: ${sessionsCacheFile} (${cachedSessions.length} sessions)`);
+            return cachedSessions;
+        }
+        if (isToday) {
+            console.log(`[GoogleFit] Today's session cache found. Refreshing from API: ${dateString}`);
+        }
+    } catch (err) {
+        console.log(`[GoogleFit] Session cache miss for ${dateString}, calling API...`);
+    }
+
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const { start, end } = getLocalDayBounds(dateString);
+        const sessions = [];
+        let pageToken = null;
+
+        do {
+            const response = await fitness.users.sessions.list({
+                userId: 'me',
+                startTime: toRfc3339(start),
+                endTime: toRfc3339(end),
+                pageToken: pageToken || undefined
+            });
+            const pageSessions = Array.isArray(response?.data?.session) ? response.data.session : [];
+            sessions.push(...pageSessions);
+            pageToken = response?.data?.nextPageToken || null;
+        } while (pageToken);
+
+        await fs.writeFile(sessionsCacheFile, JSON.stringify(sessions, null, 2));
+        console.log(`[GoogleFit] Saved sessions to cache: ${sessionsCacheFile} (${sessions.length} sessions)`);
+        return sessions;
+    } catch (err) {
+        if (cachedSessions && Array.isArray(cachedSessions)) {
+            console.warn(`[GoogleFit] Session API fetch failed for ${dateString}. Falling back to session cache: ${err.message}`);
+            return cachedSessions;
         }
         throw err;
     }
@@ -579,6 +642,12 @@ async function getIntradayMetricsWithMeta(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
 
+    try {
+        await fetchSessionsForDate(dateString);
+    } catch (err) {
+        console.warn(`[GoogleFit] Session cache refresh failed for ${dateString}: ${err.message}`);
+    }
+
     let buckets;
     try {
         buckets = await fetchIntradayBuckets(dateString);
@@ -683,4 +752,4 @@ function getFpValue(dataset) {
     return 0;
 }
 
-module.exports = { getDailyMetrics, getIntradayMetrics };
+module.exports = { getDailyMetrics, getIntradayMetrics, fetchSessionsForDate };

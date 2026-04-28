@@ -83,10 +83,24 @@ Additional note:
 When the user presses `RUN ANALYZER`, the screen:
 
 - Loads chart data for the selected date
+- Loads cached Google Fit sessions for the selected date when available
 - Loads `daily_summary` for the selected date
 - Renders summary values
 - Loads linked images
 - Loads daily message if present
+
+The legacy run-analyzer result area currently shows:
+
+- `Google Fit Sessions`
+  - run-session name and start-end time range from `sessions_YYYY-MM-DD.json` when available
+- Upper chart
+  - `Stride` and `Heart Rate`
+- Lower chart
+  - `Speed` and `Pitch`
+- `1km Splits`
+  - lap-style averages derived from minute data
+- `Per Minute`
+  - the existing minute-level detail table
 
 The legacy summary card currently displays:
 
@@ -107,6 +121,17 @@ Current heart-rate guide display behavior in the summary card:
   - shows `LTHR: ...` as the helper line
 - `Avg Heart Rate`
   - shows `LSD: ...` and `Z2: ... bpm` inline on the same helper line
+
+Current split-table behavior:
+
+- `1km Splits` is a display-only table built from intraday minute data
+- it shows average:
+  - `Speed`
+  - `Pitch`
+  - `Heart Rate`
+  - `Stride`
+- when Google Fit sessions are available, split accumulation is reset at each run-session start time
+- when multiple run sessions exist on the same date, the split table treats them as separate runs for lap accumulation
 
 In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 

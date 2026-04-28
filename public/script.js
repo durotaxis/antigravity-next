@@ -698,6 +698,55 @@ async function fetchDailySummary(date) {
     }
 }
 
+async function fetchDailySessions(date) {
+    try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(date)}`);
+        if (!res.ok) return [];
+        const json = await res.json();
+        return Array.isArray(json) ? json : [];
+    } catch (_e) {
+        return [];
+    }
+}
+
+function formatSessionTimeRange(session) {
+    const startMs = Number(session && session.startTimeMillis);
+    const endMs = Number(session && session.endTimeMillis);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return '';
+    const start = new Date(startMs);
+    const end = new Date(endMs);
+    const format = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${format(start)}-${format(end)}`;
+}
+
+function renderSessionSummary(sessions) {
+    const rows = (Array.isArray(sessions) ? sessions : [])
+        .filter((session) => Number(session && session.activityType) === 8)
+        .sort((a, b) => Number(a && a.startTimeMillis) - Number(b && b.startTimeMillis));
+    if (rows.length === 0) return '';
+
+    const items = rows.map((session, index) => {
+        const name = String(session && session.name ? session.name : `Run ${index + 1}`).trim();
+        const timeRange = formatSessionTimeRange(session);
+        return `
+            <div style="display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); border-radius:10px; background:rgba(255,255,255,0.03);">
+                <span style="color:#f3f4f6;">${name || `Run ${index + 1}`}</span>
+                <span style="color:#7af0b8; font-variant-numeric: tabular-nums;">${timeRange || '-'}</span>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="glass-card" style="display:grid; gap:12px; margin-bottom:18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <span class="stat-label" style="font-size:0.8rem;">Google Fit Sessions</span>
+                <span class="stat-label" style="font-size:0.75rem;">${rows.length} run${rows.length === 1 ? '' : 's'}</span>
+            </div>
+            ${items}
+        </div>
+    `;
+}
+
 function shouldTriggerAdvice(date, summary) {
     if (!isValidRunDate(date)) return false;
     if (!summary) return false;
@@ -731,6 +780,7 @@ async function loadData(options = {}) {
     const dateInput = document.getElementById('dateInput');
     const date = dateInput.value;
     const summaryContainer = document.getElementById('summary');
+    const lapTbody = document.querySelector('#lapTable tbody');
     const tbody = document.querySelector('#resultTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const syncJsonBtn = document.getElementById('syncJsonBtn');
@@ -741,6 +791,9 @@ async function loadData(options = {}) {
         if (syncJsonBtn) syncJsonBtn.textContent = 'SYNCING...';
     } else {
         if (analyzeBtn) analyzeBtn.textContent = 'ANALYZING...';
+    }
+    if (lapTbody) {
+        lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading splits...</td></tr>';
     }
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
 
@@ -760,6 +813,10 @@ async function loadData(options = {}) {
         }
 
         const data = await res.json();
+        const sessions = await fetchDailySessions(date);
+        if (lapTbody) {
+            renderLapTableRows(lapTbody, buildPerKmSplits(data, sessions, date));
+        }
         tbody.innerHTML = '';
 
         let max = { stride: 0, time: '--:--' };
@@ -771,6 +828,9 @@ async function loadData(options = {}) {
             }
             if (speedChartInstance) {
                 speedChartInstance.destroy();
+            }
+            if (lapTbody) {
+                lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
             }
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
             summaryContainer.innerHTML = ''; // Clear summary
@@ -874,7 +934,7 @@ async function loadData(options = {}) {
         const totalDistanceMeters = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
         const totalGap = WR_STRIDE - maxStride;
         const heartRateGuide = getHeartRateZoneGuide();
-        summaryContainer.innerHTML = renderSummary(
+        summaryContainer.innerHTML = renderSessionSummary(sessions) + renderSummary(
             maxStride,
             maxTime,
             totalGap,
@@ -917,6 +977,9 @@ async function loadData(options = {}) {
 
     } catch (error) {
         console.error(error);
+        if (lapTbody) {
+            lapTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading splits: ${error.message}</td></tr>`;
+        }
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
         // Even if stride fetch fails, still allow importing images for the selected date.
         checkAndRenderImages(date);
@@ -930,6 +993,145 @@ async function loadData(options = {}) {
             syncJsonBtn.textContent = 'SYNC FIT JSON';
         }
     }
+}
+
+function buildPerKmSplits(data, sessions = [], dateString = '') {
+    const runSessions = (Array.isArray(sessions) ? sessions : [])
+        .filter((session) => Number(session && session.activityType) === 8)
+        .sort((a, b) => Number(a && a.startTimeMillis) - Number(b && b.startTimeMillis));
+    if (runSessions.length === 0) {
+        return buildPerKmSplitsForSession(data, null, 1, dateString);
+    }
+
+    return runSessions.flatMap((session, index) => buildPerKmSplitsForSession(data, session, index + 1, dateString, runSessions.length));
+}
+
+function buildPerKmSplitsForSession(data, session, sessionNumber = 1, dateString = '', totalSessions = 1) {
+    const splits = [];
+    let cumulativeMeters = 0;
+    let nextBoundaryMeters = 1000;
+    let lap = createEmptyLapAccumulator(1);
+    const sessionPoints = Array.isArray(data)
+        ? data.filter((point) => pointBelongsToSession(point, session, dateString))
+        : [];
+
+    sessionPoints.forEach((point) => {
+        let pointDistanceMeters = Math.max(0, Number(point.distance) || 0);
+        let pointTimeSeconds = pointDistanceMeters > 0 ? 60 : 0;
+        if (!(pointDistanceMeters > 0)) return;
+
+        while (pointDistanceMeters > 0) {
+            const metersToBoundary = nextBoundaryMeters - cumulativeMeters;
+            const takeMeters = Math.min(pointDistanceMeters, metersToBoundary);
+            const fraction = takeMeters / pointDistanceMeters;
+            const timeSeconds = pointTimeSeconds * fraction;
+
+            lap.distanceMeters += takeMeters;
+            lap.timeSeconds += timeSeconds;
+            if (Number(point.steps) > 0) {
+                lap.pitchWeighted += Number(point.steps) * timeSeconds;
+                lap.pitchTimeSeconds += timeSeconds;
+            }
+            if (Number(point.heartRate) > 0) {
+                lap.hrWeighted += Number(point.heartRate) * timeSeconds;
+                lap.hrTimeSeconds += timeSeconds;
+            }
+            if (Number(point.stride) > 0) {
+                lap.strideWeighted += Number(point.stride) * takeMeters;
+                lap.strideDistanceMeters += takeMeters;
+            }
+
+            cumulativeMeters += takeMeters;
+            pointDistanceMeters -= takeMeters;
+            pointTimeSeconds -= timeSeconds;
+
+            if (Math.abs(cumulativeMeters - nextBoundaryMeters) < 0.0001) {
+                splits.push(finalizeLapAccumulator(lap, sessionNumber, totalSessions));
+                lap = createEmptyLapAccumulator(lap.index + 1);
+                nextBoundaryMeters += 1000;
+            }
+        }
+    });
+
+    if (lap.distanceMeters > 0) {
+        splits.push(finalizeLapAccumulator(lap, sessionNumber, totalSessions));
+    }
+
+    return splits;
+}
+
+function pointBelongsToSession(point, session, dateString) {
+    if (!session) return true;
+    const pointMillis = pointTimeToMillis(dateString, point && point.time);
+    const startMillis = Number(session && session.startTimeMillis);
+    const endMillis = Number(session && session.endTimeMillis);
+    if (!Number.isFinite(pointMillis) || !Number.isFinite(startMillis) || !Number.isFinite(endMillis)) return false;
+    return pointMillis >= startMillis && pointMillis <= endMillis;
+}
+
+function pointTimeToMillis(dateString, timeText) {
+    const date = String(dateString || '').trim();
+    const time = String(timeText || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return NaN;
+    const [year, month, day] = date.split('-').map(Number);
+    const [hour, minute] = time.split(':').map(Number);
+    return new Date(year, month - 1, day, hour, minute, 0, 0).getTime();
+}
+
+function createEmptyLapAccumulator(index) {
+    return {
+        index,
+        distanceMeters: 0,
+        timeSeconds: 0,
+        pitchWeighted: 0,
+        pitchTimeSeconds: 0,
+        hrWeighted: 0,
+        hrTimeSeconds: 0,
+        strideWeighted: 0,
+        strideDistanceMeters: 0
+    };
+}
+
+function finalizeLapAccumulator(lap, sessionNumber = 1, totalSessions = 1) {
+    const avgSpeed = lap.timeSeconds > 0
+        ? Number(((lap.distanceMeters / lap.timeSeconds) * 3.6).toFixed(1))
+        : 0;
+    const avgPitch = lap.pitchTimeSeconds > 0 ? Math.round(lap.pitchWeighted / lap.pitchTimeSeconds) : 0;
+    const avgHr = lap.hrTimeSeconds > 0 ? Math.round(lap.hrWeighted / lap.hrTimeSeconds) : 0;
+    const avgStride = lap.strideDistanceMeters > 0 ? Number((lap.strideWeighted / lap.strideDistanceMeters).toFixed(1)) : 0;
+    const lapStartKm = lap.index - 1;
+    const lapEndKm = lapStartKm + (lap.distanceMeters / 1000);
+
+    return {
+        lapLabel: totalSessions > 1 ? `S${sessionNumber}-${lap.index}` : String(lap.index),
+        distanceLabel: `${lapStartKm.toFixed(1)}-${lapEndKm.toFixed(1)} km`,
+        avgSpeed,
+        avgPitch,
+        avgHr,
+        avgStride
+    };
+}
+
+function renderLapTableRows(tbody, splits) {
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!Array.isArray(splits) || splits.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
+        return;
+    }
+
+    splits.forEach((lap) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${lap.lapLabel}</td>
+            <td>${lap.distanceLabel}</td>
+            <td style="color: #7af0b8; font-weight: bold;">${lap.avgSpeed > 0 ? lap.avgSpeed.toFixed(1) : '-'}</td>
+            <td style="color: #ffd166;">${lap.avgPitch > 0 ? lap.avgPitch : '-'}</td>
+            <td style="color: #ff9999;">${lap.avgHr > 0 ? lap.avgHr : '-'}</td>
+            <td>${lap.avgStride > 0 ? lap.avgStride.toFixed(1) : '-'}</td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 async function buildAdvicePayload(date, maxStride, data) {

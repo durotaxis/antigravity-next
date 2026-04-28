@@ -331,15 +331,16 @@ function refreshSummaryHeartRateGuide() {
     const maxGuideText = heartRateGuide.maxText;
     const avgGuideText = heartRateGuide.avgText;
     const avgGuideSubText = heartRateGuide.avgSubText;
+    const avgGuideCombinedText = [avgGuideText, avgGuideSubText].filter(text => String(text || '').trim() && String(text || '').trim() !== 'Z2: -').join('   ');
 
     const maxGuide = maxHeartRateItem.querySelector('.heart-rate-guide-max');
     if (maxGuide) maxGuide.textContent = maxGuideText;
 
     const avgGuide = avgHeartRateItem.querySelector('.heart-rate-guide-avg');
-    if (avgGuide) avgGuide.textContent = avgGuideText;
+    if (avgGuide) avgGuide.textContent = avgGuideCombinedText || avgGuideText;
 
     const avgGuideSub = avgHeartRateItem.querySelector('.heart-rate-guide-avg-sub');
-    if (avgGuideSub) avgGuideSub.textContent = avgGuideSubText;
+    if (avgGuideSub) avgGuideSub.textContent = '';
 }
 
 function compareDateText(a, b) {
@@ -836,6 +837,9 @@ async function loadData(options = {}) {
         let maxHR = 0;
         let sumHR = 0;
         let countHR = 0;
+        let maxCadence = 0;
+        let sumCadence = 0;
+        let countCadence = 0;
         let maxSpeed = 0;
         let sumSpeed = 0;
         let countSpeed = 0;
@@ -845,6 +849,11 @@ async function loadData(options = {}) {
                 sumHR += d.heartRate;
                 countHR++;
             }
+            if (d.steps > maxCadence) maxCadence = d.steps;
+            if (d.steps > 140) {
+                sumCadence += d.steps;
+                countCadence++;
+            }
             if (d.speed > 0) {
                 sumSpeed += d.speed;
                 countSpeed++;
@@ -852,6 +861,7 @@ async function loadData(options = {}) {
             if (d.speed > maxSpeed) maxSpeed = d.speed;
         });
         const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
+        const avgCadence = countCadence > 0 ? (sumCadence / countCadence) : 0;
         const avgSpeed = countSpeed > 0 ? (sumSpeed / countSpeed) : 0;
 
         const totalSeconds = Math.max(0, data.length * 60);
@@ -865,6 +875,8 @@ async function loadData(options = {}) {
             totalGap,
             maxHR,
             avgHR,
+            maxCadence,
+            avgCadence,
             maxSpeed,
             avgSpeed,
             totalSeconds,
@@ -1031,7 +1043,7 @@ async function getGeminiAdvice(date, maxStride, data) {
     }
 }
 
-function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxSpeed, avgSpeed, totalSeconds, totalSteps, totalDistanceMeters, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
+function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxCadence, avgCadence, maxSpeed, avgSpeed, totalSeconds, totalSteps, totalDistanceMeters, heartRateGuide = { maxText: '', avgText: '', avgSubText: '' }) {
     const gapSign = totalGap > 0 ? '-' : '+';
     const absGap = Math.abs(totalGap).toFixed(1);
     const estimatedMaxHeartRate = getEstimatedMaxHeartRate();
@@ -1041,6 +1053,7 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxSpeed, avg
     const maxGuideText = heartRateGuide.maxText || 'LTHR: -';
     const avgGuideText = heartRateGuide.avgText || 'LSD: -';
     const avgGuideSubText = heartRateGuide.avgSubText || 'Z2: -';
+    const avgGuideCombinedText = [avgGuideText, avgGuideSubText].filter(text => String(text || '').trim() && String(text || '').trim() !== 'Z2: -').join('   ');
     const hh = Math.floor((Number(totalSeconds) || 0) / 3600);
     const mm = Math.floor(((Number(totalSeconds) || 0) % 3600) / 60);
     const ss = Math.floor((Number(totalSeconds) || 0) % 60);
@@ -1070,8 +1083,8 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxSpeed, avg
                 <div class="stat-item">
                     <span class="stat-label">Avg Heart Rate</span>
                     <span class="stat-value" style="color: #ff9999;">${avgHR ? Math.round(avgHR) : '-'} bpm</span>
-                    <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideText}</span>
-                    <span class="stat-label heart-rate-guide-avg-sub" style="font-size: 0.75rem; margin-top: 2px;">${avgGuideSubText}</span>
+                    <span class="stat-label heart-rate-guide-avg" style="font-size: 0.75rem; margin-top: 4px;">${avgGuideCombinedText || avgGuideText}</span>
+                    <span class="stat-label heart-rate-guide-avg-sub" style="display: none;"></span>
                 </div>
                 <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
                     <span class="stat-label">Max Speed</span>
@@ -1080,6 +1093,14 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxSpeed, avg
                 <div class="stat-item">
                     <span class="stat-label">Avg Speed</span>
                     <span class="stat-value" style="color: #7af0b8;">${Number(avgSpeed) > 0 ? Number(avgSpeed).toFixed(1) : '-'} km/h</span>
+                </div>
+                <div class="stat-item" style="border-left: 1px solid rgba(255,255,255,0.1);">
+                    <span class="stat-label">Max Pitch</span>
+                    <span class="stat-value" style="color: #ffd166;">${Number(maxCadence) > 0 ? Math.round(maxCadence) : '-'} spm</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Avg Pitch</span>
+                    <span class="stat-value" style="color: #f4a261;">${Number(avgCadence) > 0 ? Math.round(avgCadence) : '-'} spm</span>
                 </div>
             </div>
             <div class="summary-grid">

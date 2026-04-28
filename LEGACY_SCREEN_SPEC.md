@@ -101,6 +101,13 @@ The legacy summary card currently displays:
 - `DIST (M)`
 - `DIST / STEPS x100`
 
+Current heart-rate guide display behavior in the summary card:
+
+- `Max Heart Rate`
+  - shows `LTHR: ...` as the helper line
+- `Avg Heart Rate`
+  - shows `LSD: ...` and `Z2: ... bpm` inline on the same helper line
+
 In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 
 ### 5.3 Data sources

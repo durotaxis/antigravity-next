@@ -56,6 +56,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [legacyChartDate, setLegacyChartDate] = useState<string | null>(null);
   const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
+  const [chartStartDate, setChartStartDate] = useState<string | null>(null);
 
   const formatSpeed = (value: number | undefined) => {
     if (value === undefined || value === null || value <= 0) return '-';
@@ -167,7 +168,30 @@ export default function Home() {
         <RunUploader />
       </header>
 
-      {/* 繧ｨ繝ｩ繝ｼ陦ｨ遉ｺ */}
+      {/* Chart Date Range Filter */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-center gap-4">
+          <label className="text-sm font-medium text-gray-700">
+            Chart Start Date:
+          </label>
+          <input
+            type="date"
+            value={chartStartDate || ''}
+            onChange={(e) => setChartStartDate(e.target.value || null)}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          {chartStartDate && (
+            <button
+              onClick={() => setChartStartDate(null)}
+              className="text-xs px-3 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+            >
+              Clear Filter
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* エラー表示 */}
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
           <strong className="font-bold">Error: </strong>
@@ -175,12 +199,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* 繧ｰ繝ｩ繝輔お繝ｪ繧｢ */}
-      <div className="mb-10 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <EfficiencyChart runs={runs} />
+      {/* グラフエリア */}
+      <div className="mb-10 bg-white rounded-xl shadow-sm border border-gray-100">
+        <EfficiencyChart runs={runs} startDate={chartStartDate} />
       </div>
 
-      {/* 繝・・繧ｿ繝ｪ繧ｹ繝郁｡ｨ遉ｺ繧ｨ繝ｪ繧｢ */}
+      {/* データリスト表示エリア */}
       <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.isArray(runs) && runs.map((run) => (
           <div key={run.id} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden border border-gray-100 flex flex-col">

@@ -110,6 +110,7 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
+                      <th className="px-3 py-2 text-left">#</th>
                       <th className="px-3 py-2 text-left">Time</th>
                       <th className="px-3 py-2 text-right">Steps</th>
                       <th className="px-3 py-2 text-right">Dist (m)</th>
@@ -121,6 +122,7 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
                   <tbody>
                     {rows.map((r, idx) => (
                       <tr key={`${r.time}-${idx}`} className="border-t border-gray-100">
+                        <td className="px-3 py-2 text-left tabular-nums">{idx + 1}</td>
                         <td className="px-3 py-2">{r.time}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.steps}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.distance.toFixed(1)}</td>

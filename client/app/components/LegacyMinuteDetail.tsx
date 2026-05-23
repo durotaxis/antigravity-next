@@ -110,7 +110,7 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
-                      <th className="px-3 py-2 text-left">#</th>
+                      <th className="px-3 py-2 text-left">Elapsed min</th>
                       <th className="px-3 py-2 text-left">Time</th>
                       <th className="px-3 py-2 text-right">Steps</th>
                       <th className="px-3 py-2 text-right">Dist (m)</th>

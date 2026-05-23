@@ -306,11 +306,27 @@ function correctBatchSummaryStepNoise(stepCount, totalTime, totalDistanceKm) {
     };
   }
 
+  // Validate trimmed result before accepting it. Ensure cadence and stride
+  // fall into plausible ranges; otherwise reject the trimming.
+  const candidateAvgCadence = Math.round(trimmedSteps / (sec / 60));
+  const candidateAvgStride = distanceKm > 0 ? Number(((distanceKm * 100000) / trimmedSteps).toFixed(1)) : 0;
+  const cadenceOk = candidateAvgCadence >= 30 && candidateAvgCadence <= 200;
+  const strideOk = candidateAvgStride >= 30 && candidateAvgStride <= 150;
+  if (cadenceOk && strideOk) {
+    return {
+      step_count: trimmedSteps,
+      avg_cadence: candidateAvgCadence,
+      avg_stride_cm: candidateAvgStride,
+      corrected: true
+    };
+  }
+
+  console.log(`[SYNC DAILY step correction REJECTED] raw_step_count=${rawSteps} trimmed=${trimmedSteps} candidate_cadence=${candidateAvgCadence} candidate_stride=${candidateAvgStride}`);
   return {
-    step_count: trimmedSteps,
-    avg_cadence: Math.round(trimmedSteps / (sec / 60)),
-    avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / trimmedSteps).toFixed(1)) : 0,
-    corrected: true
+    step_count: rawSteps,
+    avg_cadence: rawCadence,
+    avg_stride_cm: distanceKm > 0 ? Number(((distanceKm * 100000) / rawSteps).toFixed(1)) : 0,
+    corrected: false
   };
 }
 

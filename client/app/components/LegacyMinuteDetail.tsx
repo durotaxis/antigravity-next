@@ -17,6 +17,7 @@ type Row = {
   stride: number;
   velocity: number;
   heartRate: number;
+  cumulativeDistance: number;
 };
 
 type Props = {
@@ -45,17 +46,25 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
           setError('Invalid detail data');
           return;
         }
-        const next = (json as ApiStridePoint[]).map((p) => {
-          const distance = Number(p?.distance ?? 0);
-          return {
+        const next = (json as ApiStridePoint[])
+          .map((p) => ({
             time: String(p?.time ?? ''),
             steps: Number(p?.steps ?? 0),
-            distance,
+            distance: Number(p?.distance ?? 0),
             stride: Number(p?.stride ?? 0),
-            velocity: Number.isFinite(distance) ? Number((distance * 0.06).toFixed(1)) : 0,
+            velocity: Number.isFinite(Number(p?.distance ?? 0))
+              ? Number((Number(p?.distance ?? 0) * 0.06).toFixed(1))
+              : 0,
             heartRate: Number(p?.heartRate ?? 0)
-          };
-        });
+          }))
+          .reduce<Row[]>(
+            (acc, point) => {
+              const cumulativeDistance = acc.length > 0 ? acc[acc.length - 1].cumulativeDistance + point.distance : point.distance;
+              acc.push({ ...point, cumulativeDistance });
+              return acc;
+            },
+            []
+          );
         setRows(next);
       } catch (e: unknown) {
         if (!alive) return;
@@ -114,6 +123,7 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
                       <th className="px-3 py-2 text-left">Time</th>
                       <th className="px-3 py-2 text-right">Steps</th>
                       <th className="px-3 py-2 text-right">Dist (m)</th>
+                      <th className="px-3 py-2 text-right">Cum dist (m)</th>
                       <th className="px-3 py-2 text-right">Stride (cm)</th>
                       <th className="px-3 py-2 text-right">Velocity (km/h)</th>
                       <th className="px-3 py-2 text-right">Heart Rate</th>
@@ -126,6 +136,7 @@ export default function LegacyMinuteDetail({ date, apiBase, onClose }: Props) {
                         <td className="px-3 py-2">{r.time}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.steps}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.distance.toFixed(1)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{r.cumulativeDistance.toFixed(1)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{r.stride > 0 ? r.stride.toFixed(1) : '-'}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-cyan-600">{r.velocity > 0 ? r.velocity.toFixed(1) : '-'}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-rose-600">{r.heartRate > 0 ? Math.round(r.heartRate) : '-'}</td>

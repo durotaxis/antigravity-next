@@ -684,6 +684,28 @@ async function getIntradayMetricsWithMeta(dateString) {
 
     const processed = processIntradayBuckets(buckets);
 
+    // If a COROS-specific intraday cache exists, merge it and prefer COROS points on time collisions.
+    try {
+        const corosFile = path.join(CACHE_DIR, `intraday_coros_${dateString}.json`);
+        const corosExists = await fs.stat(corosFile).then(() => true).catch(() => false);
+        if (corosExists) {
+            const rawCoros = await fs.readFile(corosFile, 'utf8');
+            const corosPoints = JSON.parse(rawCoros);
+            if (Array.isArray(corosPoints) && corosPoints.length > 0) {
+                const map = new Map();
+                for (const p of (processed.chartData || [])) map.set(p.time, p);
+                for (const c of corosPoints) map.set(c.time, { ...c });
+                const merged = Array.from(map.values()).sort((a, b) => a.time.localeCompare(b.time));
+                processed.chartData = merged;
+                processed.smoothedData = cleanIntradayData(merged);
+                processed.unfilteredMaxSpeed = Math.max(processed.unfilteredMaxSpeed || 0, ...(merged.map(m => m.speed || 0)));
+                console.log(`[GoogleFit] Merged COROS intraday (${corosPoints.length}) into processed data for ${dateString}`);
+            }
+        }
+    } catch (e) {
+        console.warn(`[GoogleFit] Failed merging coros intraday: ${e && e.message ? e.message : e}`);
+    }
+
     if ((processed.chartData || []).length > 0) {
         await fs.writeFile(finalCacheFile, JSON.stringify(processed.chartData, null, 2));
     } else {

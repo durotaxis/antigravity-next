@@ -81,7 +81,24 @@ for(const s of corosSessions){
     const hr = avgFpValue(hrDs);
     const stride = (steps>0 ? (distance*100)/steps : 0);
     const speed = Number((distance*0.06).toFixed(1));
-    points.push({ time: toTimeString(startMs), steps, distance: Number(distance.toFixed(1)), stride: Number(stride.toFixed(1)), heartRate: Math.round(hr)||0, speed, source: 'coros' });
+
+    // Determine source from available dataSourceId / originDataSourceId values
+    const sourceCandidates = [];
+    if (stepDs && stepDs.dataSourceId) sourceCandidates.push(stepDs.dataSourceId);
+    if (distDs && distDs.dataSourceId) sourceCandidates.push(distDs.dataSourceId);
+    if (hrDs && hrDs.dataSourceId) sourceCandidates.push(hrDs.dataSourceId);
+    // also inspect point-level originDataSourceId if present
+    for (const ds of datasets) {
+      if (ds.point && ds.point.length > 0) {
+        for (const p of ds.point) {
+          if (p.originDataSourceId) sourceCandidates.push(p.originDataSourceId);
+        }
+      }
+    }
+    const sourceRaw = sourceCandidates.find(Boolean) || '';
+    // Use the raw dataSourceId/originDataSourceId as `source` and also keep a simplified label
+    const sourceLabel = String(sourceRaw).split(':').pop() || sourceRaw;
+    points.push({ time: toTimeString(startMs), steps, distance: Number(distance.toFixed(1)), stride: Number(stride.toFixed(1)), heartRate: Math.round(hr)||0, speed, source: sourceRaw, source_label: sourceLabel });
   }
 }
 

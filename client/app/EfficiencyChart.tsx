@@ -250,7 +250,13 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
               />
 
               <Tooltip content={<AvgTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} />
+              <Legend
+                wrapperStyle={{ paddingTop: '20px' }}
+                payload={[
+                  { value: 'Avg Stride', type: 'line', id: 'avg-stride', color: '#60a5fa' },
+                  { value: 'Avg Heart Rate', type: 'line', id: 'avg-hr', color: '#f87171' }
+                ]}
+              />
 
               {/* Avg Stride Line */}
               <Line

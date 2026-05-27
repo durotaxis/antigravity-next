@@ -389,59 +389,26 @@ async function persistBatchItem(batchItem) {
   }
 
   const existingSummary = await repo.getDailySummary(runDate);
-  const existingOcrAssetCount = await imageRepo.countOcrPersistedAssetsForRun(runDate);
-  const data = (batchItem && batchItem.data && typeof batchItem.data === 'object') ? batchItem.data : {};
-  const currentStepCount = Number(data.step_count || 0);
-  const currentTotalDistanceKm = Number(data.total_distance_km || 0);
-  const currentTotalTime = data.total_time || null;
-  const currentCaloriesKcal = Number(data.calories_kcal || 0);
-  const currentMaxStride = Number(data.max_stride_cm || 0);
-  const currentAvgStride = Number(data.avg_stride_cm || 0);
-  const currentHrMax = Number(data.max_heart_rate || 0);
-  const currentHrAvg = Number(data.avg_heart_rate || 0);
-  const currentAvgCadence = Number(data.avg_cadence || 0);
-  const currentMaxCadence = Number(data.max_cadence || 0);
-  const currentAvgSpeed = Number(data.avg_speed || 0);
-  const currentMaxSpeed = Number(data.max_speed || 0);
-  const isFirstOcrAssetForRun =
-    existingOcrAssetCount === 0 && (
-      currentStepCount > 0 ||
-      currentTotalDistanceKm > 0 ||
-      !!currentTotalTime
-    );
-  const correctedSummaryMetrics = correctBatchSummaryStepNoise(
-    currentStepCount,
-    currentTotalTime,
-    currentTotalDistanceKm
-  );
-  const summaryStepCount = correctedSummaryMetrics.step_count > 0
-    ? correctedSummaryMetrics.step_count
-    : currentStepCount;
-  const summaryAvgStride = correctedSummaryMetrics.avg_stride_cm > 0
-    ? correctedSummaryMetrics.avg_stride_cm
-    : currentAvgStride;
-  const summaryAvgCadence = correctedSummaryMetrics.avg_cadence > 0
-    ? correctedSummaryMetrics.avg_cadence
-    : currentAvgCadence;
+  const cacheMetrics = await computeDailySummaryFromCache(runDate);
 
   const summary = {
     date: runDate,
-    step_count: Math.round(mergePositiveSum(summaryStepCount, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.step_count), 0)),
-    total_distance_km: mergePositiveSum(currentTotalDistanceKm, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.total_distance_km), 2),
-    total_time: mergeTimeSum(currentTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time)),
-    calories_kcal: Math.round(mergePositiveSum(currentCaloriesKcal, existingSummary && existingSummary.calories_kcal, 0)),
-    max_stride: mergePositiveMax(currentMaxStride, existingSummary && existingSummary.max_stride, 1),
+    step_count: Math.round(pickPositive(cacheMetrics.step_count, existingSummary && existingSummary.step_count)),
+    total_distance_km: Number(pickPositive(cacheMetrics.total_distance_km, existingSummary && existingSummary.total_distance_km).toFixed(2)),
+    total_time: pickText(cacheMetrics.total_time, existingSummary && existingSummary.total_time),
+    calories_kcal: Math.round(pickPositive(cacheMetrics.calories_kcal, existingSummary && existingSummary.calories_kcal)),
+    max_stride: Number(pickPositive(cacheMetrics.max_stride_cm, existingSummary && existingSummary.max_stride).toFixed(1)),
     avg_stride: 0,
-    hr_max: mergePositiveMax(currentHrMax, existingSummary && existingSummary.hr_max, 0),
-    hr_avg: mergePositiveAverage(currentHrAvg, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.hr_avg), 0),
-    avg_cadence: mergePositiveAverage(summaryAvgCadence, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_cadence), 0),
-    max_cadence: mergePositiveMax(currentMaxCadence, existingSummary && existingSummary.max_cadence, 0),
-    avg_speed: mergePositiveAverage(currentAvgSpeed, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_speed), 1),
-    max_speed: mergePositiveMax(currentMaxSpeed, existingSummary && existingSummary.max_speed, 1),
-    message: null
+    hr_max: Math.round(pickPositive(cacheMetrics.max_heart_rate, existingSummary && existingSummary.hr_max)),
+    hr_avg: Math.round(pickPositive(cacheMetrics.avg_heart_rate, existingSummary && existingSummary.hr_avg)),
+    avg_cadence: Math.round(pickPositive(cacheMetrics.avg_cadence, existingSummary && existingSummary.avg_cadence)),
+    max_cadence: Math.round(pickPositive(cacheMetrics.max_cadence, existingSummary && existingSummary.max_cadence)),
+    avg_speed: Number(pickPositive(cacheMetrics.avg_speed, existingSummary && existingSummary.avg_speed).toFixed(1)),
+    max_speed: Number(pickPositive(cacheMetrics.max_speed, existingSummary && existingSummary.max_speed).toFixed(1)),
+    message: existingSummary ? existingSummary.message : null
   };
   summary.avg_stride = calculateAverageStrideCm(summary.total_distance_km, summary.step_count)
-    || mergePositiveAverage(summaryAvgStride, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_stride), 1);
+    || Number(pickPositive(cacheMetrics.avg_stride_cm, existingSummary && existingSummary.avg_stride).toFixed(1));
 
   await repo.saveDailySummary(summary);
 
@@ -887,6 +854,220 @@ app.get('/api/sessions/:date', async (req, res) => {
     if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
     const sessions = await googleFitService.fetchSessionsForDate(date);
     res.json(Array.isArray(sessions) ? sessions : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/fit-speed', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const result = await googleFitService.getDetailedFitSpeedSeries(String(date).trim());
+    const points = Array.isArray(result?.points) ? result.points : [];
+    const chartData = points.map((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const speedMs = Number(point?.value?.[0]?.fpVal || 0);
+      return {
+        time: Number.isFinite(startMs)
+          ? new Date(startMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        timestampMs: Number.isFinite(startMs) ? startMs : null,
+        speedMs,
+        speedKmh: Number((speedMs * 3.6).toFixed(3)),
+        originDataSourceId: point?.originDataSourceId || null
+      };
+    });
+
+    res.json({
+      date: String(date).trim(),
+      dataSourceId: result?.dataSourceId || null,
+      pointCount: chartData.length,
+      chartData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/fit-hr', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const result = await googleFitService.getDetailedFitHeartRateSeries(String(date).trim());
+    const points = Array.isArray(result?.points) ? result.points : [];
+    const chartData = points.map((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const heartRate = Number(point?.value?.[0]?.fpVal ?? point?.value?.[0]?.intVal ?? 0);
+      return {
+        time: Number.isFinite(startMs)
+          ? new Date(startMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        timestampMs: Number.isFinite(startMs) ? startMs : null,
+        heartRate,
+        originDataSourceId: point?.originDataSourceId || null
+      };
+    });
+
+    res.json({
+      date: String(date).trim(),
+      dataSourceId: result?.dataSourceId || null,
+      pointCount: chartData.length,
+      chartData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function normalizeRunSessions(sessions = []) {
+  return (Array.isArray(sessions) ? sessions : [])
+    .filter((session) => Number(session?.activityType) === 8)
+    .map((session) => ({
+      startMs: Number(session?.startTimeMillis),
+      endMs: Number(session?.endTimeMillis)
+    }))
+    .filter((session) => Number.isFinite(session.startMs) && Number.isFinite(session.endMs) && session.endMs > session.startMs)
+    .sort((a, b) => a.startMs - b.startMs);
+}
+
+function pointOverlapsRunSessions(startMs, endMs, runSessions = []) {
+  if (!Number.isFinite(startMs)) return false;
+  const safeEndMs = Number.isFinite(endMs) && endMs > startMs ? endMs : startMs + 1;
+  return runSessions.some((session) => safeEndMs > session.startMs && startMs < session.endMs);
+}
+
+app.get('/api/fit-pitch', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const runSessions = normalizeRunSessions(await googleFitService.fetchSessionsForDate(String(date).trim()));
+    const result = await googleFitService.getDetailedFitPitchSeries(String(date).trim());
+    const points = (Array.isArray(result?.points) ? result.points : []).filter((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
+      return pointOverlapsRunSessions(startMs, endMs, runSessions);
+    });
+    const chartData = points.map((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
+      const steps = Number(point?.value?.[0]?.intVal || 0);
+      const durationSeconds = endMs > startMs ? (endMs - startMs) / 1000 : 0;
+      return {
+        time: Number.isFinite(startMs)
+          ? new Date(startMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        endTime: Number.isFinite(endMs)
+          ? new Date(endMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        timestampMs: Number.isFinite(startMs) ? startMs : null,
+        endTimestampMs: Number.isFinite(endMs) ? endMs : null,
+        steps,
+        durationSeconds,
+        pitchSpm: durationSeconds > 0 ? Number(((steps / durationSeconds) * 60).toFixed(3)) : null,
+        originDataSourceId: point?.originDataSourceId || null
+      };
+    });
+
+    res.json({
+      date: String(date).trim(),
+      dataSourceId: result?.dataSourceId || null,
+      pointCount: chartData.length,
+      chartData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/fit-stride', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const [runSessions, pitchResult, speedResult] = await Promise.all([
+      googleFitService.fetchSessionsForDate(String(date).trim()).then(normalizeRunSessions),
+      googleFitService.getDetailedFitPitchSeries(String(date).trim()),
+      googleFitService.getDetailedFitSpeedSeries(String(date).trim())
+    ]);
+
+    const pitchPoints = (Array.isArray(pitchResult?.points) ? pitchResult.points : []).filter((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
+      return pointOverlapsRunSessions(startMs, endMs, runSessions);
+    });
+    const speedPoints = (Array.isArray(speedResult?.points) ? speedResult.points : [])
+      .map((point) => ({
+        startMs: Math.floor(Number(point?.startTimeNanos || 0) / 1000000),
+        speedMs: Number(point?.value?.[0]?.fpVal || 0)
+      }))
+      .filter((point) => Number.isFinite(point.startMs) && point.startMs > 0 && point.speedMs >= 0)
+      .sort((a, b) => a.startMs - b.startMs);
+
+    const integrateDistanceMeters = (startMs, endMs) => {
+      if (!(Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) || speedPoints.length === 0) {
+        return 0;
+      }
+
+      let distanceMeters = 0;
+      let idx = speedPoints.findIndex((point) => point.startMs >= startMs);
+      if (idx === -1) idx = speedPoints.length - 1;
+
+      let prevIdx = idx;
+      while (prevIdx > 0 && speedPoints[prevIdx].startMs > startMs) prevIdx -= 1;
+      let cursor = startMs;
+      let currentSpeed = speedPoints[prevIdx]?.speedMs || 0;
+
+      for (let i = prevIdx + 1; i < speedPoints.length && cursor < endMs; i++) {
+        const nextTs = speedPoints[i].startMs;
+        const intervalEnd = Math.min(nextTs, endMs);
+        if (intervalEnd > cursor) {
+          distanceMeters += currentSpeed * ((intervalEnd - cursor) / 1000);
+          cursor = intervalEnd;
+        }
+        currentSpeed = speedPoints[i].speedMs || 0;
+      }
+
+      if (cursor < endMs) {
+        distanceMeters += currentSpeed * ((endMs - cursor) / 1000);
+      }
+
+      return distanceMeters;
+    };
+
+    const chartData = pitchPoints.map((point) => {
+      const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+      const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
+      const steps = Number(point?.value?.[0]?.intVal || 0);
+      const durationSeconds = endMs > startMs ? (endMs - startMs) / 1000 : 0;
+      const distanceMeters = integrateDistanceMeters(startMs, endMs);
+      return {
+        time: Number.isFinite(startMs)
+          ? new Date(startMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        endTime: Number.isFinite(endMs)
+          ? new Date(endMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '00:00:00',
+        timestampMs: Number.isFinite(startMs) ? startMs : null,
+        endTimestampMs: Number.isFinite(endMs) ? endMs : null,
+        steps,
+        durationSeconds,
+        distanceMeters: Number(distanceMeters.toFixed(3)),
+        strideCm: steps > 0 ? Number(((distanceMeters / steps) * 100).toFixed(3)) : null,
+        originDataSourceId: point?.originDataSourceId || null
+      };
+    }).filter((point) => Number.isFinite(Number(point.strideCm)) && Number(point.strideCm) > 0);
+
+    res.json({
+      date: String(date).trim(),
+      stepDataSourceId: pitchResult?.dataSourceId || null,
+      speedDataSourceId: speedResult?.dataSourceId || null,
+      pointCount: chartData.length,
+      chartData
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1372,25 +1553,10 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           !!result.total_time
         );
 
-      const correctedSummaryMetrics = correctBatchSummaryStepNoise(
-        Number(result.step_count || 0),
-        result.total_time || null,
-        Number(result.total_distance_km || 0)
-      );
-      const correctedStepCount = correctedSummaryMetrics.step_count > 0
-        ? correctedSummaryMetrics.step_count
-        : Number(result.step_count || 0);
-      const correctedAvgStride = correctedSummaryMetrics.avg_stride_cm > 0
-        ? correctedSummaryMetrics.avg_stride_cm
-        : Number(result.avg_stride_cm || 0);
-      const correctedAvgCadence = correctedSummaryMetrics.avg_cadence > 0
-        ? correctedSummaryMetrics.avg_cadence
-        : Number(result.avg_cadence || 0);
-
-      const summaryStepCount = pickPositive(correctedStepCount, cacheMetrics.step_count);
-      const summaryTotalDistanceKm = pickPositive(result.total_distance_km, cacheMetrics.total_distance_km);
-      const summaryTotalTime = pickText(result.total_time, cacheMetrics.total_time);
-      const summaryCaloriesKcal = pickPositive(result.calories_kcal, cacheMetrics.calories_kcal);
+      const summaryStepCount = pickPositive(cacheMetrics.step_count, existingSummary && existingSummary.step_count);
+      const summaryTotalDistanceKm = pickPositive(cacheMetrics.total_distance_km, existingSummary && existingSummary.total_distance_km);
+      const summaryTotalTime = pickText(cacheMetrics.total_time, existingSummary && existingSummary.total_time);
+      const summaryCaloriesKcal = pickPositive(cacheMetrics.calories_kcal, existingSummary && existingSummary.calories_kcal);
 
       let fitMetrics = {
         avg_stride_cm: cacheMetrics.avg_stride_cm || 0,
@@ -1428,25 +1594,28 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         }
       }
 
-      let safeMaxStride = (result.max_stride_cm > 0) ? result.max_stride_cm
-        : (fitMetrics.max_stride_cm > 0) ? fitMetrics.max_stride_cm
-          : (existingSummary && existingSummary.max_stride > 0) ? existingSummary.max_stride : 0;
+      const safeMaxStride = pickPositive(
+        cacheMetrics.max_stride_cm,
+        pickPositive(fitMetrics.max_stride_cm, existingSummary && existingSummary.max_stride)
+      );
 
-      const safeAvgStride = (correctedAvgStride > 0) ? correctedAvgStride
-        : (fitMetrics.avg_stride_cm > 0) ? fitMetrics.avg_stride_cm
-          : (existingSummary && existingSummary.avg_stride > 0) ? existingSummary.avg_stride : 0;
+      const safeAvgStride = pickPositive(
+        cacheMetrics.avg_stride_cm,
+        pickPositive(fitMetrics.avg_stride_cm, existingSummary && existingSummary.avg_stride)
+      );
 
-      const safeMaxHR = (result.max_heart_rate > 0) ? result.max_heart_rate
-        : (fitMetrics.max_heart_rate > 0) ? fitMetrics.max_heart_rate
-          : (existingSummary && existingSummary.hr_max > 0) ? existingSummary.hr_max : 0;
+      const safeMaxHR = pickPositive(
+        fitMetrics.max_heart_rate,
+        pickPositive(cacheMetrics.max_heart_rate, existingSummary && existingSummary.hr_max)
+      );
 
-      const safeAvgHR = (result.avg_heart_rate > 0) ? result.avg_heart_rate
-        : (fitMetrics.avg_heart_rate > 0) ? fitMetrics.avg_heart_rate
-          : (existingSummary && existingSummary.hr_avg > 0) ? existingSummary.hr_avg : 0;
+      const safeAvgHR = pickPositive(
+        fitMetrics.avg_heart_rate,
+        pickPositive(cacheMetrics.avg_heart_rate, existingSummary && existingSummary.hr_avg)
+      );
 
       // --- CADENCE / PITCH ---
-      // Keep original intent (daily_summary-first) while filling missing values from
-      // OCR/cache/calculation in a deterministic order.
+      // Screenshots are reference-only for metrics. Cadence resolves from cache/Fit JSON.
       const cadenceFromSummary = (() => {
         const sec = parseHmsToSeconds(summaryTotalTime);
         if (!(summaryStepCount > 0) || !(sec > 0)) return 0;
@@ -1454,76 +1623,75 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       })();
 
       let finalAvgCadence = pickPositive(
-        correctedAvgCadence,
+        cacheMetrics.avg_cadence,
         pickPositive(
-          cacheMetrics.avg_cadence,
-          pickPositive(
-            fitMetrics.avg_cadence,
-            pickPositive(cadenceFromSummary, existingSummary && existingSummary.avg_cadence)
-          )
+          fitMetrics.avg_cadence,
+          pickPositive(cadenceFromSummary, existingSummary && existingSummary.avg_cadence)
         )
       );
 
       let finalMaxCadence = pickPositive(
-        fitMetrics.max_cadence,
+        cacheMetrics.max_cadence,
         pickPositive(
-          cacheMetrics.max_cadence,
-          pickPositive(result.max_cadence, existingSummary && existingSummary.max_cadence)
+          fitMetrics.max_cadence,
+          existingSummary && existingSummary.max_cadence
         )
       );
       if (finalMaxCadence <= 0 && finalAvgCadence > 0) finalMaxCadence = finalAvgCadence;
       if (finalMaxCadence > 0 && finalAvgCadence > 0 && finalMaxCadence < finalAvgCadence) finalMaxCadence = finalAvgCadence;
 
-      // --- SPEED CALCULATION (User Request) ---
-      // Avg Speed: Priority JSON(cache) > Vision > Calculated
+      // --- SPEED CALCULATION ---
+      // Screenshots are reference-only for metrics. Avg Speed resolves from cache/Fit JSON.
       const derivedSpeed = await computeDerivedFromIntradayCache(result.date);
-      let finalAvgSpeed = (result.avg_speed > 0) ? result.avg_speed : ((derivedSpeed && derivedSpeed.json_avg_speed > 0) ? derivedSpeed.json_avg_speed : 0);
-      if (finalAvgSpeed === 0 && result.total_distance_km > 0 && result.total_time) {
-        // Calculate from Vision data if missing
-        const parts = result.total_time.split(':').map(Number);
+      let finalAvgSpeed = pickPositive(
+        cacheMetrics.avg_speed,
+        pickPositive((derivedSpeed && derivedSpeed.json_avg_speed) || 0, existingSummary && existingSummary.avg_speed)
+      );
+      if (finalAvgSpeed === 0 && summaryTotalDistanceKm > 0 && summaryTotalTime) {
+        const parts = String(summaryTotalTime).split(':').map(Number);
         let hours = 0;
         if (parts.length === 3) hours = parts[0] + parts[1] / 60 + parts[2] / 3600;
         else if (parts.length === 2) hours = parts[0] / 60 + parts[1] / 3600;
 
-        if (hours > 0) finalAvgSpeed = parseFloat((result.total_distance_km / hours).toFixed(1));
+        if (hours > 0) finalAvgSpeed = parseFloat((summaryTotalDistanceKm / hours).toFixed(1));
       }
 
-      // Max Speed: Priority Fit (1-min max) > Vision
-      const finalMaxSpeed = (fitMetrics.max_speed > 0) ? fitMetrics.max_speed : (result.max_speed || 0);
+      const finalMaxSpeed = pickPositive(
+        cacheMetrics.max_speed,
+        pickPositive(fitMetrics.max_speed, existingSummary && existingSummary.max_speed)
+      );
 
       // Persist computed speeds into asset metrics (image_assets) as well.
       result.avg_speed = finalAvgSpeed;
       result.max_speed = finalMaxSpeed;
 
-      // Merge when the same run date already has OCR-derived values from another screenshot.
-      // max*: keep the strongest value, avg*: average current and existing to avoid last-write-wins drift.
-      const mergedMaxStride = mergePositiveMax(safeMaxStride, existingSummary && existingSummary.max_stride, 1);
-      const mergedMaxHR = mergePositiveMax(safeMaxHR, existingSummary && existingSummary.hr_max, 0);
-      const mergedAvgHR = mergePositiveAverage(safeAvgHR, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.hr_avg), 0);
-      const mergedMaxCadence = mergePositiveMax(finalMaxCadence, existingSummary && existingSummary.max_cadence, 0);
-      const mergedAvgCadence = mergePositiveAverage(finalAvgCadence, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_cadence), 0);
-      const mergedMaxSpeed = mergePositiveMax(finalMaxSpeed, existingSummary && existingSummary.max_speed, 1);
-      const mergedAvgSpeed = mergePositiveAverage(finalAvgSpeed, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_speed), 1);
-      const mergedStepCount = Math.round(mergePositiveSum(summaryStepCount, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.step_count), 0));
-      const mergedTotalDistanceKm = mergePositiveSum(summaryTotalDistanceKm, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.total_distance_km), 2);
-      const mergedTotalTime = mergeTimeSum(summaryTotalTime, isFirstOcrAssetForRun ? null : (existingSummary && existingSummary.total_time));
-      const mergedAvgStride = calculateAverageStrideCm(mergedTotalDistanceKm, mergedStepCount)
-        || mergePositiveAverage(safeAvgStride, isFirstOcrAssetForRun ? 0 : (existingSummary && existingSummary.avg_stride), 1);
+      const resolvedMaxStride = Number(safeMaxStride > 0 ? safeMaxStride.toFixed(1) : '0');
+      const resolvedMaxHR = Math.round(safeMaxHR || 0);
+      const resolvedAvgHR = Math.round(safeAvgHR || 0);
+      const resolvedMaxCadence = Math.round(finalMaxCadence || 0);
+      const resolvedAvgCadence = Math.round(finalAvgCadence || 0);
+      const resolvedMaxSpeed = Number(finalMaxSpeed > 0 ? finalMaxSpeed.toFixed(1) : '0');
+      const resolvedAvgSpeed = Number(finalAvgSpeed > 0 ? finalAvgSpeed.toFixed(1) : '0');
+      const resolvedStepCount = Math.round(summaryStepCount || 0);
+      const resolvedTotalDistanceKm = Number(summaryTotalDistanceKm > 0 ? summaryTotalDistanceKm.toFixed(2) : '0');
+      const resolvedTotalTime = summaryTotalTime || null;
+      const resolvedAvgStride = calculateAverageStrideCm(resolvedTotalDistanceKm, resolvedStepCount)
+        || Number(safeAvgStride > 0 ? safeAvgStride.toFixed(1) : '0');
 
       await repo.saveDailySummary({
         date: result.date,
-        step_count: mergedStepCount,
-        total_distance_km: mergedTotalDistanceKm,
-        total_time: mergedTotalTime,
+        step_count: resolvedStepCount,
+        total_distance_km: resolvedTotalDistanceKm,
+        total_time: resolvedTotalTime,
         calories_kcal: summaryCaloriesKcal,
-        max_stride: mergedMaxStride,
-        avg_stride: mergedAvgStride,
-        hr_max: mergedMaxHR,
-        hr_avg: mergedAvgHR,
-        avg_cadence: mergedAvgCadence,
-        max_cadence: mergedMaxCadence,
-        avg_speed: mergedAvgSpeed,
-        max_speed: mergedMaxSpeed,
+        max_stride: resolvedMaxStride,
+        avg_stride: resolvedAvgStride,
+        hr_max: resolvedMaxHR,
+        hr_avg: resolvedAvgHR,
+        avg_cadence: resolvedAvgCadence,
+        max_cadence: resolvedMaxCadence,
+        avg_speed: resolvedAvgSpeed,
+        max_speed: resolvedMaxSpeed,
         message: (existingSummary ? existingSummary.message : '') // Preserve existing message too
       });
 
@@ -1535,17 +1703,17 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         // 笘・FIX: Pass Safe Metrics (from Google Fit) to AI, NOT raw OCR result which might be 0
         const advice = await geminiService.generateAdvice({
           date: result.date,
-          step_count: mergedStepCount,
-          total_distance_km: mergedTotalDistanceKm,
+          step_count: resolvedStepCount,
+          total_distance_km: resolvedTotalDistanceKm,
           calories_kcal: summaryCaloriesKcal,
-          avg_stride_cm: mergedAvgStride,
-          max_stride_cm: mergedMaxStride,
-          avg_heart_rate: mergedAvgHR,
-          max_heart_rate: mergedMaxHR,
-          avg_cadence: mergedAvgCadence,
-          max_cadence: mergedMaxCadence,
-          avg_speed: mergedAvgSpeed,
-          max_speed: mergedMaxSpeed
+          avg_stride_cm: resolvedAvgStride,
+          max_stride_cm: resolvedMaxStride,
+          avg_heart_rate: resolvedAvgHR,
+          max_heart_rate: resolvedMaxHR,
+          avg_cadence: resolvedAvgCadence,
+          max_cadence: resolvedMaxCadence,
+          avg_speed: resolvedAvgSpeed,
+          max_speed: resolvedMaxSpeed
         }, [req.file.path]);
 
         const adviceToSave = (advice === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE &&
@@ -1557,18 +1725,18 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
         await repo.saveDailySummary({
           date: result.date,
-          step_count: mergedStepCount,
-          total_distance_km: mergedTotalDistanceKm,
-          total_time: mergedTotalTime,
+          step_count: resolvedStepCount,
+          total_distance_km: resolvedTotalDistanceKm,
+          total_time: resolvedTotalTime,
           calories_kcal: summaryCaloriesKcal,
-          max_stride: mergedMaxStride,
-          avg_stride: mergedAvgStride,
-          hr_max: mergedMaxHR,
-          hr_avg: mergedAvgHR,
-          avg_cadence: mergedAvgCadence,
-          max_cadence: mergedMaxCadence,
-          avg_speed: mergedAvgSpeed,
-          max_speed: mergedMaxSpeed,
+          max_stride: resolvedMaxStride,
+          avg_stride: resolvedAvgStride,
+          hr_max: resolvedMaxHR,
+          hr_avg: resolvedAvgHR,
+          avg_cadence: resolvedAvgCadence,
+          max_cadence: resolvedMaxCadence,
+          avg_speed: resolvedAvgSpeed,
+          max_speed: resolvedMaxSpeed,
           message: adviceToSave // Update with advice
         });
         

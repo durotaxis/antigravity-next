@@ -947,6 +947,7 @@ async function loadData(options = {}) {
     const syncSummary = !!(options && options.syncSummary);
     const dateInput = document.getElementById('dateInput');
     const date = dateInput.value;
+    const sessionSummaryContainer = document.getElementById('sessionSummary');
     const summaryContainer = document.getElementById('summary');
     const lapTbody = document.querySelector('#lapTable tbody');
     const tbody = document.querySelector('#resultTable tbody');
@@ -971,11 +972,18 @@ async function loadData(options = {}) {
     const msgText = document.getElementById('daily-message-text');
     if (msgContainer) msgContainer.style.display = 'none';
     if (msgText) msgText.textContent = '';
+    if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
 
     try {
         const qs = new URLSearchParams({ date: String(date || '').trim() });
         if (syncSummary) qs.set('sync', '1');
-        const res = await fetch(`/api/stride?${qs.toString()}`);
+        const [res, fitSpeedSeries, fitHeartRateSeries, fitPitchSeries, fitStrideSeries] = await Promise.all([
+            fetch(`/api/stride?${qs.toString()}`),
+            fetchDetailedFitSpeedSeries(date).catch(() => []),
+            fetchDetailedFitHeartRateSeries(date).catch(() => []),
+            fetchDetailedFitPitchSeries(date).catch(() => []),
+            fetchDetailedFitStrideSeries(date).catch(() => [])
+        ]);
         if (!res.ok) {
             const errText = await res.text();
             throw new Error(errText || 'Failed to fetch data');
@@ -999,11 +1007,15 @@ async function loadData(options = {}) {
             if (speedChartInstance) {
                 speedChartInstance.destroy();
             }
+            clearFitSpeedChart();
+            clearFitPitchChart();
+            clearFitStrideChart();
             if (lapTbody) {
                 lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
             }
             setLapExportState(null);
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
+            if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
             summaryContainer.innerHTML = ''; // Clear summary
 
             // Reset chart area to be blank/clean
@@ -1011,6 +1023,12 @@ async function loadData(options = {}) {
             ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
             const speedCtx = document.getElementById('speedChart').getContext('2d');
             speedCtx.clearRect(0, 0, speedCtx.canvas.width, speedCtx.canvas.height);
+            const fitSpeedCtx = document.getElementById('fitSpeedChart').getContext('2d');
+            fitSpeedCtx.clearRect(0, 0, fitSpeedCtx.canvas.width, fitSpeedCtx.canvas.height);
+            const fitPitchCtx = document.getElementById('fitPitchChart').getContext('2d');
+            fitPitchCtx.clearRect(0, 0, fitPitchCtx.canvas.width, fitPitchCtx.canvas.height);
+            const fitStrideCtx = document.getElementById('fitStrideChart').getContext('2d');
+            fitStrideCtx.clearRect(0, 0, fitStrideCtx.canvas.width, fitStrideCtx.canvas.height);
 
             // Reset Daily Message (Rest Day)
             const restMessageContainer = document.getElementById('daily-message-container');
@@ -1056,7 +1074,9 @@ async function loadData(options = {}) {
         let maxHeartRate = hrAtMax;
 
         data.forEach(d => {
-            const velocityKmH = (d.distance / 1000) * 60; // distance in m, time in 1 min
+            const velocityKmH = Number.isFinite(Number(d.speed)) && Number(d.speed) > 0
+                ? Number(d.speed)
+                : (d.distance / 1000) * 60;
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${d.time}</td>
@@ -1105,7 +1125,10 @@ async function loadData(options = {}) {
         const totalDistanceMeters = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
         const totalGap = WR_STRIDE - maxStride;
         const heartRateGuide = getHeartRateZoneGuide();
-        summaryContainer.innerHTML = renderSessionSummary(sessions) + renderSummary(
+        if (sessionSummaryContainer) {
+            sessionSummaryContainer.innerHTML = renderSessionSummary(sessions);
+        }
+        summaryContainer.innerHTML = renderSummary(
             maxStride,
             maxTime,
             totalGap,
@@ -1123,6 +1146,21 @@ async function loadData(options = {}) {
 
         // --- Render Chart ---
         renderChart(data);
+        if (Array.isArray(fitSpeedSeries) && fitSpeedSeries.length > 0) {
+            renderDetailedFitSpeedChart(fitSpeedSeries, fitHeartRateSeries);
+        } else {
+            clearFitSpeedChart();
+        }
+        if (Array.isArray(fitPitchSeries) && fitPitchSeries.length > 0) {
+            renderDetailedFitPitchChart(fitPitchSeries);
+        } else {
+            clearFitPitchChart();
+        }
+        if (Array.isArray(fitStrideSeries) && fitStrideSeries.length > 0) {
+            renderDetailedFitStrideChart(fitStrideSeries);
+        } else {
+            clearFitStrideChart();
+        }
 
         // --- Check & Render Images ---
         checkAndRenderImages(date);
@@ -1149,6 +1187,7 @@ async function loadData(options = {}) {
     } catch (error) {
         console.error(error);
         setLapExportState(null);
+        if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
         if (lapTbody) {
             lapTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading splits: ${error.message}</td></tr>`;
         }
@@ -1189,7 +1228,9 @@ function buildPerKmSplitsForSession(data, session, sessionNumber = 1, dateString
 
     sessionPoints.forEach((point) => {
         let pointDistanceMeters = Math.max(0, Number(point.distance) || 0);
-        let pointTimeSeconds = pointDistanceMeters > 0 ? 60 : 0;
+        let pointTimeSeconds = Number(point.distancePointDurationSeconds) > 0
+            ? Number(point.distancePointDurationSeconds)
+            : (pointDistanceMeters > 0 ? 60 : 0);
         if (!(pointDistanceMeters > 0)) return;
 
         while (pointDistanceMeters > 0) {
@@ -1197,12 +1238,17 @@ function buildPerKmSplitsForSession(data, session, sessionNumber = 1, dateString
             const takeMeters = Math.min(pointDistanceMeters, metersToBoundary);
             const fraction = takeMeters / pointDistanceMeters;
             const timeSeconds = pointTimeSeconds * fraction;
+            const pointPitch = Number(point.pitch) > 0 ? Number(point.pitch) : Number(point.steps);
+            const pointPitchSecondsRaw = Number(point.stepsPointDurationSeconds) > 0
+                ? Number(point.stepsPointDurationSeconds)
+                : pointTimeSeconds;
+            const pointPitchSeconds = pointPitchSecondsRaw * fraction;
 
             lap.distanceMeters += takeMeters;
             lap.timeSeconds += timeSeconds;
-            if (Number(point.steps) > 0) {
-                lap.pitchWeighted += Number(point.steps) * timeSeconds;
-                lap.pitchTimeSeconds += timeSeconds;
+            if (pointPitch > 0) {
+                lap.pitchWeighted += pointPitch * pointPitchSeconds;
+                lap.pitchTimeSeconds += pointPitchSeconds;
             }
             if (Number(point.heartRate) > 0) {
                 lap.hrWeighted += Number(point.heartRate) * timeSeconds;
@@ -1234,7 +1280,9 @@ function buildPerKmSplitsForSession(data, session, sessionNumber = 1, dateString
 
 function pointBelongsToSession(point, session, dateString) {
     if (!session) return true;
-    const pointMillis = pointTimeToMillis(dateString, point && point.time);
+    const pointMillis = Number.isFinite(Number(point && point.bucketStartMs))
+        ? Number(point.bucketStartMs)
+        : pointTimeToMillis(dateString, point && point.time);
     const startMillis = Number(session && session.startTimeMillis);
     const endMillis = Number(session && session.endTimeMillis);
     if (!Number.isFinite(pointMillis) || !Number.isFinite(startMillis) || !Number.isFinite(endMillis)) return false;
@@ -1509,6 +1557,9 @@ function renderSummary(maxStride, maxTime, totalGap, maxHR, avgHR, maxCadence, a
 // Chart Global Variable
 let strideChartInstance = null;
 let speedChartInstance = null;
+let fitSpeedChartInstance = null;
+let fitPitchChartInstance = null;
+let fitStrideChartInstance = null;
 
 // Helper: Calculate Simple Moving Average
 function calculateSMA(data, windowSize) {
@@ -1528,6 +1579,472 @@ function calculateSMA(data, windowSize) {
     return sma;
 }
 
+function chartPointTimeToMillis(point) {
+    if (Number.isFinite(Number(point && point.bucketStartMs))) {
+        return Number(point.bucketStartMs);
+    }
+    const time = String(point && point.time || '').trim();
+    const match = time.match(/^(\d{2}):(\d{2})$/);
+    if (!match) return NaN;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    return ((hour * 60) + minute) * 60 * 1000;
+}
+
+function buildGapAwareChartData(data, gapMinutes = 2) {
+    const gapMillis = gapMinutes * 60 * 1000;
+    const expanded = [];
+    data.forEach((point, index) => {
+        if (index > 0) {
+            const prevMillis = chartPointTimeToMillis(data[index - 1]);
+            const currMillis = chartPointTimeToMillis(point);
+            if (Number.isFinite(prevMillis) && Number.isFinite(currMillis) && (currMillis - prevMillis) > gapMillis) {
+                expanded.push({
+                    time: point.time,
+                    bucketStartMs: Number.isFinite(currMillis) ? currMillis - 1 : null,
+                    stride: null,
+                    heartRate: null,
+                    speed: null,
+                    pitch: null,
+                    steps: null
+                });
+            }
+        }
+        expanded.push({ ...point });
+    });
+    return expanded;
+}
+
+function speedFromIntradayDistance(point) {
+    const distanceMeters = Number(point?.distance);
+    if (!(distanceMeters > 0)) return null;
+
+    const durationSeconds = Number(point?.distancePointDurationSeconds) > 0
+        ? Number(point.distancePointDurationSeconds)
+        : 60;
+
+    return durationSeconds > 0
+        ? Number(((distanceMeters / durationSeconds) * 3.6).toFixed(1))
+        : null;
+}
+
+async function fetchDetailedFitSpeedSeries(date) {
+    const res = await fetch(`/api/fit-speed?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch detailed fit speed data');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+async function fetchDetailedFitHeartRateSeries(date) {
+    const res = await fetch(`/api/fit-hr?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch detailed fit heart rate data');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+async function fetchDetailedFitPitchSeries(date) {
+    const res = await fetch(`/api/fit-pitch?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch detailed fit pitch data');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+async function fetchDetailedFitStrideSeries(date) {
+    const res = await fetch(`/api/fit-stride?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch detailed fit stride data');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+function clearFitSpeedChart() {
+    if (fitSpeedChartInstance) {
+        fitSpeedChartInstance.destroy();
+        fitSpeedChartInstance = null;
+    }
+    const fitSpeedCanvas = document.getElementById('fitSpeedChart');
+    if (fitSpeedCanvas) {
+        const fitSpeedCtx = fitSpeedCanvas.getContext('2d');
+        fitSpeedCtx.clearRect(0, 0, fitSpeedCtx.canvas.width, fitSpeedCtx.canvas.height);
+    }
+}
+
+function clearFitPitchChart() {
+    if (fitPitchChartInstance) {
+        fitPitchChartInstance.destroy();
+        fitPitchChartInstance = null;
+    }
+    const fitPitchCanvas = document.getElementById('fitPitchChart');
+    if (fitPitchCanvas) {
+        const fitPitchCtx = fitPitchCanvas.getContext('2d');
+        fitPitchCtx.clearRect(0, 0, fitPitchCtx.canvas.width, fitPitchCtx.canvas.height);
+    }
+}
+
+function clearFitStrideChart() {
+    if (fitStrideChartInstance) {
+        fitStrideChartInstance.destroy();
+        fitStrideChartInstance = null;
+    }
+    const fitStrideCanvas = document.getElementById('fitStrideChart');
+    if (fitStrideCanvas) {
+        const fitStrideCtx = fitStrideCanvas.getContext('2d');
+        fitStrideCtx.clearRect(0, 0, fitStrideCtx.canvas.width, fitStrideCtx.canvas.height);
+    }
+}
+
+function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
+    const fitSpeedCtx = document.getElementById('fitSpeedChart').getContext('2d');
+    if (fitSpeedChartInstance) {
+        fitSpeedChartInstance.destroy();
+    }
+
+    const hrMap = new Map(
+        (Array.isArray(heartRateSeries) ? heartRateSeries : [])
+            .filter((point) => Number.isFinite(Number(point?.timestampMs)))
+            .map((point) => [Number(point.timestampMs), Number(point.heartRate) > 0 ? Number(point.heartRate) : null])
+    );
+    const labels = speedSeries.map((point) => {
+        const raw = String(point?.time || '');
+        return raw.length >= 5 ? raw.slice(0, 5) : raw;
+    });
+    const speeds = speedSeries.map((point) => Number(point.speedKmh) > 0 ? Number(point.speedKmh) : null);
+    const heartRates = speedSeries.map((point) => {
+        const ts = Number(point?.timestampMs);
+        return Number.isFinite(ts) && hrMap.has(ts) ? hrMap.get(ts) : null;
+    });
+
+    function formatDetailedSeriesValue(value) {
+        return Number.isFinite(Number(value)) ? String(value) : '-';
+    }
+
+    fitSpeedChartInstance = new Chart(fitSpeedCtx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Speed (accurate)',
+                    data: speeds,
+                    borderColor: '#8cb4ff',
+                    backgroundColor: 'rgba(140, 180, 255, 0.12)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0,
+                    fill: true,
+                    yAxisID: 'y-fit-speed'
+                },
+                {
+                    label: 'HR (accurate)',
+                    data: heartRates,
+                    borderColor: '#ff7aa8',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0,
+                    fill: false,
+                    yAxisID: 'y-fit-hr'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const label = context.dataset?.label || '';
+                            const value = context.raw;
+                            return `${label}: ${formatDetailedSeriesValue(value)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: {
+                        color: '#eee',
+                        autoSkip: true,
+                        maxTicksLimit: 12,
+                        minRotation: 50,
+                        maxRotation: 50
+                    }
+                },
+                'y-fit-speed': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Speed',
+                        color: '#8cb4ff'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#8cb4ff' },
+                    beginAtZero: false
+                },
+                'y-fit-hr': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'HR',
+                        color: '#ff7aa8'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    },
+                    ticks: { color: '#ff7aa8' },
+                    beginAtZero: false
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#eee' }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        }
+    });
+}
+
+function renderDetailedFitPitchChart(pitchSeries = []) {
+    const fitPitchCtx = document.getElementById('fitPitchChart').getContext('2d');
+    if (fitPitchChartInstance) {
+        fitPitchChartInstance.destroy();
+    }
+
+    const labels = pitchSeries.map((point) => {
+        const raw = String(point?.time || '');
+        return raw.length >= 5 ? raw.slice(0, 5) : raw;
+    });
+    const pitches = pitchSeries.map((point) => Number.isFinite(Number(point?.pitchSpm)) ? Number(point.pitchSpm) : null);
+
+    fitPitchChartInstance = new Chart(fitPitchCtx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Pitch (rough)',
+                    data: pitches,
+                    borderColor: '#ffd166',
+                    backgroundColor: 'rgba(255, 209, 102, 0.10)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    stepped: true,
+                    tension: 0,
+                    fill: true,
+                    yAxisID: 'y-fit-pitch'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#eee' }
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const label = context.dataset?.label || '';
+                            const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
+                            return `${label}: ${value}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: {
+                        color: '#eee',
+                        autoSkip: true,
+                        maxTicksLimit: 12,
+                        minRotation: 50,
+                        maxRotation: 50
+                    }
+                },
+                'y-fit-pitch': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    afterFit(scale) {
+                        scale.width = 72;
+                    },
+                    title: {
+                        display: true,
+                        text: 'Pitch (spm)',
+                        color: '#ffd166'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#ffd166' },
+                    beginAtZero: false
+                },
+                'y-fit-pitch-spacer': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    afterFit(scale) {
+                        scale.width = 72;
+                    },
+                    min: 0,
+                    max: 1,
+                    grid: {
+                        drawOnChartArea: false
+                    },
+                    ticks: {
+                        display: true,
+                        color: 'rgba(0,0,0,0)',
+                        padding: 12,
+                        callback: () => ''
+                    },
+                    title: {
+                        display: true,
+                        text: 'HR',
+                        color: 'rgba(0,0,0,0)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderDetailedFitStrideChart(strideSeries = []) {
+    const fitStrideCtx = document.getElementById('fitStrideChart').getContext('2d');
+    if (fitStrideChartInstance) {
+        fitStrideChartInstance.destroy();
+    }
+
+    const labels = strideSeries.map((point) => {
+        const raw = String(point?.time || '');
+        return raw.length >= 5 ? raw.slice(0, 5) : raw;
+    });
+    const strides = strideSeries.map((point) => Number.isFinite(Number(point?.strideCm)) ? Number(point.strideCm) : null);
+
+    fitStrideChartInstance = new Chart(fitStrideCtx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Stride (rough)',
+                    data: strides,
+                    borderColor: '#00f2ff',
+                    backgroundColor: 'rgba(0, 242, 255, 0.10)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    stepped: true,
+                    tension: 0,
+                    fill: true,
+                    yAxisID: 'y-fit-stride'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#eee' }
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const label = context.dataset?.label || '';
+                            const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
+                            return `${label}: ${value}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: {
+                        color: '#eee',
+                        autoSkip: true,
+                        maxTicksLimit: 12,
+                        minRotation: 50,
+                        maxRotation: 50
+                    }
+                },
+                'y-fit-stride': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    afterFit(scale) {
+                        scale.width = 72;
+                    },
+                    title: {
+                        display: true,
+                        text: 'Stride (cm)',
+                        color: '#00f2ff'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#00f2ff' },
+                    beginAtZero: false
+                },
+                'y-fit-stride-spacer': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    afterFit(scale) {
+                        scale.width = 72;
+                    },
+                    min: 0,
+                    max: 1,
+                    grid: {
+                        drawOnChartArea: false
+                    },
+                    ticks: {
+                        display: true,
+                        color: 'rgba(0,0,0,0)',
+                        padding: 12,
+                        callback: () => ''
+                    },
+                    title: {
+                        display: true,
+                        text: 'HR',
+                        color: 'rgba(0,0,0,0)'
+                    }
+                }
+            }
+        }
+    });
+}
+
 function renderChart(data) {
     const strideCtx = document.getElementById('strideChart').getContext('2d');
     const speedCtx = document.getElementById('speedChart').getContext('2d');
@@ -1540,15 +2057,14 @@ function renderChart(data) {
         speedChartInstance.destroy();
     }
 
-    const times = data.map(d => d.time);
-    const strides = data.map(d => d.stride);
-    // Since backend already sends 5-pt SMA data, we don't need another SMA filter here
+    const chartData = Array.isArray(data) ? data.map((point) => ({ ...point })) : [];
+    const times = chartData.map(d => d.time);
+    const strides = chartData.map(d => Number.isFinite(Number(d.stride)) ? d.stride : null);
     const smaStrides = strides;
-    const speeds = data.map(d => Number(d.speed) > 0 ? Number(d.speed) : null);
-    const pitches = data.map(d => Number(d.steps) > 0 ? Number(d.steps) : null);
+    const speeds = chartData.map(d => speedFromIntradayDistance(d));
+    const pitches = chartData.map(d => Number(d.pitch) > 0 ? Number(d.pitch) : (Number(d.steps) > 0 ? Number(d.steps) : null));
 
-    // Heart Rate: Use directly (Backend also smooths this to 5-pt SMA)
-    const heartRatesRaw = data.map(d => d.heartRate || 0);
+    const heartRatesRaw = chartData.map(d => d.heartRate || 0);
     const heartRatesSMA = heartRatesRaw.map(v => v > 0 ? v : null);
 
     strideChartInstance = new Chart(strideCtx, {
@@ -1558,7 +2074,7 @@ function renderChart(data) {
             datasets: [
                 // --- STRIDE ---
                 {
-                    label: 'Stride (5-pt SMA)',
+                    label: 'Stride',
                     data: smaStrides,
                     borderColor: '#00f2ff', // Cyan (Main)
                     backgroundColor: 'rgba(0, 242, 255, 0.05)',
@@ -1571,7 +2087,7 @@ function renderChart(data) {
                 },
                 // --- HEART RATE ---
                 {
-                    label: 'HR (5-pt SMA)',
+                    label: 'HR',
                     data: heartRatesSMA,
                     borderColor: '#ff0055', // Bold Red
                     backgroundColor: 'transparent',

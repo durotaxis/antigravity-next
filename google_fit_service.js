@@ -24,6 +24,16 @@ function toRfc3339(date) {
     return new Date(date).toISOString();
 }
 
+function getLocalDayRangeMs(dateString) {
+    const [year, month, day] = String(dateString || '').split('-').map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+        return { startMs: NaN, endMs: NaN };
+    }
+    const start = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    const end = new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
+    return { startMs: start, endMs: end };
+}
+
 function countActiveBuckets(buckets) {
     if (!Array.isArray(buckets) || buckets.length === 0) return 0;
     let active = 0;
@@ -172,6 +182,196 @@ async function fetchSessionsForDate(dateString) {
         }
         throw err;
     }
+}
+
+async function getDetailedFitSpeedSeries(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const speedCacheFile = path.join(CACHE_DIR, `fit_speed_full_${dateString}.json`);
+    const isToday = dateString === toLocalDateString();
+    let cached = null;
+
+    try {
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+        const rawCached = await fs.readFile(speedCacheFile, 'utf8');
+        cached = JSON.parse(rawCached);
+        if (!isToday && Array.isArray(cached?.points)) {
+            return cached;
+        }
+    } catch {
+        // cache miss; fetch from API
+    }
+
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const speedSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.speed' && streamId.includes('merge_speed');
+    });
+
+    if (!speedSource) {
+        const empty = { date: dateString, dataSourceId: null, pointCount: 0, points: [] };
+        await fs.writeFile(speedCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+
+    const { startMs: dayStart, endMs: dayEnd } = getLocalDayRangeMs(dateString);
+    if (!Number.isFinite(dayStart) || !Number.isFinite(dayEnd) || dayEnd <= dayStart) {
+        const empty = { date: dateString, dataSourceId: speedSource.dataStreamId, pointCount: 0, points: [] };
+        await fs.writeFile(speedCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+    const datasetId = `${dayStart * 1000000}-${dayEnd * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: speedSource.dataStreamId,
+        datasetId
+    });
+
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const pointMs = nanosToMillis(point?.startTimeNanos);
+        return Number.isFinite(pointMs) && pointMs >= dayStart && pointMs < dayEnd;
+    });
+
+    const out = {
+        date: dateString,
+        dataSourceId: speedSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
+    await fs.writeFile(speedCacheFile, JSON.stringify(out, null, 2));
+    return out;
+}
+
+async function getDetailedFitHeartRateSeries(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const hrCacheFile = path.join(CACHE_DIR, `fit_hr_full_${dateString}.json`);
+    const isToday = dateString === toLocalDateString();
+    let cached = null;
+
+    try {
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+        const rawCached = await fs.readFile(hrCacheFile, 'utf8');
+        cached = JSON.parse(rawCached);
+        if (!isToday && Array.isArray(cached?.points)) {
+            return cached;
+        }
+    } catch {
+        // cache miss; fetch from API
+    }
+
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const hrSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.heart_rate.bpm' && streamId.includes('merge_heart_rate_bpm');
+    });
+
+    if (!hrSource) {
+        const empty = { date: dateString, dataSourceId: null, pointCount: 0, points: [] };
+        await fs.writeFile(hrCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+
+    const { startMs: dayStart, endMs: dayEnd } = getLocalDayRangeMs(dateString);
+    if (!Number.isFinite(dayStart) || !Number.isFinite(dayEnd) || dayEnd <= dayStart) {
+        const empty = { date: dateString, dataSourceId: hrSource.dataStreamId, pointCount: 0, points: [] };
+        await fs.writeFile(hrCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+    const datasetId = `${dayStart * 1000000}-${dayEnd * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: hrSource.dataStreamId,
+        datasetId
+    });
+
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const pointMs = nanosToMillis(point?.startTimeNanos);
+        return Number.isFinite(pointMs) && pointMs >= dayStart && pointMs < dayEnd;
+    });
+
+    const out = {
+        date: dateString,
+        dataSourceId: hrSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
+    await fs.writeFile(hrCacheFile, JSON.stringify(out, null, 2));
+    return out;
+}
+
+async function getDetailedFitPitchSeries(dateString) {
+    const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
+    const pitchCacheFile = path.join(CACHE_DIR, `fit_pitch_full_${dateString}.json`);
+    const isToday = dateString === toLocalDateString();
+    let cached = null;
+
+    try {
+        await fs.mkdir(CACHE_DIR, { recursive: true });
+        const rawCached = await fs.readFile(pitchCacheFile, 'utf8');
+        cached = JSON.parse(rawCached);
+        if (!isToday && Array.isArray(cached?.points)) {
+            return cached;
+        }
+    } catch {
+        // cache miss; fetch from API
+    }
+
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const stepSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('merge_step_deltas');
+    }) || allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('estimated_steps');
+    });
+
+    if (!stepSource) {
+        const empty = { date: dateString, dataSourceId: null, pointCount: 0, points: [] };
+        await fs.writeFile(pitchCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+
+    const { startMs: dayStart, endMs: dayEnd } = getLocalDayRangeMs(dateString);
+    if (!Number.isFinite(dayStart) || !Number.isFinite(dayEnd) || dayEnd <= dayStart) {
+        const empty = { date: dateString, dataSourceId: stepSource.dataStreamId, pointCount: 0, points: [] };
+        await fs.writeFile(pitchCacheFile, JSON.stringify(empty, null, 2));
+        return empty;
+    }
+    const datasetId = `${dayStart * 1000000}-${dayEnd * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: stepSource.dataStreamId,
+        datasetId
+    });
+
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const startMs = nanosToMillis(point?.startTimeNanos);
+        const endMs = nanosToMillis(point?.endTimeNanos);
+        const steps = Number(point?.value?.[0]?.intVal || 0);
+        if (!(steps > 0)) return false;
+        return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && startMs < dayEnd && endMs > dayStart;
+    });
+
+    const out = {
+        date: dateString,
+        dataSourceId: stepSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
+    await fs.writeFile(pitchCacheFile, JSON.stringify(out, null, 2));
+    return out;
 }
 
 /**
@@ -447,7 +647,7 @@ async function getDailyMetrics(dateString) {
 
 /**
  * Clean and Filter Intraday Data
- * - Filter by Source (TicWatch / Running)
+ * - Keep run-labeled points
  * - Interpolate Spikes/Drops (0 or >100 jump)
  * - Exclude Stride > 250cm
  */
@@ -455,7 +655,12 @@ function cleanIntradayData(rawData) {
     if (!rawData || rawData.length === 0) return [];
 
     // 1. Sort by time just in case
-    rawData.sort((a, b) => a.time.localeCompare(b.time));
+    rawData.sort((a, b) => {
+        const aStart = Number(a?.bucketStartMs);
+        const bStart = Number(b?.bucketStartMs);
+        if (Number.isFinite(aStart) && Number.isFinite(bStart)) return aStart - bStart;
+        return String(a?.time || '').localeCompare(String(b?.time || ''));
+    });
 
     const cleaned = [];
 
@@ -537,14 +742,63 @@ function calculateSMA(data, windowSize) {
     return sma;
 }
 
-function processIntradayBuckets(buckets) {
+function normalizeRunSessions(sessions) {
+    if (!Array.isArray(sessions)) return [];
+    return sessions
+        .map((session) => ({
+            startMs: Number(session?.startTimeMillis),
+            endMs: Number(session?.endTimeMillis),
+            activityType: Number(session?.activityType)
+        }))
+        .filter((session) =>
+            Number.isFinite(session.startMs) &&
+            Number.isFinite(session.endMs) &&
+            session.endMs > session.startMs &&
+            session.activityType === 8
+        )
+        .sort((a, b) => a.startMs - b.startMs);
+}
+
+function calculateCoverageSeconds(bucketStartMs, bucketEndMs, runSessions) {
+    if (!Number.isFinite(bucketStartMs) || !Number.isFinite(bucketEndMs) || bucketEndMs <= bucketStartMs) return null;
+    if (!Array.isArray(runSessions) || runSessions.length === 0) return null;
+
+    let overlapMillis = 0;
+    runSessions.forEach((session) => {
+        const overlapStart = Math.max(bucketStartMs, session.startMs);
+        const overlapEnd = Math.min(bucketEndMs, session.endMs);
+        if (overlapEnd > overlapStart) {
+            overlapMillis += (overlapEnd - overlapStart);
+        }
+    });
+
+    if (!(overlapMillis > 0)) return null;
+    return Number((overlapMillis / 1000).toFixed(1));
+}
+
+function nanosToMillis(nanosValue) {
+    const nanos = Number(nanosValue);
+    if (!Number.isFinite(nanos) || nanos <= 0) return null;
+    return Math.floor(nanos / 1000000);
+}
+
+function durationSecondsFromPoint(point) {
+    const startMs = nanosToMillis(point?.startTimeNanos);
+    const endMs = nanosToMillis(point?.endTimeNanos);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+    return Number(((endMs - startMs) / 1000).toFixed(3));
+}
+
+function processIntradayBuckets(buckets, sessions = []) {
     const chartData = [];
     let unfilteredMaxSpeed = 0;
+    const runSessions = normalizeRunSessions(sessions);
 
     (buckets || []).forEach(bucket => {
-        const timeMillis = Number.parseInt(bucket?.startTimeMillis, 10);
-        const time = Number.isFinite(timeMillis)
-            ? new Date(timeMillis).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+        const bucketStartMs = Number.parseInt(bucket?.startTimeMillis, 10);
+        const bucketEndMs = Number.parseInt(bucket?.endTimeMillis, 10);
+        const time = Number.isFinite(bucketStartMs)
+            ? new Date(bucketStartMs).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
             : '00:00';
         const datasets = Array.isArray(bucket?.dataset) ? bucket.dataset : [];
 
@@ -552,26 +806,18 @@ function processIntradayBuckets(buckets) {
         let distance = 0;
         let heartRate = 0;
         let isRunningActivity = false;
-        let isTicWatch = false;
         let bucketDistanceAll = 0;
+        let distancePointDurationSeconds = 0;
+        let stepsPointDurationSeconds = 0;
 
         datasets.forEach(ds => {
             const sourceId = ds.dataSourceId || '';
             if (ds.point && ds.point.length > 0) {
-                const isWatchOrSync =
-                    sourceId.toLowerCase().includes('mobvoi') ||
-                    sourceId.toLowerCase().includes('ticwatch') ||
-                    sourceId.toLowerCase().includes('watch') ||
-                    sourceId.toLowerCase().includes('wear') ||
-                    sourceId.toLowerCase().includes('android') ||
-                    sourceId.toLowerCase().includes('heart_rate');
-
-                if (isWatchOrSync) isTicWatch = true;
-
                 ds.point.forEach(p => {
                     const dataTypeName = String(p.dataTypeName || '').toLowerCase();
                     const pointValues = Array.isArray(p.value) ? p.value : [];
                     const summaryActivityType = Number(pointValues?.[0]?.intVal);
+                    const pointDurationSeconds = durationSecondsFromPoint(p);
                     if (
                         (dataTypeName.includes('activity.summary') || sourceId.includes('activity.summary')) &&
                         summaryActivityType === 8
@@ -579,12 +825,18 @@ function processIntradayBuckets(buckets) {
                         isRunningActivity = true;
                     }
                     pointValues.forEach(v => {
-                        if (sourceId.includes('step_count')) steps += (v.intVal || 0);
+                        if (sourceId.includes('step_count')) {
+                            steps += (v.intVal || 0);
+                            if (pointDurationSeconds > 0) stepsPointDurationSeconds += pointDurationSeconds;
+                        }
                         if (sourceId.includes('distance')) {
                             const dist = (v.fpVal || 0);
                             distance += dist;
                             bucketDistanceAll += dist;
+                            if (pointDurationSeconds > 0) distancePointDurationSeconds += pointDurationSeconds;
                         }
+                        // Current behavior intentionally keeps the last heart_rate.summary value
+                        // until the meaning/order of the value array is verified.
                         if (sourceId.includes('heart_rate')) heartRate = (v.fpVal || v.intVal || 0);
                         if (
                             (dataTypeName.includes('activity.segment') || sourceId.includes('activity.segment')) &&
@@ -597,32 +849,49 @@ function processIntradayBuckets(buckets) {
             }
         });
 
+        // coverageSeconds is retained as session/bucket overlap metadata.
+        // If distance/steps values represent the whole point range, speed/pitch should prefer
+        // point duration instead of dividing by overlap seconds directly.
+        // A future strict session-only path can prorate point values to this overlap when needed.
+        const coverageSeconds = calculateCoverageSeconds(bucketStartMs, bucketEndMs, runSessions);
+
         if (bucketDistanceAll > 0) {
-            const speedAny = parseFloat((bucketDistanceAll * 0.06).toFixed(1));
+            const speedAny = distancePointDurationSeconds > 0
+                ? parseFloat(((bucketDistanceAll / distancePointDurationSeconds) * 3.6).toFixed(1))
+                : parseFloat((bucketDistanceAll * 0.06).toFixed(1));
             if (speedAny > unfilteredMaxSpeed) unfilteredMaxSpeed = speedAny;
         }
 
         let stride = 0;
         if (steps > 0) stride = (distance * 100) / steps;
 
-        // Speed Calculation (km/h)
-        // distance (m) -> km / 1000
-        // time (1 min) -> hour / 60
-        // speed = (distance/1000) / (1/60) = (distance * 60) / 1000 = distance * 0.06
-        // NOTE: This assumes 1-minute buckets!
         let speed = 0;
         if (distance > 0) {
-            speed = parseFloat((distance * 0.06).toFixed(1));
+            speed = distancePointDurationSeconds > 0
+                ? parseFloat(((distance / distancePointDurationSeconds) * 3.6).toFixed(1))
+                : parseFloat((distance * 0.06).toFixed(1));
         }
+        const pitch = steps > 0
+            ? (stepsPointDurationSeconds > 0
+                ? parseFloat(((steps / stepsPointDurationSeconds) * 60).toFixed(1))
+                : steps)
+            : 0;
 
-        // Strict running filter:
-        // keep only TicWatch/Wear-source buckets explicitly labeled as running (activity.segment = 8).
-        if ((steps > 0 || heartRate > 0) && isTicWatch && isRunningActivity) {
+        // Keep only buckets explicitly labeled as running (activity.segment/activity.summary = 8).
+        if ((steps > 0 || heartRate > 0) && isRunningActivity) {
             chartData.push({
-                time, steps, distance: parseFloat(distance.toFixed(1)),
+                time,
+                bucketStartMs: Number.isFinite(bucketStartMs) ? bucketStartMs : null,
+                bucketEndMs: Number.isFinite(bucketEndMs) ? bucketEndMs : null,
+                coverageSeconds: coverageSeconds > 0 ? coverageSeconds : null,
+                distancePointDurationSeconds: distancePointDurationSeconds > 0 ? distancePointDurationSeconds : null,
+                stepsPointDurationSeconds: stepsPointDurationSeconds > 0 ? stepsPointDurationSeconds : null,
+                steps,
+                pitch,
+                distance: parseFloat(distance.toFixed(1)),
                 stride: parseFloat(stride.toFixed(1)), heartRate: Math.round(heartRate),
-                speed, // Add speed
-                source: 'ticwatch'
+                speed,
+                source: 'cache'
             });
         }
     });
@@ -641,9 +910,10 @@ function processIntradayBuckets(buckets) {
 async function getIntradayMetricsWithMeta(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const finalCacheFile = path.join(CACHE_DIR, `intraday_${dateString}.json`);
+    let sessions = [];
 
     try {
-        await fetchSessionsForDate(dateString);
+        sessions = await fetchSessionsForDate(dateString);
     } catch (err) {
         console.warn(`[GoogleFit] Session cache refresh failed for ${dateString}: ${err.message}`);
     }
@@ -682,29 +952,7 @@ async function getIntradayMetricsWithMeta(dateString) {
         }
     }
 
-    const processed = processIntradayBuckets(buckets);
-
-    // If a COROS-specific intraday cache exists, merge it and prefer COROS points on time collisions.
-    try {
-        const corosFile = path.join(CACHE_DIR, `intraday_coros_${dateString}.json`);
-        const corosExists = await fs.stat(corosFile).then(() => true).catch(() => false);
-        if (corosExists) {
-            const rawCoros = await fs.readFile(corosFile, 'utf8');
-            const corosPoints = JSON.parse(rawCoros);
-            if (Array.isArray(corosPoints) && corosPoints.length > 0) {
-                const map = new Map();
-                for (const p of (processed.chartData || [])) map.set(p.time, p);
-                for (const c of corosPoints) map.set(c.time, { ...c });
-                const merged = Array.from(map.values()).sort((a, b) => a.time.localeCompare(b.time));
-                processed.chartData = merged;
-                processed.smoothedData = cleanIntradayData(merged);
-                processed.unfilteredMaxSpeed = Math.max(processed.unfilteredMaxSpeed || 0, ...(merged.map(m => m.speed || 0)));
-                console.log(`[GoogleFit] Merged COROS intraday (${corosPoints.length}) into processed data for ${dateString}`);
-            }
-        }
-    } catch (e) {
-        console.warn(`[GoogleFit] Failed merging coros intraday: ${e && e.message ? e.message : e}`);
-    }
+    const processed = processIntradayBuckets(buckets, sessions);
 
     if ((processed.chartData || []).length > 0) {
         await fs.writeFile(finalCacheFile, JSON.stringify(processed.chartData, null, 2));
@@ -774,4 +1022,4 @@ function getFpValue(dataset) {
     return 0;
 }
 
-module.exports = { getDailyMetrics, getIntradayMetrics, fetchSessionsForDate };
+module.exports = { getDailyMetrics, getIntradayMetrics, fetchSessionsForDate, getDetailedFitSpeedSeries, getDetailedFitHeartRateSeries, getDetailedFitPitchSeries };

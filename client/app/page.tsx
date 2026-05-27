@@ -124,6 +124,8 @@ export default function Home() {
             avg_stride: Number(run.avg_stride ?? 0),
             avg_speed: Number(run.avg_speed ?? run.json_avg_speed ?? 0),
             max_speed: Number(run.max_speed ?? run.json_max_speed ?? 0),
+            avg_cadence: Number(run.avg_cadence ?? run.json_avg_pitch ?? 0),
+            max_cadence: Number(run.max_cadence ?? run.json_max_pitch ?? 0),
             images: Array.isArray(run.images) ? run.images : []
           }));
           const filteredRuns = normalizedRuns.filter((run) => {

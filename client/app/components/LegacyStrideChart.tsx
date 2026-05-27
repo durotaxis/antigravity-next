@@ -147,7 +147,7 @@ export default function LegacyStrideChart({ date, apiBase, onClose }: Props) {
                   yAxisId="left"
                   type="monotone"
                   dataKey="stride"
-                  name="Stride (5-pt SMA)"
+                  name="Stride"
                   stroke="#06b6d4"
                   strokeWidth={2.5}
                   dot={false}
@@ -157,7 +157,7 @@ export default function LegacyStrideChart({ date, apiBase, onClose }: Props) {
                   yAxisId="right"
                   type="monotone"
                   dataKey="heartRate"
-                  name="HR (5-pt SMA)"
+                  name="HR"
                   stroke="#e11d48"
                   strokeWidth={2.5}
                   dot={false}

@@ -967,7 +967,7 @@ async function syncDailySummaryFromTcx(date) {
     dailySummaryCoreDiffers(existing, computed.summary) ||
     !(typeof existing?.message === 'string' && existing.message.trim());
 
-  await repo.saveDailySummary({
+  await repo.saveDailySummaryExact({
     ...computed.summary,
     message: existing ? existing.message : null
   });
@@ -978,7 +978,7 @@ async function syncDailySummaryFromTcx(date) {
       existing ? existing.message : null
     );
     if (refreshedMessage && String(refreshedMessage).trim()) {
-      await repo.saveDailySummary({
+      await repo.saveDailySummaryExact({
         ...computed.summary,
         message: refreshedMessage
       });

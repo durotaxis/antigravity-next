@@ -279,6 +279,71 @@ function deleteRunByDate(date, options = {}) {
     })();
 }
 
+function saveDailySummaryExact(data) {
+    return new Promise((resolve, reject) => {
+        const { date, step_count, total_distance_km, total_time, calories_kcal, max_stride, avg_stride, hr_avg, hr_max, message, avg_cadence, max_cadence, avg_speed, max_speed } = data;
+        const now = new Date().toISOString();
+
+        const safeStepCount = toNumberOrZero(step_count);
+        const safeTotalDistanceKm = toNumberOrZero(total_distance_km);
+        const safeCaloriesKcal = toNumberOrZero(calories_kcal);
+        const safeMaxStride = toPositiveNumberOrNull(max_stride);
+        const safeAvgStride = toPositiveNumberOrNull(avg_stride);
+        const safeHrAvg = toPositiveNumberOrNull(hr_avg);
+        const safeHrMax = toPositiveNumberOrNull(hr_max);
+        const safeAvgCadence = toPositiveNumberOrNull(avg_cadence);
+        const safeMaxCadence = toPositiveNumberOrNull(max_cadence);
+        const safeAvgSpeed = toPositiveNumberOrNull(avg_speed);
+        const safeMaxSpeed = toPositiveNumberOrNull(max_speed);
+        const safeTotalTime = toTextOrNull(total_time);
+        const safeMessage = toTextOrNull(message);
+
+        const sql = `
+            INSERT INTO daily_summary (
+                date,
+                step_count,
+                total_distance_km,
+                total_time,
+                calories_kcal,
+                max_stride,
+                avg_stride,
+                hr_avg,
+                hr_max,
+                avg_cadence,
+                max_cadence,
+                avg_speed,
+                max_speed,
+                message,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                step_count = excluded.step_count,
+                total_distance_km = excluded.total_distance_km,
+                total_time = excluded.total_time,
+                calories_kcal = excluded.calories_kcal,
+                max_stride = excluded.max_stride,
+                avg_stride = excluded.avg_stride,
+                hr_avg = excluded.hr_avg,
+                hr_max = excluded.hr_max,
+                avg_cadence = excluded.avg_cadence,
+                max_cadence = excluded.max_cadence,
+                avg_speed = excluded.avg_speed,
+                max_speed = excluded.max_speed,
+                message = COALESCE(excluded.message, message),
+                created_at = excluded.created_at
+        `;
+
+        db.run(sql, [date, safeStepCount, safeTotalDistanceKm, safeTotalTime, safeCaloriesKcal, safeMaxStride, safeAvgStride, safeHrAvg, safeHrMax, safeAvgCadence, safeMaxCadence, safeAvgSpeed, safeMaxSpeed, safeMessage, now], function (err) {
+            if (err) {
+                console.error('Error in saveDailySummaryExact:', err);
+                return reject(err);
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
 function deleteRun(idOrDate, options = {}) {
     return new Promise((resolve, reject) => {
         const idStr = String(idOrDate ?? '').trim();
@@ -308,6 +373,7 @@ function deleteRun(idOrDate, options = {}) {
 
 module.exports = {
     saveDailySummary,
+    saveDailySummaryExact,
     getDailySummary,
     getAllRuns,
     deleteRun

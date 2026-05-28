@@ -17,17 +17,66 @@ const port = 3000;
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 const TCX_DOWNLOAD_DIR = path.join(process.env.USERPROFILE || 'C:\\Users\\yuji_', 'CrossDevice', 'SO-54C', 'storage', 'Download');
 
-function getTcxIntradayCachePath(dateString) {
+function getLegacyTcxIntradayCachePath(dateString) {
   return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${dateString}.json`);
 }
 
-function extractRunDateFromTcxFilename(filename) {
+function sanitizeTcxRunId(runId) {
+  return String(runId || '').trim().replace(/[^0-9_-]/g, '');
+}
+
+function buildTcxRunId(dateString, timeString = '000000') {
+  const normalizedDate = String(dateString || '').trim();
+  const normalizedTime = String(timeString || '').trim().padStart(6, '0').slice(0, 6);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) return '';
+  return `${normalizedDate}_${normalizedTime}`;
+}
+
+function getTcxRunCachePath(runId) {
+  const safeRunId = sanitizeTcxRunId(runId);
+  return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${safeRunId}.json`);
+}
+
+function formatLocalTimeLabel(timestampMs, withSeconds = false) {
+  if (!Number.isFinite(Number(timestampMs))) return '';
+  const d = new Date(Number(timestampMs));
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return withSeconds ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
+}
+
+function buildTcxRunStamp(dateString, timeString) {
+  const runId = buildTcxRunId(dateString, timeString);
+  if (!runId) return null;
+  const [year, month, day] = String(dateString).split('-').map(Number);
+  const hh = Number(String(timeString || '000000').slice(0, 2));
+  const mm = Number(String(timeString || '000000').slice(2, 4));
+  const ss = Number(String(timeString || '000000').slice(4, 6));
+  const startTimeMs = new Date(year, month - 1, day, hh, mm, ss, 0).getTime();
+  return {
+    dateString,
+    timeString: String(timeString || '000000').slice(0, 6),
+    runId,
+    startTimeMs: Number.isFinite(startTimeMs) ? startTimeMs : null
+  };
+}
+
+function extractRunStampFromTcxFilename(filename) {
   const text = String(filename || '').trim();
-  if (!text) return '';
+  if (!text) return null;
   const digits = text.replace(/[^0-9]/g, '');
-  const m = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])/);
-  if (!m) return '';
-  return `${m[1]}-${m[2]}-${m[3]}`;
+  const m = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])([0-5][0-9])/);
+  if (m) {
+    return buildTcxRunStamp(`${m[1]}-${m[2]}-${m[3]}`, `${m[4]}${m[5]}${m[6]}`);
+  }
+  const dateOnly = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])/);
+  if (!dateOnly) return null;
+  return buildTcxRunStamp(`${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`, '000000');
+}
+
+function extractRunDateFromTcxFilename(filename) {
+  return extractRunStampFromTcxFilename(filename)?.dateString || '';
 }
 
 function getTokyoMinuteLabel(timestampMs) {
@@ -64,16 +113,23 @@ function parseTcxTrackpoints(xmlText) {
   }).filter((point) => Number.isFinite(point.timestampMs)).sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
-function extractRunDateFromTcxXml(xmlText) {
+function extractRunStampFromTcxXml(xmlText) {
   const text = String(xmlText || '');
   const activityId = (text.match(/<Activity\b[^>]*>[\s\S]*?<Id>([^<]+)<\/Id>/) || [])[1] || '';
   const lapStart = (text.match(/<Lap\b[^>]*StartTime="([^"]+)"/) || [])[1] || '';
   const source = String(activityId || lapStart || '').trim();
-  if (!source) return '';
+  if (!source) return null;
   const timestampMs = Date.parse(source);
-  if (!Number.isFinite(timestampMs)) return '';
+  if (!Number.isFinite(timestampMs)) return null;
   const d = new Date(timestampMs);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return buildTcxRunStamp(
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+    `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`
+  );
+}
+
+function extractRunDateFromTcxXml(xmlText) {
+  return extractRunStampFromTcxXml(xmlText)?.dateString || '';
 }
 
 function buildTcxMinuteChartData(trackpoints) {
@@ -220,7 +276,17 @@ async function regenerateDailySummaryMessageFromStoredData(dateString, existingM
 
 async function readTcxMinuteCache(dateString) {
   try {
-    const raw = await fs.readFile(getTcxIntradayCachePath(dateString), 'utf8');
+    const raw = await fs.readFile(getLegacyTcxIntradayCachePath(dateString), 'utf8');
+    const rows = JSON.parse(raw);
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readTcxMinuteRunCache(runId) {
+  try {
+    const raw = await fs.readFile(getTcxRunCachePath(runId), 'utf8');
     const rows = JSON.parse(raw);
     return Array.isArray(rows) ? rows : null;
   } catch {
@@ -229,9 +295,142 @@ async function readTcxMinuteCache(dateString) {
 }
 
 async function writeTcxMinuteCache(dateString, rows) {
-  const cachePath = getTcxIntradayCachePath(dateString);
+  const cachePath = getLegacyTcxIntradayCachePath(dateString);
   await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
   return cachePath;
+}
+
+async function writeTcxMinuteRunCache(runId, rows) {
+  const cachePath = getTcxRunCachePath(runId);
+  await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
+  return cachePath;
+}
+
+async function fileExists(filepath) {
+  try {
+    await fs.access(filepath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listTcxRunDescriptorsForDate(dateString) {
+  const normalizedDate = String(dateString || '').trim();
+  const ymd = normalizedDate.replace(/-/g, '');
+  if (!/^\d{8}$/.test(ymd)) return [];
+
+  const cacheDir = path.join(__dirname, 'storage', 'cache');
+  let names = [];
+  try {
+    names = await fs.readdir(TCX_DOWNLOAD_DIR);
+  } catch {
+    names = [];
+  }
+  let cacheNames = [];
+  try {
+    cacheNames = await fs.readdir(cacheDir);
+  } catch {
+    cacheNames = [];
+  }
+
+  const runMap = new Map();
+  for (const name of names) {
+    if (!/\.tcx$/i.test(name) || !name.includes(ymd)) continue;
+    const stamp = extractRunStampFromTcxFilename(name);
+    if (!stamp || stamp.dateString !== normalizedDate || !stamp.runId) continue;
+    runMap.set(stamp.runId, {
+      runId: stamp.runId,
+      date: stamp.dateString,
+      timeString: stamp.timeString,
+      startTimeMs: stamp.startTimeMs,
+      startTimeLabel: formatLocalTimeLabel(stamp.startTimeMs),
+      filename: name,
+      tcxPath: path.join(TCX_DOWNLOAD_DIR, name),
+      cachePath: getTcxRunCachePath(stamp.runId),
+      legacy: false
+    });
+  }
+
+  for (const cacheName of cacheNames) {
+    const match = String(cacheName).match(/^tcx_intraday_(20\d{2}-\d{2}-\d{2})_(\d{6})\.json$/);
+    if (!match) continue;
+    const stamp = buildTcxRunStamp(match[1], match[2]);
+    if (!stamp || stamp.dateString !== normalizedDate || !stamp.runId) continue;
+    if (runMap.has(stamp.runId)) continue;
+    runMap.set(stamp.runId, {
+      runId: stamp.runId,
+      date: stamp.dateString,
+      timeString: stamp.timeString,
+      startTimeMs: stamp.startTimeMs,
+      startTimeLabel: formatLocalTimeLabel(stamp.startTimeMs),
+      filename: cacheName,
+      tcxPath: null,
+      cachePath: path.join(cacheDir, cacheName),
+      legacy: false
+    });
+  }
+
+  const descriptors = Array.from(runMap.values()).sort((a, b) => {
+    const aMs = Number.isFinite(Number(a.startTimeMs)) ? Number(a.startTimeMs) : Number.MAX_SAFE_INTEGER;
+    const bMs = Number.isFinite(Number(b.startTimeMs)) ? Number(b.startTimeMs) : Number.MAX_SAFE_INTEGER;
+    return aMs - bMs;
+  });
+  if (descriptors.length > 0) return descriptors;
+
+  const legacyCachePath = getLegacyTcxIntradayCachePath(normalizedDate);
+  if (await fileExists(legacyCachePath)) {
+    return [{
+      runId: normalizedDate,
+      date: normalizedDate,
+      timeString: '',
+      startTimeMs: null,
+      startTimeLabel: normalizedDate,
+      filename: path.basename(legacyCachePath),
+      tcxPath: null,
+      cachePath: legacyCachePath,
+      legacy: true
+    }];
+  }
+
+  return [];
+}
+
+async function loadTcxMinuteRowsForDescriptor(descriptor) {
+  if (!descriptor) return { rows: [], tcxPath: null, cachePath: null };
+  if (descriptor.legacy) {
+    const rows = await readTcxMinuteCache(descriptor.date);
+    return {
+      rows: Array.isArray(rows) ? rows : [],
+      tcxPath: null,
+      cachePath: descriptor.cachePath || getLegacyTcxIntradayCachePath(descriptor.date)
+    };
+  }
+
+  const cachedRows = await readTcxMinuteRunCache(descriptor.runId);
+  if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+    return {
+      rows: cachedRows,
+      tcxPath: descriptor.tcxPath || null,
+      cachePath: descriptor.cachePath || getTcxRunCachePath(descriptor.runId)
+    };
+  }
+
+  if (!descriptor.tcxPath) {
+    return { rows: [], tcxPath: null, cachePath: descriptor.cachePath || null };
+  }
+
+  const xmlText = await fs.readFile(descriptor.tcxPath, 'utf8');
+  const trackpoints = parseTcxTrackpoints(xmlText);
+  const rows = buildTcxMinuteChartData(trackpoints);
+  const cachePath = rows.length > 0
+    ? await writeTcxMinuteRunCache(descriptor.runId, rows)
+    : descriptor.cachePath || getTcxRunCachePath(descriptor.runId);
+  return {
+    rows,
+    tcxPath: descriptor.tcxPath,
+    cachePath
+  };
 }
 
 async function persistComputedTcxSummary(dateString, computed) {
@@ -354,11 +553,36 @@ function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
 }
 
 async function computeDailySummaryFromTcx(dateString) {
+  const descriptors = await listTcxRunDescriptorsForDate(dateString);
+  if (Array.isArray(descriptors) && descriptors.length > 0) {
+    const combinedRows = [];
+    const tcxPaths = [];
+    const cachePaths = [];
+
+    for (const descriptor of descriptors) {
+      const loaded = await loadTcxMinuteRowsForDescriptor(descriptor);
+      if (Array.isArray(loaded.rows) && loaded.rows.length > 0) {
+        combinedRows.push(...loaded.rows);
+      }
+      if (loaded.tcxPath) tcxPaths.push(loaded.tcxPath);
+      if (loaded.cachePath) cachePaths.push(loaded.cachePath);
+    }
+
+    if (combinedRows.length > 0) {
+      combinedRows.sort((a, b) => Number(a.bucketStartMs || 0) - Number(b.bucketStartMs || 0));
+      return computeDailySummaryFromTcxRows(dateString, combinedRows, {
+        source: descriptors.some((descriptor) => !descriptor.legacy) ? 'tcx-runs' : 'tcx-cache',
+        tcxPath: tcxPaths.length === 1 ? tcxPaths[0] : null,
+        cachePath: cachePaths.length === 1 ? cachePaths[0] : null
+      });
+    }
+  }
+
   const cachedRows = await readTcxMinuteCache(dateString);
   if (Array.isArray(cachedRows) && cachedRows.length > 0) {
     return computeDailySummaryFromTcxRows(dateString, cachedRows, {
       source: 'tcx-cache',
-      cachePath: getTcxIntradayCachePath(dateString)
+      cachePath: getLegacyTcxIntradayCachePath(dateString)
     });
   }
 
@@ -1513,35 +1737,69 @@ app.get('/api/fit-stride', async (req, res) => {
 app.get('/api/tcx-minute', async (req, res) => {
   try {
     const date = String(req.query.date || '').trim();
+    const requestedRunId = sanitizeTcxRunId(req.query.runId);
     if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const descriptors = await listTcxRunDescriptorsForDate(date);
+    let selectedDescriptor = null;
+    if (requestedRunId) {
+      selectedDescriptor = descriptors.find((descriptor) => descriptor.runId === requestedRunId) || null;
+      if (!selectedDescriptor) {
+        return res.json({ date, runId: requestedRunId, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
+      }
+    } else if (descriptors.length > 0) {
+      selectedDescriptor = descriptors[0];
+    }
+
+    if (selectedDescriptor) {
+      const loaded = await loadTcxMinuteRowsForDescriptor(selectedDescriptor);
+      return res.json({
+        date,
+        runId: selectedDescriptor.runId,
+        legacy: !!selectedDescriptor.legacy,
+        tcxPath: loaded.tcxPath,
+        cachePath: loaded.cachePath,
+        pointCount: Array.isArray(loaded.rows) ? loaded.rows.length : 0,
+        chartData: Array.isArray(loaded.rows) ? loaded.rows : []
+      });
+    }
 
     const cachedRows = await readTcxMinuteCache(date);
     if (Array.isArray(cachedRows) && cachedRows.length > 0) {
       return res.json({
         date,
+        runId: date,
+        legacy: true,
         tcxPath: null,
-        cachePath: getTcxIntradayCachePath(date),
+        cachePath: getLegacyTcxIntradayCachePath(date),
         pointCount: cachedRows.length,
         chartData: cachedRows
       });
     }
 
-    const tcxPath = await findTcxFileForDate(date);
-    if (!tcxPath) {
-      return res.json({ date, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
-    }
+    return res.json({ date, runId: requestedRunId || null, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    const xmlText = await fs.readFile(tcxPath, 'utf8');
-    const trackpoints = parseTcxTrackpoints(xmlText);
-    const chartData = buildTcxMinuteChartData(trackpoints);
-    const cachePath = chartData.length > 0 ? await writeTcxMinuteCache(date, chartData) : null;
-
+app.get('/api/tcx-runs', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!date) return res.status(400).json({ error: 'Date required' });
+    const descriptors = await listTcxRunDescriptorsForDate(date);
     res.json({
       date,
-      tcxPath,
-      cachePath,
-      pointCount: chartData.length,
-      chartData
+      count: descriptors.length,
+      runs: descriptors.map((descriptor, index) => ({
+        runId: descriptor.runId,
+        date: descriptor.date,
+        index,
+        filename: descriptor.filename || null,
+        startTimeMs: descriptor.startTimeMs || null,
+        startTimeLabel: descriptor.startTimeLabel || '',
+        legacy: !!descriptor.legacy
+      }))
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1888,24 +2146,24 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
       return res.status(422).json({ error: 'No TCX trackpoints found' });
     }
 
+    const runStamp =
+      extractRunStampFromTcxFilename(originalName) ||
+      extractRunStampFromTcxXml(xmlText);
     const resolvedDate =
-      extractRunDateFromTcxFilename(originalName) ||
-      extractRunDateFromTcxXml(xmlText) ||
+      runStamp?.dateString ||
       normalizeRunDate(req.body && req.body.date);
     if (!resolvedDate) {
       return res.status(422).json({ error: 'Run date could not be determined from TCX' });
     }
+    const resolvedRunId = runStamp?.runId || buildTcxRunId(resolvedDate, '000000');
 
     const minuteRows = buildTcxMinuteChartData(trackpoints);
     if (!Array.isArray(minuteRows) || minuteRows.length === 0) {
       return res.status(422).json({ error: 'No minute data could be built from TCX' });
     }
 
-    const cachePath = await writeTcxMinuteCache(resolvedDate, minuteRows);
-    const computed = computeDailySummaryFromTcxRows(resolvedDate, minuteRows, {
-      source: 'tcx-upload',
-      cachePath
-    });
+    const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
+    const computed = await computeDailySummaryFromTcx(resolvedDate);
     const persisted = await persistComputedTcxSummary(resolvedDate, computed);
 
     res.json({
@@ -1914,6 +2172,7 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
         imported: true,
         source: 'tcx-upload',
         date: resolvedDate,
+        run_id: resolvedRunId,
         original_filename: originalName,
         cache_path: cachePath,
         pointCount: minuteRows.length,

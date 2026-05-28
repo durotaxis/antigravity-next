@@ -54,6 +54,16 @@
                 <!-- Google Fit Sessions will be injected here -->
             </section>
 
+            <section id="tcxRunPager"
+                class="glass-card"
+                style="display:none; width: 90%; margin: 20px auto; padding: 12px 16px;">
+                <div style="display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
+                    <button id="tcxRunPrevBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">◀</button>
+                    <div id="tcxRunPagerLabel" style="color: var(--text-primary); font-weight: 600;">TCX Run 1 / 1</div>
+                    <button id="tcxRunNextBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">▶</button>
+                </div>
+            </section>
+
             <div id="legacyStrideChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="strideChart"></canvas>
@@ -97,7 +107,7 @@
                 <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select Image from Mobile Devices</button>
             </div>
 
-            <section class="glass-card">
+            <section id="lapSplitsWrapper" class="glass-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
                     <h3
                         style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
@@ -126,7 +136,7 @@
                 </div>
             </section>
 
-            <section class="glass-card">
+            <section id="legacyPerMinuteWrapper" class="glass-card">
                 <h3
                     style="margin-bottom: 15px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
                     Per Minute</h3>
@@ -149,7 +159,7 @@
                 </div>
             </section>
 
-            <section class="glass-card">
+            <section id="tcxPerMinuteWrapper" class="glass-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
                     <h3
                         style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">

@@ -776,6 +776,9 @@ function renderSavedAdvice(summary) {
 
 let currentLapSplitExport = null;
 let currentTcxMinuteExport = null;
+let currentTcxRunPages = [];
+let currentTcxRunPageIndex = 0;
+let currentTcxRunPageDate = '';
 
 function setLapExportState(payload) {
     currentLapSplitExport = payload || null;
@@ -783,6 +786,45 @@ function setLapExportState(payload) {
 
 function setTcxExportState(payload) {
     currentTcxMinuteExport = payload || null;
+}
+
+function buildTcxRunLabel(run, index, total) {
+    const prefix = total > 1 ? `${index + 1}/${total}` : '1/1';
+    const time = String(run?.startTimeLabel || '').trim();
+    return time ? `TCX Run ${prefix} ${time}` : `TCX Run ${prefix}`;
+}
+
+function updateTcxRunPager(runs = [], selectedIndex = 0) {
+    const pager = document.getElementById('tcxRunPager');
+    const label = document.getElementById('tcxRunPagerLabel');
+    const prevBtn = document.getElementById('tcxRunPrevBtn');
+    const nextBtn = document.getElementById('tcxRunNextBtn');
+    const hasRuns = Array.isArray(runs) && runs.length > 0;
+    if (pager) {
+        pager.style.display = hasRuns ? '' : 'none';
+    }
+    if (!hasRuns) {
+        if (label) label.textContent = 'TCX Run 1/1';
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
+        return;
+    }
+    const safeIndex = Math.min(Math.max(Number(selectedIndex) || 0, 0), runs.length - 1);
+    if (label) label.textContent = buildTcxRunLabel(runs[safeIndex], safeIndex, runs.length);
+    const disablePaging = runs.length <= 1;
+    if (prevBtn) prevBtn.disabled = disablePaging || safeIndex <= 0;
+    if (nextBtn) nextBtn.disabled = disablePaging || safeIndex >= runs.length - 1;
+}
+
+function changeTcxRunPage(delta) {
+    if (!Array.isArray(currentTcxRunPages) || currentTcxRunPages.length <= 1) return;
+    const nextIndex = Math.min(
+        Math.max(currentTcxRunPageIndex + Number(delta || 0), 0),
+        currentTcxRunPages.length - 1
+    );
+    if (nextIndex === currentTcxRunPageIndex) return;
+    currentTcxRunPageIndex = nextIndex;
+    loadData({ triggerAdvice: false });
 }
 
 function buildLapSplitsExportPayload(dateString, sessions = [], data = []) {
@@ -1058,13 +1100,13 @@ async function loadData(options = {}) {
     try {
         const qs = new URLSearchParams({ date: String(date || '').trim() });
         if (syncSummary) qs.set('sync', '1');
-        const [res, fitSpeedSeries, fitHeartRateSeries, fitPitchSeries, fitStrideSeries, tcxMinuteData] = await Promise.all([
+        const [res, fitSpeedSeriesRaw, fitHeartRateSeriesRaw, fitPitchSeries, fitStrideSeries, tcxRuns] = await Promise.all([
             fetch(`/api/stride?${qs.toString()}`),
             fetchDetailedFitSpeedSeries(date).catch(() => []),
             fetchDetailedFitHeartRateSeries(date).catch(() => []),
             fetchDetailedFitPitchSeries(date).catch(() => []),
             fetchDetailedFitStrideSeries(date).catch(() => []),
-            fetchTcxMinuteSeries(date).catch(() => [])
+            fetchTcxRuns(date).catch(() => [])
         ]);
         if (!res.ok) {
             const errText = await res.text();
@@ -1074,6 +1116,28 @@ async function loadData(options = {}) {
         const data = await res.json();
         const dailySummary = await fetchDailySummary(date);
         const sessions = await fetchDailySessions(date);
+        currentTcxRunPages = Array.isArray(tcxRuns) ? tcxRuns : [];
+        if (currentTcxRunPageDate !== date) {
+            currentTcxRunPageIndex = 0;
+        }
+        currentTcxRunPageDate = date;
+        if (currentTcxRunPageIndex >= currentTcxRunPages.length) {
+            currentTcxRunPageIndex = Math.max(currentTcxRunPages.length - 1, 0);
+        }
+        const selectedTcxRun = currentTcxRunPages.length > 0
+            ? currentTcxRunPages[currentTcxRunPageIndex]
+            : null;
+        updateTcxRunPager(currentTcxRunPages, currentTcxRunPageIndex);
+        const tcxMinuteData = selectedTcxRun
+            ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => [])
+            : [];
+        const selectedTcxRange = getTcxRowsTimeRange(tcxMinuteData);
+        const fitSpeedSeries = selectedTcxRange
+            ? filterDetailedSeriesByRange(fitSpeedSeriesRaw, selectedTcxRange)
+            : fitSpeedSeriesRaw;
+        const fitHeartRateSeries = selectedTcxRange
+            ? filterDetailedSeriesByRange(fitHeartRateSeriesRaw, selectedTcxRange)
+            : fitHeartRateSeriesRaw;
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
         setLegacyChartVisibility(hasTcxMinuteData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
@@ -1298,6 +1362,9 @@ async function loadData(options = {}) {
 
     } catch (error) {
         console.error(error);
+        currentTcxRunPages = [];
+        currentTcxRunPageIndex = 0;
+        updateTcxRunPager([], 0);
         setLegacyChartVisibility(false);
         setLapExportState(null);
         setTcxExportState(null);
@@ -1901,14 +1968,53 @@ async function fetchDetailedFitStrideSeries(date) {
     return Array.isArray(payload?.chartData) ? payload.chartData : [];
 }
 
-async function fetchTcxMinuteSeries(date) {
-    const res = await fetch(`/api/tcx-minute?date=${encodeURIComponent(String(date || '').trim())}`);
+async function fetchTcxRuns(date) {
+    const res = await fetch(`/api/tcx-runs?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch TCX runs');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.runs) ? payload.runs : [];
+}
+
+async function fetchTcxMinuteSeries(date, runId = '') {
+    const params = new URLSearchParams({ date: String(date || '').trim() });
+    if (String(runId || '').trim()) params.set('runId', String(runId || '').trim());
+    const res = await fetch(`/api/tcx-minute?${params.toString()}`);
     if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || 'Failed to fetch TCX minute data');
     }
     const payload = await res.json();
     return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+function getTcxRowsTimeRange(rows = []) {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const numericStarts = rows
+        .map((row) => Number(row?.bucketStartMs))
+        .filter((value) => Number.isFinite(value));
+    if (numericStarts.length === 0) return null;
+    const startMs = Math.min(...numericStarts);
+    const endMs = rows.reduce((max, row) => {
+        const start = Number(row?.bucketStartMs);
+        const coverageSeconds = Number(row?.coverageSeconds) > 0 ? Number(row.coverageSeconds) : 60;
+        if (!Number.isFinite(start)) return max;
+        return Math.max(max, start + (coverageSeconds * 1000));
+    }, startMs);
+    return { startMs, endMs };
+}
+
+function filterDetailedSeriesByRange(series = [], range = null) {
+    if (!Array.isArray(series) || series.length === 0 || !range) return Array.isArray(series) ? series : [];
+    const startMs = Number(range.startMs);
+    const endMs = Number(range.endMs);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return Array.isArray(series) ? series : [];
+    return series.filter((point) => {
+        const ts = Number(point?.timestampMs);
+        return Number.isFinite(ts) && ts >= startMs && ts <= endMs;
+    });
 }
 
 function renderTcxMinuteTableRows(tbody, rows) {
@@ -2161,6 +2267,7 @@ function setLegacyChartVisibility(hasTcxMinuteData) {
     };
 
     if (hasTcxMinuteData) {
+        display('lapSplitsWrapper', false);
         display('legacyStrideChartWrapper', false);
         display('legacySpeedChartWrapper', false);
         display('fitSpeedChartWrapper', true);
@@ -2168,9 +2275,12 @@ function setLegacyChartVisibility(hasTcxMinuteData) {
         display('fitStrideChartWrapper', false);
         display('tcxStrideChartWrapper', true);
         display('tcxSpeedPitchChartWrapper', true);
+        display('legacyPerMinuteWrapper', false);
+        display('tcxPerMinuteWrapper', true);
         return;
     }
 
+    display('lapSplitsWrapper', true);
     display('legacyStrideChartWrapper', true);
     display('legacySpeedChartWrapper', true);
     display('fitSpeedChartWrapper', true);
@@ -2178,6 +2288,8 @@ function setLegacyChartVisibility(hasTcxMinuteData) {
     display('fitStrideChartWrapper', true);
     display('tcxStrideChartWrapper', false);
     display('tcxSpeedPitchChartWrapper', false);
+    display('legacyPerMinuteWrapper', true);
+    display('tcxPerMinuteWrapper', true);
 }
 
 function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
@@ -2758,6 +2870,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             alert(`Failed to copy MD: ${err.message}`);
         }
+    });
+    document.getElementById('tcxRunPrevBtn')?.addEventListener('click', () => {
+        changeTcxRunPage(-1);
+    });
+    document.getElementById('tcxRunNextBtn')?.addEventListener('click', () => {
+        changeTcxRunPage(1);
     });
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);

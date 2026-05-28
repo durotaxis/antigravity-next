@@ -6,7 +6,7 @@ const repo = require('./repo');
 const googleFitService = require('./google_fit_service');
 const geminiService = require('./gemini_service');
 
-const INBOX_DIR = path.join(__dirname, 'Phone Link');
+const INBOX_DIR = path.join(__dirname, 'Mobile Devices');
 const STORE_DIR = path.join(__dirname, 'public/assets/store');
 
 /**
@@ -303,6 +303,7 @@ module.exports = {
     // extractDateFromFilename,
     INBOX_DIR // Exporting for direct file serving if needed
 };
+
 
 
 

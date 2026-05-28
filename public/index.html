@@ -54,29 +54,39 @@
                 <!-- Google Fit Sessions will be injected here -->
             </section>
 
-            <div
+            <div id="legacyStrideChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="strideChart"></canvas>
             </div>
 
-            <div
+            <div id="legacySpeedChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="speedChart"></canvas>
             </div>
 
-            <div
+            <div id="fitSpeedChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="fitSpeedChart"></canvas>
             </div>
 
-            <div
+            <div id="fitPitchChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="fitPitchChart"></canvas>
             </div>
 
-            <div
+            <div id="fitStrideChartWrapper"
                 style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="fitStrideChart"></canvas>
+            </div>
+
+            <div id="tcxStrideChartWrapper"
+                style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+                <canvas id="tcxStrideChart"></canvas>
+            </div>
+
+            <div id="tcxSpeedPitchChartWrapper"
+                style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+                <canvas id="tcxSpeedPitchChart"></canvas>
             </div>
 
             <section id="summary">
@@ -84,7 +94,7 @@
             </section>
 
             <div class="control-primary">
-                <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select Image from Phone Link</button>
+                <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select Image from Mobile Devices</button>
             </div>
 
             <section class="glass-card">
@@ -259,7 +269,7 @@
     <div id="inboxModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Select Image from Phone Link</h2>
+                <h2>Select Image from Mobile Devices</h2>
                 <button id="closeModalBtn" class="close-btn">&times;</button>
             </div>
             <div class="modal-body">

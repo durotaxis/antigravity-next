@@ -661,7 +661,7 @@ async function handleBatchLoadImages() {
     const runDate = dateInput ? String(dateInput.value || '').trim() : '';
     const targetDate = isValidRunDate(snapshotDate) ? snapshotDate : runDate;
     try {
-        setBatchPickerMessage('Importing from Phone Link...');
+        setBatchPickerMessage('Importing from Mobile Devices...');
         const imported = await importInboxImagesForBatchDate();
         await loadBatchImageCandidates();
         if (targetDate) markDebugAnchorDate(targetDate);
@@ -1074,6 +1074,8 @@ async function loadData(options = {}) {
         const data = await res.json();
         const dailySummary = await fetchDailySummary(date);
         const sessions = await fetchDailySessions(date);
+        const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
+        setLegacyChartVisibility(hasTcxMinuteData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
         if (lapTbody) {
@@ -1083,6 +1085,7 @@ async function loadData(options = {}) {
         if (tcxTbody) {
             renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
         }
+        renderTcxMinuteCharts(tcxMinuteData);
 
         let max = { stride: 0, time: '--:--' };
 
@@ -1097,6 +1100,8 @@ async function loadData(options = {}) {
             clearFitSpeedChart();
             clearFitPitchChart();
             clearFitStrideChart();
+            clearTcxStrideChart();
+            clearTcxSpeedPitchChart();
             if (lapTbody) {
                 lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
             }
@@ -1120,6 +1125,14 @@ async function loadData(options = {}) {
             fitPitchCtx.clearRect(0, 0, fitPitchCtx.canvas.width, fitPitchCtx.canvas.height);
             const fitStrideCtx = document.getElementById('fitStrideChart').getContext('2d');
             fitStrideCtx.clearRect(0, 0, fitStrideCtx.canvas.width, fitStrideCtx.canvas.height);
+            const tcxStrideCtx = document.getElementById('tcxStrideChart').getContext('2d');
+            tcxStrideCtx.clearRect(0, 0, tcxStrideCtx.canvas.width, tcxStrideCtx.canvas.height);
+            const tcxSpeedPitchCtx = document.getElementById('tcxSpeedPitchChart').getContext('2d');
+            tcxSpeedPitchCtx.clearRect(0, 0, tcxSpeedPitchCtx.canvas.width, tcxSpeedPitchCtx.canvas.height);
+
+            if (Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0) {
+                renderTcxMinuteCharts(tcxMinuteData);
+            }
 
             // Reset Daily Message (Rest Day)
             const restMessageContainer = document.getElementById('daily-message-container');
@@ -1285,6 +1298,7 @@ async function loadData(options = {}) {
 
     } catch (error) {
         console.error(error);
+        setLegacyChartVisibility(false);
         setLapExportState(null);
         setTcxExportState(null);
         if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
@@ -1777,6 +1791,8 @@ let speedChartInstance = null;
 let fitSpeedChartInstance = null;
 let fitPitchChartInstance = null;
 let fitStrideChartInstance = null;
+let tcxStrideChartInstance = null;
+let tcxSpeedPitchChartInstance = null;
 
 // Helper: Calculate Simple Moving Average
 function calculateSMA(data, windowSize) {
@@ -1951,6 +1967,217 @@ function clearFitStrideChart() {
         const fitStrideCtx = fitStrideCanvas.getContext('2d');
         fitStrideCtx.clearRect(0, 0, fitStrideCtx.canvas.width, fitStrideCtx.canvas.height);
     }
+}
+
+function clearTcxStrideChart() {
+    if (tcxStrideChartInstance) {
+        tcxStrideChartInstance.destroy();
+        tcxStrideChartInstance = null;
+    }
+    const tcxStrideCanvas = document.getElementById('tcxStrideChart');
+    if (tcxStrideCanvas) {
+        const tcxStrideCtx = tcxStrideCanvas.getContext('2d');
+        tcxStrideCtx.clearRect(0, 0, tcxStrideCtx.canvas.width, tcxStrideCtx.canvas.height);
+    }
+}
+
+function clearTcxSpeedPitchChart() {
+    if (tcxSpeedPitchChartInstance) {
+        tcxSpeedPitchChartInstance.destroy();
+        tcxSpeedPitchChartInstance = null;
+    }
+    const tcxSpeedPitchCanvas = document.getElementById('tcxSpeedPitchChart');
+    if (tcxSpeedPitchCanvas) {
+        const tcxSpeedPitchCtx = tcxSpeedPitchCanvas.getContext('2d');
+        tcxSpeedPitchCtx.clearRect(0, 0, tcxSpeedPitchCtx.canvas.width, tcxSpeedPitchCtx.canvas.height);
+    }
+}
+
+function renderTcxMinuteCharts(rows = []) {
+    const tcxStrideCtx = document.getElementById('tcxStrideChart').getContext('2d');
+    const tcxSpeedPitchCtx = document.getElementById('tcxSpeedPitchChart').getContext('2d');
+
+    if (tcxStrideChartInstance) tcxStrideChartInstance.destroy();
+    if (tcxSpeedPitchChartInstance) tcxSpeedPitchChartInstance.destroy();
+
+    const chartData = Array.isArray(rows) ? rows.map((point) => ({ ...point })) : [];
+    const times = chartData.map((d) => d.time);
+    const strides = chartData.map((d) => Number(d.stride) > 0 ? Number(d.stride) : null);
+    const heartRates = chartData.map((d) => Number(d.heartRate) > 0 ? Number(d.heartRate) : null);
+    const speeds = chartData.map((d) => Number(d.speed) > 0 ? Number(d.speed) : null);
+    const pitches = chartData.map((d) => Number(d.pitch) > 0 ? Number(d.pitch) : null);
+
+    tcxStrideChartInstance = new Chart(tcxStrideCtx, {
+        type: 'line',
+        data: {
+            labels: times,
+            datasets: [
+                {
+                    label: 'Stride',
+                    data: strides,
+                    borderColor: '#00f2ff',
+                    backgroundColor: 'rgba(0, 242, 255, 0.05)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y-stride'
+                },
+                {
+                    label: 'HR',
+                    data: heartRates,
+                    borderColor: '#ff0055',
+                    backgroundColor: 'transparent',
+                    borderWidth: 3,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: false,
+                    yAxisID: 'y-heartrate'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: { color: '#eee' }
+                },
+                'y-stride': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Stride (cm)',
+                        color: '#00f2ff'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#00f2ff' },
+                    beginAtZero: false
+                },
+                'y-heartrate': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Heart Rate (bpm)',
+                        color: '#ff0055'
+                    },
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#ff0055' },
+                    beginAtZero: false
+                }
+            },
+            plugins: {
+                legend: { labels: { color: '#eee' } },
+                tooltip: { mode: 'index', intersect: false }
+            }
+        }
+    });
+
+    tcxSpeedPitchChartInstance = new Chart(tcxSpeedPitchCtx, {
+        type: 'line',
+        data: {
+            labels: times,
+            datasets: [
+                {
+                    label: 'Speed',
+                    data: speeds,
+                    borderColor: '#7af0b8',
+                    backgroundColor: 'rgba(122, 240, 184, 0.08)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y-speed'
+                },
+                {
+                    label: 'Pitch',
+                    data: pitches,
+                    borderColor: '#ffd166',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.35,
+                    fill: false,
+                    yAxisID: 'y-pitch'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    grid: { color: '#444' },
+                    ticks: { color: '#eee' }
+                },
+                'y-speed': {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Speed (km/h)',
+                        color: '#7af0b8'
+                    },
+                    grid: { color: '#444' },
+                    ticks: { color: '#7af0b8' },
+                    beginAtZero: false
+                },
+                'y-pitch': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Pitch (spm)',
+                        color: '#ffd166'
+                    },
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#ffd166' },
+                    beginAtZero: false
+                }
+            },
+            plugins: {
+                legend: { labels: { color: '#eee' } },
+                tooltip: { mode: 'index', intersect: false }
+            }
+        }
+    });
+}
+
+function setLegacyChartVisibility(hasTcxMinuteData) {
+    const display = (id, visible) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.style.display = visible ? '' : 'none';
+        }
+    };
+
+    if (hasTcxMinuteData) {
+        display('legacyStrideChartWrapper', false);
+        display('legacySpeedChartWrapper', false);
+        display('fitSpeedChartWrapper', true);
+        display('fitPitchChartWrapper', false);
+        display('fitStrideChartWrapper', false);
+        display('tcxStrideChartWrapper', true);
+        display('tcxSpeedPitchChartWrapper', true);
+        return;
+    }
+
+    display('legacyStrideChartWrapper', true);
+    display('legacySpeedChartWrapper', true);
+    display('fitSpeedChartWrapper', true);
+    display('fitPitchChartWrapper', true);
+    display('fitStrideChartWrapper', true);
+    display('tcxStrideChartWrapper', false);
+    display('tcxSpeedPitchChartWrapper', false);
 }
 
 function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
@@ -2752,7 +2979,7 @@ async function openInboxModal(date) {
     const importBtn = document.getElementById('importBtn');
 
     modal.style.display = 'flex';
-    grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Loading Phone Link...</div>';
+    grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Loading Mobile Devices...</div>';
     selectedFiles.clear();
     importBtn.disabled = true;
     importBtn.textContent = 'Import Selected';
@@ -2772,7 +2999,7 @@ async function openInboxModal(date) {
         }
 
         if (files.length === 0) {
-            grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Phone Link folder is empty</div>';
+            grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Mobile Devices folder is empty</div>';
             return;
         }
 

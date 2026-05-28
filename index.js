@@ -17,6 +17,19 @@ const port = 3000;
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 const TCX_DOWNLOAD_DIR = path.join(process.env.USERPROFILE || 'C:\\Users\\yuji_', 'CrossDevice', 'SO-54C', 'storage', 'Download');
 
+function getTcxIntradayCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${dateString}.json`);
+}
+
+function extractRunDateFromTcxFilename(filename) {
+  const text = String(filename || '').trim();
+  if (!text) return '';
+  const digits = text.replace(/[^0-9]/g, '');
+  const m = digits.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])/);
+  if (!m) return '';
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 function getTokyoMinuteLabel(timestampMs) {
   const date = new Date(Number(timestampMs));
   const hh = String(date.getHours()).padStart(2, '0');
@@ -49,6 +62,18 @@ function parseTcxTrackpoints(xmlText) {
       speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null
     };
   }).filter((point) => Number.isFinite(point.timestampMs)).sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+function extractRunDateFromTcxXml(xmlText) {
+  const text = String(xmlText || '');
+  const activityId = (text.match(/<Activity\b[^>]*>[\s\S]*?<Id>([^<]+)<\/Id>/) || [])[1] || '';
+  const lapStart = (text.match(/<Lap\b[^>]*StartTime="([^"]+)"/) || [])[1] || '';
+  const source = String(activityId || lapStart || '').trim();
+  if (!source) return '';
+  const timestampMs = Date.parse(source);
+  if (!Number.isFinite(timestampMs)) return '';
+  const d = new Date(timestampMs);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function buildTcxMinuteChartData(trackpoints) {
@@ -193,15 +218,69 @@ async function regenerateDailySummaryMessageFromStoredData(dateString, existingM
   }
 }
 
-async function computeDailySummaryFromTcx(dateString) {
-  const tcxPath = await findTcxFileForDate(dateString);
-  if (!tcxPath) return null;
+async function readTcxMinuteCache(dateString) {
+  try {
+    const raw = await fs.readFile(getTcxIntradayCachePath(dateString), 'utf8');
+    const rows = JSON.parse(raw);
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
 
-  const xmlText = await fs.readFile(tcxPath, 'utf8');
-  const trackpoints = parseTcxTrackpoints(xmlText);
-  if (!Array.isArray(trackpoints) || trackpoints.length === 0) return null;
+async function writeTcxMinuteCache(dateString, rows) {
+  const cachePath = getTcxIntradayCachePath(dateString);
+  await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
+  return cachePath;
+}
 
-  const minuteRows = buildTcxMinuteChartData(trackpoints);
+async function persistComputedTcxSummary(dateString, computed) {
+  if (!computed || !computed.summary) {
+    return {
+      success: true,
+      skipped: true,
+      source: 'tcx',
+      date: dateString,
+      summary: null
+    };
+  }
+
+  const existing = await repo.getDailySummary(dateString);
+  const shouldRefreshMessage =
+    dailySummaryCoreDiffers(existing, computed.summary) ||
+    !(typeof existing?.message === 'string' && existing.message.trim());
+
+  await repo.saveDailySummaryExact({
+    ...computed.summary,
+    message: existing ? existing.message : null
+  });
+
+  if (shouldRefreshMessage) {
+    const refreshedMessage = await regenerateDailySummaryMessageFromStoredData(
+      dateString,
+      existing ? existing.message : null
+    );
+    if (refreshedMessage && String(refreshedMessage).trim()) {
+      await repo.saveDailySummaryExact({
+        ...computed.summary,
+        message: refreshedMessage
+      });
+    }
+  }
+
+  const summary = await repo.getDailySummary(dateString);
+  return {
+    success: true,
+    source: computed.source || 'tcx',
+    date: dateString,
+    created: !existing,
+    tcxPath: computed.tcxPath || null,
+    cachePath: computed.cachePath || null,
+    summary
+  };
+}
+
+function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
   if (!Array.isArray(minuteRows) || minuteRows.length === 0) return null;
 
   let totalDistanceMeters = 0;
@@ -253,8 +332,9 @@ async function computeDailySummaryFromTcx(dateString) {
   const avgStride = calculateAverageStrideCm(totalDistanceKm, stepCount) || 0;
 
   return {
-    source: 'tcx',
-    tcxPath,
+    source: meta.source || 'tcx',
+    tcxPath: meta.tcxPath || null,
+    cachePath: meta.cachePath || null,
     summary: {
       date: dateString,
       step_count: stepCount,
@@ -271,6 +351,31 @@ async function computeDailySummaryFromTcx(dateString) {
       max_speed: Number(maxSpeed > 0 ? maxSpeed.toFixed(1) : '0')
     }
   };
+}
+
+async function computeDailySummaryFromTcx(dateString) {
+  const cachedRows = await readTcxMinuteCache(dateString);
+  if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+    return computeDailySummaryFromTcxRows(dateString, cachedRows, {
+      source: 'tcx-cache',
+      cachePath: getTcxIntradayCachePath(dateString)
+    });
+  }
+
+  const tcxPath = await findTcxFileForDate(dateString);
+  if (!tcxPath) return null;
+
+  const xmlText = await fs.readFile(tcxPath, 'utf8');
+  const trackpoints = parseTcxTrackpoints(xmlText);
+  if (!Array.isArray(trackpoints) || trackpoints.length === 0) return null;
+
+  const minuteRows = buildTcxMinuteChartData(trackpoints);
+  if (!Array.isArray(minuteRows) || minuteRows.length === 0) return null;
+
+  return computeDailySummaryFromTcxRows(dateString, minuteRows, {
+    source: 'tcx',
+    tcxPath
+  });
 }
 
 async function findTcxFileForDate(dateString) {
@@ -952,48 +1057,7 @@ async function syncDailySummaryFromTcx(date) {
   if (!dateString) throw new Error('Valid date is required (YYYY-MM-DD)');
 
   const computed = await computeDailySummaryFromTcx(dateString);
-  if (!computed || !computed.summary) {
-    return {
-      success: true,
-      skipped: true,
-      source: 'tcx',
-      date: dateString,
-      summary: null
-    };
-  }
-
-  const existing = await repo.getDailySummary(dateString);
-  const shouldRefreshMessage =
-    dailySummaryCoreDiffers(existing, computed.summary) ||
-    !(typeof existing?.message === 'string' && existing.message.trim());
-
-  await repo.saveDailySummaryExact({
-    ...computed.summary,
-    message: existing ? existing.message : null
-  });
-
-  if (shouldRefreshMessage) {
-    const refreshedMessage = await regenerateDailySummaryMessageFromStoredData(
-      dateString,
-      existing ? existing.message : null
-    );
-    if (refreshedMessage && String(refreshedMessage).trim()) {
-      await repo.saveDailySummaryExact({
-        ...computed.summary,
-        message: refreshedMessage
-      });
-    }
-  }
-
-  const summary = await repo.getDailySummary(dateString);
-  return {
-    success: true,
-    source: 'tcx',
-    date: dateString,
-    created: !existing,
-    tcxPath: computed.tcxPath,
-    summary
-  };
+  return persistComputedTcxSummary(dateString, computed);
 }
 
 async function importInboxFilesToAssets(filenames = []) {
@@ -1451,18 +1515,31 @@ app.get('/api/tcx-minute', async (req, res) => {
     const date = String(req.query.date || '').trim();
     if (!date) return res.status(400).json({ error: 'Date required' });
 
+    const cachedRows = await readTcxMinuteCache(date);
+    if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+      return res.json({
+        date,
+        tcxPath: null,
+        cachePath: getTcxIntradayCachePath(date),
+        pointCount: cachedRows.length,
+        chartData: cachedRows
+      });
+    }
+
     const tcxPath = await findTcxFileForDate(date);
     if (!tcxPath) {
-      return res.json({ date, tcxPath: null, pointCount: 0, chartData: [] });
+      return res.json({ date, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
     }
 
     const xmlText = await fs.readFile(tcxPath, 'utf8');
     const trackpoints = parseTcxTrackpoints(xmlText);
     const chartData = buildTcxMinuteChartData(trackpoints);
+    const cachePath = chartData.length > 0 ? await writeTcxMinuteCache(date, chartData) : null;
 
     res.json({
       date,
       tcxPath,
+      cachePath,
       pointCount: chartData.length,
       chartData
     });
@@ -1794,6 +1871,59 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage: storage });
+const uploadMemory = multer({ storage: multer.memoryStorage() });
+
+app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file' });
+
+    const originalName = String(req.file.originalname || '').trim();
+    if (!/\.tcx$/i.test(originalName)) {
+      return res.status(400).json({ error: 'TCX file required' });
+    }
+
+    const xmlText = req.file.buffer.toString('utf8');
+    const trackpoints = parseTcxTrackpoints(xmlText);
+    if (!Array.isArray(trackpoints) || trackpoints.length === 0) {
+      return res.status(422).json({ error: 'No TCX trackpoints found' });
+    }
+
+    const resolvedDate =
+      extractRunDateFromTcxFilename(originalName) ||
+      extractRunDateFromTcxXml(xmlText) ||
+      normalizeRunDate(req.body && req.body.date);
+    if (!resolvedDate) {
+      return res.status(422).json({ error: 'Run date could not be determined from TCX' });
+    }
+
+    const minuteRows = buildTcxMinuteChartData(trackpoints);
+    if (!Array.isArray(minuteRows) || minuteRows.length === 0) {
+      return res.status(422).json({ error: 'No minute data could be built from TCX' });
+    }
+
+    const cachePath = await writeTcxMinuteCache(resolvedDate, minuteRows);
+    const computed = computeDailySummaryFromTcxRows(resolvedDate, minuteRows, {
+      source: 'tcx-upload',
+      cachePath
+    });
+    const persisted = await persistComputedTcxSummary(resolvedDate, computed);
+
+    res.json({
+      success: true,
+      data: {
+        imported: true,
+        source: 'tcx-upload',
+        date: resolvedDate,
+        original_filename: originalName,
+        cache_path: cachePath,
+        pointCount: minuteRows.length,
+        summary: persisted.summary || null
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 逕ｻ蜒上い繝・・繝ｭ繝ｼ繝・-> Gemini隗｣譫・-> DB菫晏ｭ・
 app.post('/api/analyze', upload.single('image'), async (req, res) => {

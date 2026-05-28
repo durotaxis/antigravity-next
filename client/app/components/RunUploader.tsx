@@ -29,10 +29,13 @@ export default function RunUploader() {
         }
     }, [apiBase]);
 
+    const isTcxFile = (file: File) => /\.tcx$/i.test(String(file.name || '').trim());
+
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!runDate) {
+        const tcxUpload = isTcxFile(file);
+        if (!tcxUpload && !runDate) {
             alert('Please select a run date first.');
             e.target.value = '';
             return;
@@ -40,20 +43,28 @@ export default function RunUploader() {
 
         setIsUploading(true);
         const formData = new FormData();
-        formData.append('image', file);
-        formData.append('date', runDate);
-        // New screen upload is defined to use Python OCR path.
-        formData.append('ocr_mode', 'python');
+        const endpoint = tcxUpload ? '/api/import-tcx' : '/api/analyze';
+        if (tcxUpload) {
+            formData.append('file', file);
+            if (runDate) {
+                formData.append('date', runDate);
+            }
+        } else {
+            formData.append('image', file);
+            formData.append('date', runDate);
+            // New screen upload is defined to use Python OCR path.
+            formData.append('ocr_mode', 'python');
+        }
 
         try {
-            const res = await fetch(`${apiBase || getApiBase()}/api/analyze`, {
+            const res = await fetch(`${apiBase || getApiBase()}${endpoint}`, {
                 method: 'POST',
                 body: formData,
             });
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
-                if (res.status === 422 && errData?.code === 'MISSING_RUN_DATE') {
+                if (!tcxUpload && res.status === 422 && errData?.code === 'MISSING_RUN_DATE') {
                     alert('Run date could not be determined. Set the run date and try again.');
                     setIsUploading(false);
                     e.target.value = '';
@@ -63,7 +74,7 @@ export default function RunUploader() {
             }
 
             const data = await res.json();
-            if (data?.data?.duplicate_upload) {
+            if (!tcxUpload && data?.data?.duplicate_upload) {
                 alert('This image appears to be already imported. Existing data was reused.');
                 setIsUploading(false);
                 e.target.value = '';
@@ -71,7 +82,7 @@ export default function RunUploader() {
                 return;
             }
 
-            if (data?.data?.ocr_failed) {
+            if (!tcxUpload && data?.data?.ocr_failed) {
                 alert('OCR failed. The image was imported, but analysis values could not be extracted.');
                 setIsUploading(false);
                 e.target.value = '';
@@ -120,7 +131,7 @@ export default function RunUploader() {
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            <span className="font-semibold">Analyzing Run Data... (Gemini 3.0 Flash)</span>
+                            <span className="font-semibold">Importing Run Data...</span>
                         </div>
                     ) : (
                         <div className="flex flex-col items-center gap-1">
@@ -130,14 +141,14 @@ export default function RunUploader() {
                                 </svg>
                                 <span className="font-medium text-lg">Upload Run Summary</span>
                             </div>
-                            <p className="text-xs text-gray-400">Supports PNG, JPG (Auto-Analysis)</p>
+                            <p className="text-xs text-gray-400">Supports PNG, JPG, TCX</p>
                         </div>
                     )}
 
                     <input
                         id="run-upload"
                         type="file"
-                        accept="image/*"
+                        accept="image/*,.tcx"
                         className="hidden"
                         onChange={handleFileChange}
                         disabled={isUploading}

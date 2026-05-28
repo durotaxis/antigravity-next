@@ -139,6 +139,36 @@
                 </div>
             </section>
 
+            <section class="glass-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
+                    <h3
+                        style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
+                        TCX Per Minute</h3>
+                    <div style="display:flex; gap:8px;">
+                        <button id="copyTcxJsonBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">JSON</button>
+                        <button id="copyTcxMdBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">MD</button>
+                    </div>
+                </div>
+                <div class="data-table-container">
+                <table id="tcxResultTable">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Dist (m)</th>
+                            <th>Stride (cm)</th>
+                            <th>Speed (km/h)</th>
+                            <th>Heart Rate</th>
+                            <th>Pitch</th>
+                            <th>Altitude (m)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- TCX rows will be injected here -->
+                    </tbody>
+                </table>
+                </div>
+            </section>
+
             <section class="controls glass-card" id="debugControls">
                 <div class="debug-frame-label">DEBUG</div>
                 <div class="control-primary">

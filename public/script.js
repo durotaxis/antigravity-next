@@ -775,9 +775,14 @@ function renderSavedAdvice(summary) {
 }
 
 let currentLapSplitExport = null;
+let currentTcxMinuteExport = null;
 
 function setLapExportState(payload) {
     currentLapSplitExport = payload || null;
+}
+
+function setTcxExportState(payload) {
+    currentTcxMinuteExport = payload || null;
 }
 
 function buildLapSplitsExportPayload(dateString, sessions = [], data = []) {
@@ -867,6 +872,47 @@ function buildLapSplitsMarkdown(payload) {
     return lines.join('\n');
 }
 
+function buildTcxMinuteExportPayload(dateString, rows = []) {
+    return {
+        date: dateString,
+        generated_at: new Date().toISOString(),
+        source: {
+            tcx_table: 'TCX Per Minute'
+        },
+        rows: (Array.isArray(rows) ? rows : []).map((row) => ({
+            time: row.time,
+            distance_m: Number(row.distance || 0),
+            stride_cm: Number(row.stride || 0),
+            speed_kmh: Number(row.speed || 0),
+            heart_rate: Number(row.heartRate || 0),
+            pitch: Number(row.pitch || 0),
+            altitude_m: row.altitude === null || row.altitude === undefined ? null : Number(row.altitude),
+            coverage_seconds: Number(row.coverageSeconds || 0)
+        }))
+    };
+}
+
+function buildTcxMinuteMarkdown(payload) {
+    if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) {
+        return '# TCX Per Minute\n\nNo TCX minute data available.';
+    }
+
+    const lines = [
+        '# TCX Per Minute',
+        '',
+        `Date: ${payload.date}`,
+        '',
+        '| Time | Dist (m) | Stride (cm) | Speed (km/h) | Heart Rate | Pitch | Altitude (m) |',
+        '|---|---:|---:|---:|---:|---:|---:|'
+    ];
+    payload.rows.forEach((row) => {
+        lines.push(
+            `| ${row.time} | ${Number(row.distance_m || 0).toFixed(1)} | ${Number(row.stride_cm || 0).toFixed(1)} | ${Number(row.speed_kmh || 0).toFixed(1)} | ${row.heart_rate > 0 ? row.heart_rate : '-'} | ${row.pitch > 0 ? row.pitch : '-'} | ${row.altitude_m === null ? '-' : Number(row.altitude_m).toFixed(1)} |`
+        );
+    });
+    return lines.join('\n');
+}
+
 async function copyTextToClipboard(text) {
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
         await navigator.clipboard.writeText(text);
@@ -942,6 +988,36 @@ async function copyLapSplitsAsMarkdown() {
     alert('Clipboard unavailable. Opened MD in a copyable window.');
 }
 
+async function copyTcxMinuteAsJson() {
+    if (!currentTcxMinuteExport) {
+        alert('No TCX minute data available. Run ANALYZER first.');
+        return;
+    }
+    const text = JSON.stringify(currentTcxMinuteExport, null, 2);
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+        alert('JSON copied to clipboard.');
+        return;
+    }
+    openClipboardModal('JSON Output', text);
+    alert('Clipboard unavailable. Opened JSON in a copyable window.');
+}
+
+async function copyTcxMinuteAsMarkdown() {
+    if (!currentTcxMinuteExport) {
+        alert('No TCX minute data available. Run ANALYZER first.');
+        return;
+    }
+    const text = buildTcxMinuteMarkdown(currentTcxMinuteExport);
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+        alert('MD copied to clipboard.');
+        return;
+    }
+    openClipboardModal('MD Output', text);
+    alert('Clipboard unavailable. Opened MD in a copyable window.');
+}
+
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
@@ -951,9 +1027,11 @@ async function loadData(options = {}) {
     const summaryContainer = document.getElementById('summary');
     const lapTbody = document.querySelector('#lapTable tbody');
     const tbody = document.querySelector('#resultTable tbody');
+    const tcxTbody = document.querySelector('#tcxResultTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const syncJsonBtn = document.getElementById('syncJsonBtn');
     setLapExportState(null);
+    setTcxExportState(null);
 
     if (analyzeBtn) analyzeBtn.disabled = true;
     if (syncJsonBtn) syncJsonBtn.disabled = true;
@@ -966,6 +1044,9 @@ async function loadData(options = {}) {
         lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading splits...</td></tr>';
     }
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
+    if (tcxTbody) {
+        tcxTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading TCX data...</td></tr>';
+    }
 
     // Clear advice message first
     const msgContainer = document.getElementById('daily-message-container');
@@ -977,12 +1058,13 @@ async function loadData(options = {}) {
     try {
         const qs = new URLSearchParams({ date: String(date || '').trim() });
         if (syncSummary) qs.set('sync', '1');
-        const [res, fitSpeedSeries, fitHeartRateSeries, fitPitchSeries, fitStrideSeries] = await Promise.all([
+        const [res, fitSpeedSeries, fitHeartRateSeries, fitPitchSeries, fitStrideSeries, tcxMinuteData] = await Promise.all([
             fetch(`/api/stride?${qs.toString()}`),
             fetchDetailedFitSpeedSeries(date).catch(() => []),
             fetchDetailedFitHeartRateSeries(date).catch(() => []),
             fetchDetailedFitPitchSeries(date).catch(() => []),
-            fetchDetailedFitStrideSeries(date).catch(() => [])
+            fetchDetailedFitStrideSeries(date).catch(() => []),
+            fetchTcxMinuteSeries(date).catch(() => [])
         ]);
         if (!res.ok) {
             const errText = await res.text();
@@ -990,12 +1072,17 @@ async function loadData(options = {}) {
         }
 
         const data = await res.json();
+        const dailySummary = await fetchDailySummary(date);
         const sessions = await fetchDailySessions(date);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
+        setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
         if (lapTbody) {
             renderLapTableRows(lapTbody, buildPerKmSplits(data, sessions, date));
         }
         tbody.innerHTML = '';
+        if (tcxTbody) {
+            renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
+        }
 
         let max = { stride: 0, time: '--:--' };
 
@@ -1014,7 +1101,11 @@ async function loadData(options = {}) {
                 lapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No 1km splits</td></tr>';
             }
             setLapExportState(null);
+            setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
+            if (tcxTbody) {
+                renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
+            }
             if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
             summaryContainer.innerHTML = ''; // Clear summary
 
@@ -1049,7 +1140,7 @@ async function loadData(options = {}) {
             return;
         }
 
-        // Peak Performance Calculation (Using Backend-Smoothed Data)
+        // Peak Performance Calculation
         let maxStrideVal = 0;
         let maxIndex = 0;
 
@@ -1062,16 +1153,8 @@ async function loadData(options = {}) {
             }
         });
 
-        const maxStride = maxStrideVal;
-        const maxTime = data[maxIndex].time;
-        let hrAtMax = 0;
-        if (maxIndex < data.length - 2) {
-            hrAtMax = Math.round((data[maxIndex].heartRate + data[maxIndex + 1].heartRate + data[maxIndex + 2].heartRate) / 3);
-        } else {
-            hrAtMax = data[maxIndex].heartRate;
-        }
-
-        let maxHeartRate = hrAtMax;
+        const intradayMaxStride = maxStrideVal;
+        const intradayMaxTime = data[maxIndex].time;
 
         data.forEach(d => {
             const velocityKmH = Number.isFinite(Number(d.speed)) && Number(d.speed) > 0
@@ -1123,15 +1206,9 @@ async function loadData(options = {}) {
         const totalSeconds = Math.max(0, data.length * 60);
         const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
         const totalDistanceMeters = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
-        const totalGap = WR_STRIDE - maxStride;
-        const heartRateGuide = getHeartRateZoneGuide();
-        if (sessionSummaryContainer) {
-            sessionSummaryContainer.innerHTML = renderSessionSummary(sessions);
-        }
-        summaryContainer.innerHTML = renderSummary(
-            maxStride,
-            maxTime,
-            totalGap,
+        const intradaySummaryMetrics = {
+            maxStride: intradayMaxStride,
+            maxTime: intradayMaxTime,
             maxHR,
             avgHR,
             maxCadence,
@@ -1140,7 +1217,30 @@ async function loadData(options = {}) {
             avgSpeed,
             totalSeconds,
             totalSteps,
-            totalDistanceMeters,
+            totalDistanceMeters
+        };
+        const tcxSummaryMetrics = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0
+            ? buildTcxSummaryMetrics(tcxMinuteData)
+            : null;
+        const peakMetrics = buildLegacyPeakMetrics(dailySummary, tcxSummaryMetrics, intradaySummaryMetrics);
+        const totalGap = WR_STRIDE - peakMetrics.maxStride;
+        const heartRateGuide = getHeartRateZoneGuide();
+        if (sessionSummaryContainer) {
+            sessionSummaryContainer.innerHTML = renderSessionSummary(sessions);
+        }
+        summaryContainer.innerHTML = renderSummary(
+            peakMetrics.maxStride,
+            peakMetrics.maxTime || intradayMaxTime,
+            totalGap,
+            peakMetrics.maxHR,
+            peakMetrics.avgHR,
+            peakMetrics.maxCadence,
+            peakMetrics.avgCadence,
+            peakMetrics.maxSpeed,
+            peakMetrics.avgSpeed,
+            peakMetrics.totalSeconds,
+            peakMetrics.totalSteps,
+            peakMetrics.totalDistanceMeters,
             heartRateGuide
         );
 
@@ -1165,7 +1265,6 @@ async function loadData(options = {}) {
         // --- Check & Render Images ---
         checkAndRenderImages(date);
 
-        const dailySummary = await fetchDailySummary(date);
         const canTriggerAdvice =
             triggerAdvice &&
             shouldTriggerAdvice(date, dailySummary) &&
@@ -1187,11 +1286,15 @@ async function loadData(options = {}) {
     } catch (error) {
         console.error(error);
         setLapExportState(null);
+        setTcxExportState(null);
         if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
         if (lapTbody) {
             lapTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading splits: ${error.message}</td></tr>`;
         }
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
+        if (tcxTbody) {
+            tcxTbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading TCX data: ${error.message}</td></tr>`;
+        }
         // Even if stride fetch fails, still allow importing images for the selected date.
         checkAndRenderImages(date);
     } finally {
@@ -1331,6 +1434,120 @@ function finalizeLapAccumulator(lap, sessionNumber = 1, totalSessions = 1) {
         avgStride,
         distanceMeters: Number(lap.distanceMeters.toFixed(1)),
         elapsedSeconds: Number(lap.timeSeconds.toFixed(1))
+    };
+}
+
+function hmsToSeconds(text) {
+    const parts = String(text || '').trim().split(':').map(Number);
+    if (parts.length === 3 && parts.every(Number.isFinite)) {
+        return Math.max(0, parts[0] * 3600 + parts[1] * 60 + parts[2]);
+    }
+    if (parts.length === 2 && parts.every(Number.isFinite)) {
+        return Math.max(0, parts[0] * 60 + parts[1]);
+    }
+    return 0;
+}
+
+function buildTcxSummaryMetrics(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    let totalDistanceMeters = 0;
+    let totalSeconds = 0;
+    let totalSteps = 0;
+    let maxStride = 0;
+    let maxTime = '--:--';
+    let maxHR = 0;
+    let sumHR = 0;
+    let countHR = 0;
+    let maxCadence = 0;
+    let sumCadence = 0;
+    let countCadence = 0;
+    let maxSpeed = 0;
+    let sumSpeed = 0;
+    let countSpeed = 0;
+
+    rows.forEach((row) => {
+        const distance = Number(row?.distance) || 0;
+        const coverageSeconds = Number(row?.coverageSeconds) || 0;
+        const stride = Number(row?.stride) || 0;
+        const heartRate = Number(row?.heartRate) || 0;
+        const pitch = Number(row?.pitch) || 0;
+        const speed = Number(row?.speed) || 0;
+
+        totalDistanceMeters += distance;
+        totalSeconds += coverageSeconds;
+        if (pitch > 0 && coverageSeconds > 0) {
+            totalSteps += (pitch * coverageSeconds) / 60;
+            sumCadence += pitch;
+            countCadence += 1;
+            if (pitch > maxCadence) maxCadence = pitch;
+        }
+        if (stride > maxStride) {
+            maxStride = stride;
+            maxTime = String(row?.time || '--:--');
+        }
+        if (heartRate > 0) {
+            sumHR += heartRate;
+            countHR += 1;
+            if (heartRate > maxHR) maxHR = heartRate;
+        }
+        if (speed > 0) {
+            sumSpeed += speed;
+            countSpeed += 1;
+            if (speed > maxSpeed) maxSpeed = speed;
+        }
+    });
+
+    return {
+        maxStride: Number(maxStride.toFixed(1)),
+        maxTime,
+        maxHR,
+        avgHR: countHR > 0 ? (sumHR / countHR) : 0,
+        maxCadence,
+        avgCadence: countCadence > 0 ? (sumCadence / countCadence) : 0,
+        maxSpeed,
+        avgSpeed: countSpeed > 0 ? (sumSpeed / countSpeed) : 0,
+        totalSeconds,
+        totalSteps: Math.round(totalSteps),
+        totalDistanceMeters
+    };
+}
+
+function buildLegacyPeakMetrics(summary, tcxSummaryMetrics, intradaySummaryMetrics) {
+    const fallback = tcxSummaryMetrics || intradaySummaryMetrics || {
+        maxStride: 0,
+        maxTime: '--:--',
+        maxHR: 0,
+        avgHR: 0,
+        maxCadence: 0,
+        avgCadence: 0,
+        maxSpeed: 0,
+        avgSpeed: 0,
+        totalSeconds: 0,
+        totalSteps: 0,
+        totalDistanceMeters: 0
+    };
+
+    if (!(summary && typeof summary === 'object')) {
+        return fallback;
+    }
+
+    return {
+        maxStride: Number(summary?.max_stride) > 0 ? Number(summary.max_stride) : fallback.maxStride,
+        maxTime: fallback.maxTime,
+        maxHR: Number(summary?.hr_max) > 0 ? Number(summary.hr_max) : fallback.maxHR,
+        avgHR: Number(summary?.hr_avg) > 0 ? Number(summary.hr_avg) : fallback.avgHR,
+        maxCadence: Number(summary?.max_cadence) > 0 ? Number(summary.max_cadence) : fallback.maxCadence,
+        avgCadence: Number(summary?.avg_cadence) > 0 ? Number(summary.avg_cadence) : fallback.avgCadence,
+        maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : fallback.maxSpeed,
+        avgSpeed: Number(summary?.avg_speed) > 0 ? Number(summary.avg_speed) : fallback.avgSpeed,
+        totalSeconds: (summary?.total_time && String(summary.total_time).trim())
+            ? hmsToSeconds(String(summary.total_time).trim())
+            : fallback.totalSeconds,
+        totalSteps: Number(summary?.step_count) > 0 ? Number(summary.step_count) : fallback.totalSteps,
+        totalDistanceMeters: Number(summary?.total_distance_km) > 0
+            ? Number(summary.total_distance_km) * 1000
+            : fallback.totalDistanceMeters
     };
 }
 
@@ -1666,6 +1883,38 @@ async function fetchDetailedFitStrideSeries(date) {
     }
     const payload = await res.json();
     return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+async function fetchTcxMinuteSeries(date) {
+    const res = await fetch(`/api/tcx-minute?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch TCX minute data');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
+function renderTcxMinuteTableRows(tbody, rows) {
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!Array.isArray(rows) || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--text-secondary);">No TCX minute data</td></tr>';
+        return;
+    }
+    rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${row.time}</td>
+            <td>${Number(row.distance || 0).toFixed(1)}</td>
+            <td>${Number(row.stride) > 0 ? Number(row.stride).toFixed(1) : '-'}</td>
+            <td style="color: #00f2ff; font-weight: bold;">${Number(row.speed) > 0 ? Number(row.speed).toFixed(1) : '-'}</td>
+            <td style="color: #ff4444;">${Number(row.heartRate) > 0 ? Math.round(Number(row.heartRate)) : '-'}</td>
+            <td style="color: #ffd166;">${Number(row.pitch) > 0 ? Math.round(Number(row.pitch)) : '-'}</td>
+            <td>${Number.isFinite(Number(row.altitude)) ? Number(row.altitude).toFixed(1) : '-'}</td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 function clearFitSpeedChart() {
@@ -2265,6 +2514,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('copySplitsMdBtn')?.addEventListener('click', async () => {
         try {
             await copyLapSplitsAsMarkdown();
+        } catch (err) {
+            alert(`Failed to copy MD: ${err.message}`);
+        }
+    });
+    document.getElementById('copyTcxJsonBtn')?.addEventListener('click', async () => {
+        try {
+            await copyTcxMinuteAsJson();
+        } catch (err) {
+            alert(`Failed to copy JSON: ${err.message}`);
+        }
+    });
+    document.getElementById('copyTcxMdBtn')?.addEventListener('click', async () => {
+        try {
+            await copyTcxMinuteAsMarkdown();
         } catch (err) {
             alert(`Failed to copy MD: ${err.message}`);
         }

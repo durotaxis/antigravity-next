@@ -15,6 +15,279 @@ const googleFitService = require('./google_fit_service');
 const app = express();
 const port = 3000;
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
+const TCX_DOWNLOAD_DIR = path.join(process.env.USERPROFILE || 'C:\\Users\\yuji_', 'CrossDevice', 'SO-54C', 'storage', 'Download');
+
+function getTokyoMinuteLabel(timestampMs) {
+  const date = new Date(Number(timestampMs));
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function floorToMinuteMs(timestampMs) {
+  const date = new Date(Number(timestampMs));
+  date.setSeconds(0, 0);
+  return date.getTime();
+}
+
+function parseTcxTrackpoints(xmlText) {
+  const blocks = String(xmlText || '').match(/<Trackpoint>[\s\S]*?<\/Trackpoint>/g) || [];
+  return blocks.map((block) => {
+    const time = (block.match(/<Time>([^<]+)<\/Time>/) || [])[1] || null;
+    const distance = (block.match(/<DistanceMeters>([^<]+)<\/DistanceMeters>/) || [])[1] || null;
+    const altitude = (block.match(/<AltitudeMeters>([^<]+)<\/AltitudeMeters>/) || [])[1] || null;
+    const heartRate = (block.match(/<HeartRateBpm>\s*<Value>([^<]+)<\/Value>\s*<\/HeartRateBpm>/) || [])[1] || null;
+    const cadence = (block.match(/<Cadence>([^<]+)<\/Cadence>/) || [])[1] || null;
+    const speed = (block.match(/<Speed>([^<]+)<\/Speed>/) || [])[1] || null;
+    const timestampMs = time ? Date.parse(time) : NaN;
+    return {
+      timestampMs,
+      distanceMeters: Number.isFinite(Number(distance)) ? Number(distance) : null,
+      altitudeMeters: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
+      heartRate: Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
+      cadence: Number.isFinite(Number(cadence)) ? Number(cadence) : null,
+      speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null
+    };
+  }).filter((point) => Number.isFinite(point.timestampMs)).sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+function buildTcxMinuteChartData(trackpoints) {
+  const minuteMap = new Map();
+  let previousDistanceMeters = null;
+
+  for (const point of trackpoints) {
+    const minuteStartMs = floorToMinuteMs(point.timestampMs);
+    if (!minuteMap.has(minuteStartMs)) {
+      minuteMap.set(minuteStartMs, {
+        time: getTokyoMinuteLabel(minuteStartMs),
+        bucketStartMs: minuteStartMs,
+        distance: 0,
+        speedSum: 0,
+        speedCount: 0,
+        heartRateSum: 0,
+        heartRateCount: 0,
+        altitudeSum: 0,
+        altitudeCount: 0,
+        coverageSeconds: 0,
+        pitchSum: 0,
+        pitchCount: 0
+      });
+    }
+
+    const bucket = minuteMap.get(minuteStartMs);
+    bucket.coverageSeconds += 1;
+    if (Number.isFinite(point.distanceMeters) && Number.isFinite(previousDistanceMeters)) {
+      const delta = point.distanceMeters - previousDistanceMeters;
+      if (delta > 0) bucket.distance += delta;
+    }
+    if (Number.isFinite(point.distanceMeters)) {
+      previousDistanceMeters = point.distanceMeters;
+    }
+    // COROS-exported TCX Speed is already aligned with the values we want to
+    // observe in km/h-like display terms for this app. Do not scale again.
+    if (Number.isFinite(point.speedMps) && point.speedMps > 0) {
+      bucket.speedSum += point.speedMps;
+      bucket.speedCount += 1;
+    }
+    if (Number.isFinite(point.heartRate) && point.heartRate > 0) {
+      bucket.heartRateSum += point.heartRate;
+      bucket.heartRateCount += 1;
+    }
+    if (Number.isFinite(point.altitudeMeters)) {
+      bucket.altitudeSum += point.altitudeMeters;
+      bucket.altitudeCount += 1;
+    }
+    if (Number.isFinite(point.cadence) && point.cadence > 0) {
+      bucket.pitchSum += point.cadence * 2;
+      bucket.pitchCount += 1;
+    }
+  }
+
+  return Array.from(minuteMap.values())
+    .sort((a, b) => a.bucketStartMs - b.bucketStartMs)
+    .map((bucket) => {
+      const distance = Number(bucket.distance.toFixed(1));
+      const pitch = bucket.pitchCount > 0 ? Math.round(bucket.pitchSum / bucket.pitchCount) : 0;
+      const stride = pitch > 0 && distance > 0
+        ? Number(((distance / pitch) * 100).toFixed(1))
+        : 0;
+      return {
+        time: bucket.time,
+        bucketStartMs: bucket.bucketStartMs,
+        coverageSeconds: bucket.coverageSeconds,
+        distance,
+        stride,
+        speed: bucket.speedCount > 0 ? Number((bucket.speedSum / bucket.speedCount).toFixed(1)) : 0,
+        heartRate: bucket.heartRateCount > 0 ? Math.round(bucket.heartRateSum / bucket.heartRateCount) : 0,
+        pitch,
+        altitude: bucket.altitudeCount > 0 ? Number((bucket.altitudeSum / bucket.altitudeCount).toFixed(1)) : null
+      };
+    });
+}
+
+function dailySummaryCoreDiffers(existing, nextSummary) {
+  if (!existing || !nextSummary) return true;
+  const numericKeys = [
+    'step_count',
+    'total_distance_km',
+    'max_stride',
+    'avg_stride',
+    'hr_avg',
+    'hr_max',
+    'avg_cadence',
+    'max_cadence',
+    'avg_speed',
+    'max_speed'
+  ];
+  for (const key of numericKeys) {
+    const a = Number(existing[key] || 0);
+    const b = Number(nextSummary[key] || 0);
+    if (Math.abs(a - b) > 0.05) return true;
+  }
+  return String(existing.total_time || '') !== String(nextSummary.total_time || '');
+}
+
+async function regenerateDailySummaryMessageFromStoredData(dateString, existingMessage = null) {
+  const dailySummary = await repo.getDailySummary(dateString);
+  if (!dailySummary) return existingMessage || null;
+
+  const cacheMetrics = await computeDailySummaryFromCache(dateString);
+  const resolvedStepCount = pickPositive(dailySummary.step_count, cacheMetrics.step_count);
+  const resolvedTotalDistanceKm = pickPositive(dailySummary.total_distance_km, cacheMetrics.total_distance_km);
+  const resolvedTotalTime = pickText(dailySummary.total_time, cacheMetrics.total_time);
+  const resolvedAvgStride = pickPositive(dailySummary.avg_stride, cacheMetrics.avg_stride_cm);
+  const resolvedMaxStride = pickPositive(dailySummary.max_stride, cacheMetrics.max_stride_cm);
+  const resolvedAvgHr = pickPositive(dailySummary.hr_avg, cacheMetrics.avg_heart_rate);
+  const resolvedMaxHr = pickPositive(dailySummary.hr_max, cacheMetrics.max_heart_rate);
+  const resolvedAvgCadence = pickPositive(dailySummary.avg_cadence, cacheMetrics.avg_cadence);
+  const resolvedMaxCadence = pickPositive(dailySummary.max_cadence, cacheMetrics.max_cadence);
+  const resolvedAvgSpeed = pickPositive(dailySummary.avg_speed, cacheMetrics.avg_speed);
+  const resolvedMaxSpeed = pickPositive(dailySummary.max_speed, cacheMetrics.max_speed);
+
+  const images = await imageRepo.getImagesForRun(dateString);
+  const imagePaths = images.map((img) => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
+
+  try {
+    const advice = await openaiService.generateCoachMessage({
+      date: dateString,
+      stepCount: resolvedStepCount,
+      totalDistanceKm: resolvedTotalDistanceKm,
+      totalTime: resolvedTotalTime,
+      avgStride: resolvedAvgStride,
+      maxStride: resolvedMaxStride,
+      avgHR: resolvedAvgHr,
+      maxHR: resolvedMaxHr,
+      avgCadence: resolvedAvgCadence,
+      maxCadence: resolvedMaxCadence,
+      avgSpeed: resolvedAvgSpeed,
+      maxSpeed: resolvedMaxSpeed
+    }, imagePaths);
+
+    const normalized = String(advice || '').trim();
+    if (!normalized || normalized === 'No API Key' || normalized === 'AI message is empty.') {
+      return existingMessage || dailySummary.message || null;
+    }
+    return normalized;
+  } catch {
+    return existingMessage || dailySummary.message || null;
+  }
+}
+
+async function computeDailySummaryFromTcx(dateString) {
+  const tcxPath = await findTcxFileForDate(dateString);
+  if (!tcxPath) return null;
+
+  const xmlText = await fs.readFile(tcxPath, 'utf8');
+  const trackpoints = parseTcxTrackpoints(xmlText);
+  if (!Array.isArray(trackpoints) || trackpoints.length === 0) return null;
+
+  const minuteRows = buildTcxMinuteChartData(trackpoints);
+  if (!Array.isArray(minuteRows) || minuteRows.length === 0) return null;
+
+  let totalDistanceMeters = 0;
+  let totalCoverageSeconds = 0;
+  let estimatedSteps = 0;
+  let maxStride = 0;
+  let maxHr = 0;
+  let sumHr = 0;
+  let countHr = 0;
+  let maxPitch = 0;
+  let sumPitch = 0;
+  let countPitch = 0;
+  let maxSpeed = 0;
+  let sumSpeed = 0;
+  let countSpeed = 0;
+
+  for (const row of minuteRows) {
+    const distance = Number(row.distance) || 0;
+    const coverageSeconds = Number(row.coverageSeconds) || 0;
+    const pitch = Number(row.pitch) || 0;
+    const stride = Number(row.stride) || 0;
+    const heartRate = Number(row.heartRate) || 0;
+    const speed = Number(row.speed) || 0;
+
+    totalDistanceMeters += distance;
+    totalCoverageSeconds += coverageSeconds;
+    if (pitch > 0 && coverageSeconds > 0) {
+      estimatedSteps += (pitch * coverageSeconds) / 60;
+      sumPitch += pitch;
+      countPitch += 1;
+      if (pitch > maxPitch) maxPitch = pitch;
+    }
+    if (stride > 0 && stride > maxStride) maxStride = stride;
+    if (heartRate > 0) {
+      sumHr += heartRate;
+      countHr += 1;
+      if (heartRate > maxHr) maxHr = heartRate;
+    }
+    if (speed > 0) {
+      sumSpeed += speed;
+      countSpeed += 1;
+      if (speed > maxSpeed) maxSpeed = speed;
+    }
+  }
+
+  const totalDistanceKm = Number((totalDistanceMeters / 1000).toFixed(2));
+  const stepCount = Math.round(estimatedSteps);
+  const totalTime = totalCoverageSeconds > 0 ? secondsToHms(totalCoverageSeconds) : null;
+  const avgStride = calculateAverageStrideCm(totalDistanceKm, stepCount) || 0;
+
+  return {
+    source: 'tcx',
+    tcxPath,
+    summary: {
+      date: dateString,
+      step_count: stepCount,
+      total_distance_km: totalDistanceKm,
+      total_time: totalTime,
+      calories_kcal: 0,
+      max_stride: Number(maxStride > 0 ? maxStride.toFixed(1) : '0'),
+      avg_stride: avgStride,
+      hr_max: Math.round(maxHr || 0),
+      hr_avg: countHr > 0 ? Math.round(sumHr / countHr) : 0,
+      avg_cadence: countPitch > 0 ? Math.round(sumPitch / countPitch) : 0,
+      max_cadence: Math.round(maxPitch || 0),
+      avg_speed: countSpeed > 0 ? Number((sumSpeed / countSpeed).toFixed(1)) : 0,
+      max_speed: Number(maxSpeed > 0 ? maxSpeed.toFixed(1) : '0')
+    }
+  };
+}
+
+async function findTcxFileForDate(dateString) {
+  const ymd = String(dateString || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(ymd)) return null;
+  let names = [];
+  try {
+    names = await fs.readdir(TCX_DOWNLOAD_DIR);
+  } catch {
+    return null;
+  }
+  const candidates = names
+    .filter((name) => /\.tcx$/i.test(name) && name.includes(ymd))
+    .sort();
+  if (candidates.length === 0) return null;
+  return path.join(TCX_DOWNLOAD_DIR, candidates[candidates.length - 1]);
+}
 
 async function computeDerivedFromIntradayCache(dateString) {
   try {
@@ -674,6 +947,55 @@ async function syncDailySummaryFromCache(date) {
   };
 }
 
+async function syncDailySummaryFromTcx(date) {
+  const dateString = normalizeRunDate(date);
+  if (!dateString) throw new Error('Valid date is required (YYYY-MM-DD)');
+
+  const computed = await computeDailySummaryFromTcx(dateString);
+  if (!computed || !computed.summary) {
+    return {
+      success: true,
+      skipped: true,
+      source: 'tcx',
+      date: dateString,
+      summary: null
+    };
+  }
+
+  const existing = await repo.getDailySummary(dateString);
+  const shouldRefreshMessage =
+    dailySummaryCoreDiffers(existing, computed.summary) ||
+    !(typeof existing?.message === 'string' && existing.message.trim());
+
+  await repo.saveDailySummary({
+    ...computed.summary,
+    message: existing ? existing.message : null
+  });
+
+  if (shouldRefreshMessage) {
+    const refreshedMessage = await regenerateDailySummaryMessageFromStoredData(
+      dateString,
+      existing ? existing.message : null
+    );
+    if (refreshedMessage && String(refreshedMessage).trim()) {
+      await repo.saveDailySummary({
+        ...computed.summary,
+        message: refreshedMessage
+      });
+    }
+  }
+
+  const summary = await repo.getDailySummary(dateString);
+  return {
+    success: true,
+    source: 'tcx',
+    date: dateString,
+    created: !existing,
+    tcxPath: computed.tcxPath,
+    summary
+  };
+}
+
 async function importInboxFilesToAssets(filenames = []) {
   const results = [];
   for (const file of filenames) {
@@ -740,7 +1062,58 @@ app.get('/api/runs', async (req, res) => {
 
     const includeDerived = String(req.query.includeDerived || '') === '1';
 
-    const formattedRuns = await Promise.all(rawRuns.map(async (row) => {
+    const formattedRuns = await Promise.all(rawRuns.map(async (originalRow) => {
+      let row = originalRow;
+      if (includeDerived) {
+        const refreshedFromTcx = await syncDailySummaryFromTcx(row.date).catch(() => null);
+        const refreshedSummary = refreshedFromTcx && refreshedFromTcx.summary ? refreshedFromTcx.summary : null;
+        if (refreshedSummary) {
+          row = {
+            ...row,
+            step_count: refreshedSummary.step_count ?? row.step_count,
+            total_distance_km: refreshedSummary.total_distance_km ?? row.total_distance_km,
+            total_time: refreshedSummary.total_time ?? row.total_time,
+            calories_kcal: refreshedSummary.calories_kcal ?? row.calories_kcal,
+            avg_stride: refreshedSummary.avg_stride ?? row.avg_stride,
+            hr_avg: refreshedSummary.hr_avg ?? row.hr_avg,
+            max_stride: refreshedSummary.max_stride ?? row.max_stride,
+            hr_max: refreshedSummary.hr_max ?? row.hr_max,
+            avg_cadence: refreshedSummary.avg_cadence ?? row.avg_cadence,
+            max_cadence: refreshedSummary.max_cadence ?? row.max_cadence,
+            avg_speed: refreshedSummary.avg_speed ?? row.avg_speed,
+            max_speed: refreshedSummary.max_speed ?? row.max_speed,
+            message: refreshedSummary.message ?? row.message
+          };
+        }
+      }
+      const isMissingCoreRunMetrics =
+        !(Number(row?.step_count) > 0) ||
+        !(Number(row?.total_distance_km) > 0) ||
+        !(typeof row?.total_time === 'string' && row.total_time.trim());
+
+      if (includeDerived && isMissingCoreRunMetrics) {
+        const refreshed = await syncDailySummaryFromCache(row.date).catch(() => null);
+        const refreshedSummary = refreshed && refreshed.summary ? refreshed.summary : null;
+        if (refreshedSummary) {
+          row = {
+            ...row,
+            step_count: refreshedSummary.step_count ?? row.step_count,
+            total_distance_km: refreshedSummary.total_distance_km ?? row.total_distance_km,
+            total_time: refreshedSummary.total_time ?? row.total_time,
+            calories_kcal: refreshedSummary.calories_kcal ?? row.calories_kcal,
+            avg_stride: refreshedSummary.avg_stride ?? row.avg_stride,
+            hr_avg: refreshedSummary.hr_avg ?? row.hr_avg,
+            max_stride: refreshedSummary.max_stride ?? row.max_stride,
+            hr_max: refreshedSummary.hr_max ?? row.hr_max,
+            avg_cadence: refreshedSummary.avg_cadence ?? row.avg_cadence,
+            max_cadence: refreshedSummary.max_cadence ?? row.max_cadence,
+            avg_speed: refreshedSummary.avg_speed ?? row.avg_speed,
+            max_speed: refreshedSummary.max_speed ?? row.max_speed,
+            message: refreshedSummary.message ?? row.message
+          };
+        }
+      }
+
       const derived = includeDerived ? await computeDerivedFromIntradayCache(row.date) : null;
       const images = Array.isArray(row.images)
         ? row.images.map((img) => {
@@ -1073,6 +1446,31 @@ app.get('/api/fit-stride', async (req, res) => {
   }
 });
 
+app.get('/api/tcx-minute', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const tcxPath = await findTcxFileForDate(date);
+    if (!tcxPath) {
+      return res.json({ date, tcxPath: null, pointCount: 0, chartData: [] });
+    }
+
+    const xmlText = await fs.readFile(tcxPath, 'utf8');
+    const trackpoints = parseTcxTrackpoints(xmlText);
+    const chartData = buildTcxMinuteChartData(trackpoints);
+
+    res.json({
+      date,
+      tcxPath,
+      pointCount: chartData.length,
+      chartData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2.6 Get Intraday Stride Data (For Chart)
 app.get('/api/stride', async (req, res) => {
   try {
@@ -1201,6 +1599,18 @@ app.post('/api/daily/:date/sync-cache', async (req, res) => {
     res.json(payload);
   } catch (err) {
     console.error('Daily cache sync error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/daily/:date/sync-tcx', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.params && req.params.date);
+    if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
+    const payload = await syncDailySummaryFromTcx(date);
+    res.json(payload);
+  } catch (err) {
+    console.error('Daily TCX sync error:', err);
     res.status(500).json({ error: err.message });
   }
 });

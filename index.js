@@ -37,6 +37,11 @@ function getTcxRunCachePath(runId) {
   return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${safeRunId}.json`);
 }
 
+function getTcxRunSplitsCachePath(runId) {
+  const safeRunId = sanitizeTcxRunId(runId);
+  return path.join(__dirname, 'storage', 'cache', `tcx_splits_${safeRunId}.json`);
+}
+
 function formatLocalTimeLabel(timestampMs, withSeconds = false) {
   if (!Number.isFinite(Number(timestampMs))) return '';
   const d = new Date(Number(timestampMs));
@@ -111,6 +116,54 @@ function parseTcxTrackpoints(xmlText) {
       speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null
     };
   }).filter((point) => Number.isFinite(point.timestampMs)).sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+function parseTcxLaps(xmlText) {
+  const blocks = String(xmlText || '').match(/<Lap\b[\s\S]*?<\/Lap>/g) || [];
+  return blocks.map((block, index) => {
+    const startTime = (block.match(/<Lap\b[^>]*StartTime="([^"]+)"/) || [])[1] || null;
+    const totalTimeSeconds = Number((block.match(/<TotalTimeSeconds>([^<]+)<\/TotalTimeSeconds>/) || [])[1] || 0);
+    const distanceMeters = Number((block.match(/<DistanceMeters>([^<]+)<\/DistanceMeters>/) || [])[1] || 0);
+    const avgHr = Number((block.match(/<AverageHeartRateBpm>\s*<Value>([^<]+)<\/Value>\s*<\/AverageHeartRateBpm>/) || [])[1] || 0);
+    const maxHr = Number((block.match(/<MaximumHeartRateBpm>\s*<Value>([^<]+)<\/Value>\s*<\/MaximumHeartRateBpm>/) || [])[1] || 0);
+    const trackpoints = parseTcxTrackpoints(block);
+
+    let pitchSum = 0;
+    let pitchCount = 0;
+    for (const point of trackpoints) {
+      if (Number.isFinite(point.cadence) && point.cadence > 0) {
+        pitchSum += point.cadence * 2;
+        pitchCount += 1;
+      }
+    }
+
+    const avgPitch = pitchCount > 0 ? Math.round(pitchSum / pitchCount) : 0;
+    const avgSpeed = totalTimeSeconds > 0 && distanceMeters > 0
+      ? Number(((distanceMeters / totalTimeSeconds) * 3.6).toFixed(1))
+      : 0;
+    const estimatedSteps = avgPitch > 0 && totalTimeSeconds > 0
+      ? (avgPitch * totalTimeSeconds) / 60
+      : 0;
+    const avgStride = estimatedSteps > 0 && distanceMeters > 0
+      ? Number(((distanceMeters / estimatedSteps) * 100).toFixed(1))
+      : 0;
+
+    return {
+      index: index + 1,
+      lapLabel: `${index + 1}km`,
+      distanceLabel: distanceMeters > 0 ? `${(distanceMeters / 1000).toFixed(distanceMeters >= 1000 ? 1 : 2)} km` : '-',
+      distanceMeters: Number(distanceMeters.toFixed(1)),
+      elapsedSeconds: Math.max(0, totalTimeSeconds),
+      avgSpeed,
+      avgPitch,
+      avgHr: avgHr > 0 ? Math.round(avgHr) : (maxHr > 0 ? Math.round(maxHr) : 0),
+      avgStride,
+      startTimeMs: Number.isFinite(Date.parse(String(startTime || ''))) ? Date.parse(String(startTime || '')) : null,
+      startTimeLabel: Number.isFinite(Date.parse(String(startTime || '')))
+        ? formatLocalTimeLabel(Date.parse(String(startTime || '')), true)
+        : ''
+    };
+  }).filter((lap) => lap.distanceMeters > 0 || lap.elapsedSeconds > 0);
 }
 
 function extractRunStampFromTcxXml(xmlText) {
@@ -294,6 +347,16 @@ async function readTcxMinuteRunCache(runId) {
   }
 }
 
+async function readTcxRunSplitsCache(runId) {
+  try {
+    const raw = await fs.readFile(getTcxRunSplitsCachePath(runId), 'utf8');
+    const rows = JSON.parse(raw);
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
 async function writeTcxMinuteCache(dateString, rows) {
   const cachePath = getLegacyTcxIntradayCachePath(dateString);
   await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
@@ -302,6 +365,12 @@ async function writeTcxMinuteCache(dateString, rows) {
 
 async function writeTcxMinuteRunCache(runId, rows) {
   const cachePath = getTcxRunCachePath(runId);
+  await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
+  return cachePath;
+}
+
+async function writeTcxRunSplitsCache(runId, rows) {
+  const cachePath = getTcxRunSplitsCachePath(runId);
   await fs.writeFile(cachePath, JSON.stringify(rows, null, 2), 'utf8');
   return cachePath;
 }
@@ -426,6 +495,36 @@ async function loadTcxMinuteRowsForDescriptor(descriptor) {
   const cachePath = rows.length > 0
     ? await writeTcxMinuteRunCache(descriptor.runId, rows)
     : descriptor.cachePath || getTcxRunCachePath(descriptor.runId);
+  return {
+    rows,
+    tcxPath: descriptor.tcxPath,
+    cachePath
+  };
+}
+
+async function loadTcxRunSplitsForDescriptor(descriptor) {
+  if (!descriptor || descriptor.legacy) {
+    return { rows: [], tcxPath: null, cachePath: null };
+  }
+
+  const cachedRows = await readTcxRunSplitsCache(descriptor.runId);
+  if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+    return {
+      rows: cachedRows,
+      tcxPath: descriptor.tcxPath || null,
+      cachePath: descriptor.cachePath || getTcxRunSplitsCachePath(descriptor.runId)
+    };
+  }
+
+  if (!descriptor.tcxPath) {
+    return { rows: [], tcxPath: null, cachePath: descriptor.cachePath || null };
+  }
+
+  const xmlText = await fs.readFile(descriptor.tcxPath, 'utf8');
+  const rows = parseTcxLaps(xmlText);
+  const cachePath = rows.length > 0
+    ? await writeTcxRunSplitsCache(descriptor.runId, rows)
+    : descriptor.cachePath || getTcxRunSplitsCachePath(descriptor.runId);
   return {
     rows,
     tcxPath: descriptor.tcxPath,
@@ -1783,6 +1882,42 @@ app.get('/api/tcx-minute', async (req, res) => {
   }
 });
 
+app.get('/api/tcx-splits', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const requestedRunId = sanitizeTcxRunId(req.query.runId);
+    if (!date) return res.status(400).json({ error: 'Date required' });
+
+    const descriptors = await listTcxRunDescriptorsForDate(date);
+    let selectedDescriptor = null;
+    if (requestedRunId) {
+      selectedDescriptor = descriptors.find((descriptor) => descriptor.runId === requestedRunId) || null;
+      if (!selectedDescriptor) {
+        return res.json({ date, runId: requestedRunId, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
+      }
+    } else if (descriptors.length > 0) {
+      selectedDescriptor = descriptors[0];
+    }
+
+    if (!selectedDescriptor || selectedDescriptor.legacy) {
+      return res.json({ date, runId: requestedRunId || null, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
+    }
+
+    const loaded = await loadTcxRunSplitsForDescriptor(selectedDescriptor);
+    return res.json({
+      date,
+      runId: selectedDescriptor.runId,
+      legacy: false,
+      tcxPath: loaded.tcxPath,
+      cachePath: loaded.cachePath,
+      pointCount: Array.isArray(loaded.rows) ? loaded.rows.length : 0,
+      chartData: Array.isArray(loaded.rows) ? loaded.rows : []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/tcx-runs', async (req, res) => {
   try {
     const date = String(req.query.date || '').trim();
@@ -2161,8 +2296,10 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
     if (!Array.isArray(minuteRows) || minuteRows.length === 0) {
       return res.status(422).json({ error: 'No minute data could be built from TCX' });
     }
+    const lapRows = parseTcxLaps(xmlText);
 
     const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
+    const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
     const computed = await computeDailySummaryFromTcx(resolvedDate);
     const persisted = await persistComputedTcxSummary(resolvedDate, computed);
 
@@ -2175,7 +2312,9 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
         run_id: resolvedRunId,
         original_filename: originalName,
         cache_path: cachePath,
+        splits_cache_path: splitsCachePath,
         pointCount: minuteRows.length,
+        splitCount: lapRows.length,
         summary: persisted.summary || null
       }
     });

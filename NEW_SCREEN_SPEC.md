@@ -80,31 +80,55 @@ This is intended to avoid showing an empty day card before real data exists.
 The component uses:
 
 - `Run Date (Upload Target)`
+- one file
+
+The file can currently be either:
+
 - one image file
+- one `TCX` file
 
 ### 5.3 Upload API
 
-The component sends:
+The component currently switches API route by file type.
 
-- `POST /api/analyze`
+- image file
+  - `POST /api/analyze`
+- `TCX` file
+  - `POST /api/import-tcx`
 
-with:
+Image upload sends:
 
 - `image`
 - `date`
 - `ocr_mode=python`
 
+TCX upload sends:
+
+- `file`
+- optional `date` fallback
+
 ### 5.4 Upload date meaning
 
-The selected `Run Date (Upload Target)` is sent as the upload target date.
+For image upload:
 
-This date is used as fallback when OCR does not provide a date.
+- the selected `Run Date (Upload Target)` is sent as the upload target date
+- this date is used as fallback when OCR does not provide a date
+
+For `TCX` upload:
+
+- the run date is resolved primarily from the `TCX` filename
+- if filename resolution fails, the server may fall back to `TCX` contents
+- the UI date is only a fallback and is not the primary source of truth for `TCX`
 
 ### 5.5 OCR mode
 
 The new screen is currently defined to use:
 
 - Python OCR
+
+This applies to image upload only.
+
+`TCX` upload does not use OCR.
 
 ### 5.6 Result handling
 
@@ -126,11 +150,21 @@ More specifically:
 - missing run date
   - asks the user to set or confirm the upload target date and retry
 
+For `TCX` upload:
+
+- successful import
+  - saves run-based TCX minute cache
+  - updates `daily_summary`
+  - reloads the page
+
 ## 6. New Screen Ingest Behavior
 
-The new screen uses the single-image ingest path.
+The new screen currently supports two ingest paths:
 
-That path performs:
+- single-image ingest path
+- `TCX` ingest path
+
+The image path performs:
 
 - image upload
 - asset creation or reuse
@@ -141,7 +175,7 @@ That path performs:
 - `daily_summary` creation or update
 - advice generation/update in the server flow
 
-The new screen therefore combines:
+The image path therefore combines:
 
 - one uploaded image
 - OCR result
@@ -149,14 +183,24 @@ The new screen therefore combines:
 - same-date summary merge behavior
 - possible advice/message persistence
 
-The new screen is therefore the single-image normal ingestion flow.
+The `TCX` path performs:
+
+- `TCX` upload
+- run-date resolution from filename/content
+- run-based minute-cache creation
+- `daily_summary` regeneration/update from `TCX`
+
+Current `TCX` handling note:
+
+- `COROS` `TCX` is treated as run-based data
+- `daily_summary` remains date-based
+- when `TCX` exists, the server updates `daily_summary` from `TCX`-derived values
 
 ## 7. Run Cards
 
 Each run card displays:
 
 - date
-- chart/detail shortcuts
 - run ID
 - distance
 - total time
@@ -166,6 +210,11 @@ Each run card displays:
 - speed max/avg
 - pitch max/avg
 - image thumbnails
+
+Implementation note:
+
+- the underlying legacy chart/detail state still exists
+- but `Chart` / `Detail` shortcuts are currently hidden from the visible run-card UI
 
 ## 8. Card Image Area
 
@@ -178,6 +227,12 @@ Clicking an image opens the lightbox.
 ## 9. Legacy Chart and Detail Access
 
 The new screen can open legacy functionality in overlays.
+
+Current UI note:
+
+- the underlying legacy overlay logic still exists
+- however, the `Chart` and `Detail` buttons are currently hidden from the new-screen run cards
+- so this access path is not currently available from the visible new-screen UI
 
 ### 9.1 Chart button
 

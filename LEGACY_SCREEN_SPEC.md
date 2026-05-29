@@ -50,6 +50,11 @@ The legacy screen works mainly with these persisted resources:
 - Google Fit cache files
   - `storage/cache/raw_buckets_YYYY-MM-DD.json`
   - `storage/cache/intraday_YYYY-MM-DD.json`
+- TCX cache files
+  - run-based minute cache
+    - `storage/cache/tcx_intraday_YYYY-MM-DD_HHMMSS.json`
+  - run-based split cache
+    - `storage/cache/tcx_splits_YYYY-MM-DD_HHMMSS.json`
 
 ## 4. Date Semantics
 
@@ -97,10 +102,26 @@ The legacy run-analyzer result area currently shows:
   - `Stride` and `Heart Rate`
 - Lower chart
   - `Speed` and `Pitch`
+- `Speed (accurate)` and `HR (accurate)`
+  - detailed Google Fit series
+- `Pitch (rough)`
+  - run-session-limited coarse reconstructed pitch series
+- `Stride (rough)`
+  - run-session-limited coarse reconstructed stride series
+- `TCX Run` pager
+  - available when one or more run-based TCX files exist for the selected date
+- `TCX Stride + HR`
+  - run-based minute chart from the selected TCX run
+- `TCX Speed + Pitch`
+  - run-based minute chart from the selected TCX run
 - `1km Splits`
   - lap-style averages derived from minute data
 - `Per Minute`
   - the existing minute-level detail table
+- `TCX Per Minute`
+  - minute-level detail table for the selected TCX run
+- `TCX 1km Splits`
+  - lap table built from the selected TCX run's `<Lap>` blocks
 
 The legacy summary card currently displays:
 
@@ -133,6 +154,23 @@ Current split-table behavior:
 - when Google Fit sessions are available, split accumulation is reset at each run-session start time
 - when multiple run sessions exist on the same date, the split table treats them as separate runs for lap accumulation
 
+Current TCX-driven legacy behavior:
+
+- when one or more TCX runs exist for the selected date, the legacy screen enables `TCX Run` page control
+- the selected page determines:
+  - `TCX Per Minute`
+  - `TCX 1km Splits`
+  - `TCX Stride + HR`
+  - `TCX Speed + Pitch`
+- when TCX runs exist for the selected date, the legacy screen hides:
+  - legacy `1km Splits`
+  - legacy `Per Minute`
+  - legacy `Stride + Heart Rate`
+  - legacy `Speed + Pitch`
+  - `Pitch (rough)`
+  - `Stride (rough)`
+- when no TCX run exists for the selected date, the legacy screen falls back to the pre-existing non-TCX display
+
 In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 
 ### 5.3 Data sources
@@ -142,6 +180,7 @@ The legacy screen combines:
 - Google Fit derived chart data
 - `daily_summary`
 - linked images from `run_images`
+- optional run-based `TCX` minute and lap cache data
 
 ### 5.4 Advice behavior
 

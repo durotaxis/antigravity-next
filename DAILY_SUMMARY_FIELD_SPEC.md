@@ -245,6 +245,69 @@ That means cache availability by itself is not always sufficient to create a bra
 
 ## 7. `POST /api/analyze`
 
+## 6.5 `POST /api/import-tcx` and `POST /api/daily/:date/sync-tcx`
+
+These are the `TCX`-driven summary paths.
+
+### 6.5.1 Source of values
+
+These routes build values from run-based `TCX` minute caches.
+
+Current `TCX` cache model:
+
+- one `COROS` `TCX` file is treated as one run
+- run-based minute cache is stored as:
+  - `storage/cache/tcx_intraday_YYYY-MM-DD_HHMMSS.json`
+- run-based split cache is stored as:
+  - `storage/cache/tcx_splits_YYYY-MM-DD_HHMMSS.json`
+
+### 6.5.2 Day-level summary behavior
+
+`daily_summary` remains one row per date.
+
+When `TCX` data exists for a date, the server:
+
+- finds all run-based `TCX` caches for that date
+- reads all run minute rows
+- recomputes one date-level summary from the combined run rows
+- writes the recomputed result back to `daily_summary`
+
+This means:
+
+- `TCX` is run-based
+- `daily_summary` is still date-based
+- same-date multiple runs are recombined before the day row is written
+
+### 6.5.3 Upsert behavior difference
+
+The normal `saveDailySummary` monotonic-max behavior is not used for `TCX` sync.
+
+Instead, `TCX` sync uses exact overwrite semantics for the core summary values.
+
+That means when `TCX` is the chosen source of truth for the date, fields such as:
+
+- `step_count`
+- `total_distance_km`
+- `total_time`
+- `avg_stride`
+- `max_stride`
+- `hr_avg`
+- `hr_max`
+- `avg_cadence`
+- `max_cadence`
+- `avg_speed`
+- `max_speed`
+
+are overwritten from the recomputed `TCX` summary, even when that lowers a previously stored value.
+
+### 6.5.4 Message handling
+
+When `TCX` sync changes the core summary values, the server may regenerate the stored advice message using the refreshed summary values plus any linked images.
+
+If regeneration fails, the existing stored message is preserved.
+
+## 7. `POST /api/analyze`
+
 This is the new-screen single-image route.
 
 ### 7.1 High-level behavior

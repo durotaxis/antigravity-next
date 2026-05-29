@@ -1070,6 +1070,7 @@ async function loadData(options = {}) {
     const lapTbody = document.querySelector('#lapTable tbody');
     const tbody = document.querySelector('#resultTable tbody');
     const tcxTbody = document.querySelector('#tcxResultTable tbody');
+    const tcxLapTbody = document.querySelector('#tcxLapTable tbody');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const syncJsonBtn = document.getElementById('syncJsonBtn');
     setLapExportState(null);
@@ -1088,6 +1089,9 @@ async function loadData(options = {}) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading data...</td></tr>';
     if (tcxTbody) {
         tcxTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading TCX data...</td></tr>';
+    }
+    if (tcxLapTbody) {
+        tcxLapTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">Loading TCX splits...</td></tr>';
     }
 
     // Clear advice message first
@@ -1131,6 +1135,9 @@ async function loadData(options = {}) {
         const tcxMinuteData = selectedTcxRun
             ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => [])
             : [];
+        const tcxLapSplits = selectedTcxRun
+            ? await fetchTcxSplits(date, selectedTcxRun.runId).catch(() => [])
+            : [];
         const selectedTcxRange = getTcxRowsTimeRange(tcxMinuteData);
         const fitSpeedSeries = selectedTcxRange
             ? filterDetailedSeriesByRange(fitSpeedSeriesRaw, selectedTcxRange)
@@ -1139,7 +1146,8 @@ async function loadData(options = {}) {
             ? filterDetailedSeriesByRange(fitHeartRateSeriesRaw, selectedTcxRange)
             : fitHeartRateSeriesRaw;
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
-        setLegacyChartVisibility(hasTcxMinuteData);
+        const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
+        setLegacyChartVisibility(hasTcxRunData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
         if (lapTbody) {
@@ -1148,6 +1156,9 @@ async function loadData(options = {}) {
         tbody.innerHTML = '';
         if (tcxTbody) {
             renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
+        }
+        if (tcxLapTbody) {
+            renderTcxLapTableRows(tcxLapTbody, tcxLapSplits);
         }
         renderTcxMinuteCharts(tcxMinuteData);
 
@@ -1174,6 +1185,9 @@ async function loadData(options = {}) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No Running Data (Rest Day)</td></tr>';
             if (tcxTbody) {
                 renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
+            }
+            if (tcxLapTbody) {
+                renderTcxLapTableRows(tcxLapTbody, tcxLapSplits);
             }
             if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
             summaryContainer.innerHTML = ''; // Clear summary
@@ -1375,6 +1389,9 @@ async function loadData(options = {}) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading data: ${error.message}</td></tr>`;
         if (tcxTbody) {
             tcxTbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading TCX data: ${error.message}</td></tr>`;
+        }
+        if (tcxLapTbody) {
+            tcxLapTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #f43f5e;">Error loading TCX splits: ${error.message}</td></tr>`;
         }
         // Even if stride fetch fails, still allow importing images for the selected date.
         checkAndRenderImages(date);
@@ -1990,6 +2007,18 @@ async function fetchTcxMinuteSeries(date, runId = '') {
     return Array.isArray(payload?.chartData) ? payload.chartData : [];
 }
 
+async function fetchTcxSplits(date, runId = '') {
+    const params = new URLSearchParams({ date: String(date || '').trim() });
+    if (String(runId || '').trim()) params.set('runId', String(runId || '').trim());
+    const res = await fetch(`/api/tcx-splits?${params.toString()}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to fetch TCX splits');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+}
+
 function getTcxRowsTimeRange(rows = []) {
     if (!Array.isArray(rows) || rows.length === 0) return null;
     const numericStarts = rows
@@ -2034,6 +2063,27 @@ function renderTcxMinuteTableRows(tbody, rows) {
             <td style="color: #ff4444;">${Number(row.heartRate) > 0 ? Math.round(Number(row.heartRate)) : '-'}</td>
             <td style="color: #ffd166;">${Number(row.pitch) > 0 ? Math.round(Number(row.pitch)) : '-'}</td>
             <td>${Number.isFinite(Number(row.altitude)) ? Number(row.altitude).toFixed(1) : '-'}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderTcxLapTableRows(tbody, rows) {
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!Array.isArray(rows) || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--text-secondary);">No TCX 1km splits</td></tr>';
+        return;
+    }
+    rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${row.lapLabel || '-'}</td>
+            <td>${row.distanceLabel || '-'}</td>
+            <td>${Number(row.avgSpeed || 0).toFixed(1)}</td>
+            <td>${Number(row.avgPitch || 0) > 0 ? Math.round(Number(row.avgPitch)) : '-'}</td>
+            <td>${Number(row.avgHr || 0) > 0 ? Math.round(Number(row.avgHr)) : '-'}</td>
+            <td>${Number(row.avgStride || 0).toFixed(1)}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -2258,7 +2308,7 @@ function renderTcxMinuteCharts(rows = []) {
     });
 }
 
-function setLegacyChartVisibility(hasTcxMinuteData) {
+function setLegacyChartVisibility(hasTcxRunData) {
     const display = (id, visible) => {
         const el = document.getElementById(id);
         if (el) {
@@ -2266,8 +2316,9 @@ function setLegacyChartVisibility(hasTcxMinuteData) {
         }
     };
 
-    if (hasTcxMinuteData) {
+    if (hasTcxRunData) {
         display('lapSplitsWrapper', false);
+        display('tcxLapSplitsWrapper', true);
         display('legacyStrideChartWrapper', false);
         display('legacySpeedChartWrapper', false);
         display('fitSpeedChartWrapper', true);
@@ -2281,6 +2332,7 @@ function setLegacyChartVisibility(hasTcxMinuteData) {
     }
 
     display('lapSplitsWrapper', true);
+    display('tcxLapSplitsWrapper', false);
     display('legacyStrideChartWrapper', true);
     display('legacySpeedChartWrapper', true);
     display('fitSpeedChartWrapper', true);

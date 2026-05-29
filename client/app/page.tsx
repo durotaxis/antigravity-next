@@ -227,18 +227,6 @@ export default function Home() {
                   {run.date}
                 </span>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setLegacyChartDate(run.date)}
-                    className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-100"
-                  >
-                    Chart
-                  </button>
-                  <button
-                    onClick={() => setLegacyDetailDate(run.date)}
-                    className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-100"
-                  >
-                    Detail
-                  </button>
                   <span className="text-xs text-gray-300">ID: {run.id}</span>
                 </div>
 

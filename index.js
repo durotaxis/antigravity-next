@@ -651,6 +651,86 @@ function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
   };
 }
 
+function computeDailySummaryMetricsFromIntradayRows(rows, options = {}) {
+  const out = {
+    step_count: 0,
+    total_distance_km: 0,
+    total_time: null,
+    calories_kcal: Number(options.calories_kcal || 0),
+    avg_stride_cm: 0,
+    max_stride_cm: 0,
+    avg_heart_rate: 0,
+    max_heart_rate: 0,
+    avg_speed: 0,
+    max_speed: 0,
+    avg_cadence: 0,
+    max_cadence: 0
+  };
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return out;
+  }
+
+  let totalSteps = 0;
+  let totalDistanceMeters = 0;
+  let totalCoverageSeconds = 0;
+  let sumStride = 0, countStride = 0, maxStride = 0;
+  let sumHr = 0, countHr = 0, maxHr = 0;
+  let sumSpeed = 0, countSpeed = 0, maxSpeed = 0;
+  let sumCadence = 0, countCadence = 0, maxCadence = 0;
+
+  for (const row of rows) {
+    const coverageSeconds = Number(row?.coverageSeconds || 0);
+    const steps = Number(row?.steps || 0);
+    const distanceMeters = Number(row?.distance || 0);
+    const stride = Number(row?.stride || 0);
+    const heartRate = Number(row?.heartRate || 0);
+    const speed = Number(row?.speed || 0);
+    const cadence = Number(row?.pitch || row?.steps || 0);
+
+    if (coverageSeconds > 0) totalCoverageSeconds += coverageSeconds;
+    if (steps > 0) totalSteps += steps;
+    if (distanceMeters > 0) totalDistanceMeters += distanceMeters;
+
+    if (Number.isFinite(stride) && stride > 0 && stride <= 250) {
+      sumStride += stride;
+      countStride += 1;
+      if (stride > maxStride) maxStride = stride;
+    }
+
+    if (Number.isFinite(heartRate) && heartRate > 0) {
+      sumHr += heartRate;
+      countHr += 1;
+      if (heartRate > maxHr) maxHr = heartRate;
+    }
+
+    if (Number.isFinite(speed) && speed > 0) {
+      sumSpeed += speed;
+      countSpeed += 1;
+      if (speed > maxSpeed) maxSpeed = speed;
+    }
+
+    if (Number.isFinite(cadence) && cadence > 0) {
+      sumCadence += cadence;
+      countCadence += 1;
+      if (cadence > maxCadence) maxCadence = cadence;
+    }
+  }
+
+  out.step_count = Math.round(totalSteps);
+  out.total_distance_km = Number((totalDistanceMeters / 1000).toFixed(2));
+  out.total_time = totalCoverageSeconds > 0 ? secondsToHms(totalCoverageSeconds) : null;
+  out.avg_stride_cm = countStride > 0 ? Number((sumStride / countStride).toFixed(1)) : 0;
+  out.max_stride_cm = maxStride > 0 ? Number(maxStride.toFixed(1)) : 0;
+  out.avg_heart_rate = countHr > 0 ? Math.round(sumHr / countHr) : 0;
+  out.max_heart_rate = maxHr > 0 ? Math.round(maxHr) : 0;
+  out.avg_speed = countSpeed > 0 ? Number((sumSpeed / countSpeed).toFixed(1)) : 0;
+  out.max_speed = maxSpeed > 0 ? Number(maxSpeed.toFixed(1)) : 0;
+  out.avg_cadence = countCadence > 0 ? Math.round(sumCadence / countCadence) : 0;
+  out.max_cadence = maxCadence > 0 ? Math.round(maxCadence) : 0;
+  return out;
+}
+
 async function computeDailySummaryFromTcx(dateString) {
   const descriptors = await listTcxRunDescriptorsForDate(dateString);
   if (Array.isArray(descriptors) && descriptors.length > 0) {
@@ -1155,8 +1235,27 @@ async function persistBatchItem(batchItem) {
 }
 
 async function computeDailySummaryFromCache(dateString) {
+  const runSessionsFile = getLegacyRunSessionsCachePath(dateString);
+  const runIntradayFile = getLegacyRunIntradayCachePath(dateString);
   const rawBucketsFile = path.join(__dirname, 'storage', 'cache', `raw_buckets_${dateString}.json`);
   const intradayFile = path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`);
+
+  try {
+    const [runSessionsRaw, runIntradayRaw] = await Promise.all([
+      fs.readFile(runSessionsFile, 'utf8'),
+      fs.readFile(runIntradayFile, 'utf8')
+    ]);
+    const runSessions = JSON.parse(runSessionsRaw);
+    const runIntradayRows = googleFitService.normalizeIntradayCacheRows(dateString, JSON.parse(runIntradayRaw));
+    if (Array.isArray(runSessions) && Array.isArray(runIntradayRows)) {
+      const runMetrics = computeDailySummaryMetricsFromIntradayRows(runIntradayRows);
+      runMetrics._ownedRunCachePresent = true;
+      runMetrics._hasOwnedRun = runSessions.length > 0;
+      return runMetrics;
+    }
+  } catch {
+    // Fall back to legacy day-based cache when run-owned cache is unavailable.
+  }
 
   const out = {
     step_count: 0,
@@ -1315,9 +1414,8 @@ async function computeDailySummaryFromCache(dateString) {
 }
 
 async function syncDailySummaryFromCache(date) {
-  // Best-effort cache refresh for this date.
   try {
-    await googleFitService.getIntradayMetrics(date);
+    await ensureLegacyRunOwnedCaches(date);
   } catch {
     // Continue with existing cache files when API is unavailable.
   }
@@ -1329,7 +1427,9 @@ async function syncDailySummaryFromCache(date) {
   const maxStride = Number(cacheMetrics.max_stride_cm || 0);
   const maxHr = Number(cacheMetrics.max_heart_rate || 0);
   const maxCadence = Number(cacheMetrics.max_cadence || 0);
-  const hasRunningActivity = await hasRunningActivitySignal(date);
+  const hasRunningActivity = cacheMetrics._ownedRunCachePresent
+    ? !!cacheMetrics._hasOwnedRun
+    : await hasRunningActivitySignal(date);
   const hasRunSignal = hasRunningActivity;
 
   if (!existing && !hasRunSignal) {
@@ -1349,7 +1449,7 @@ async function syncDailySummaryFromCache(date) {
     };
   }
 
-  await repo.saveDailySummary({
+  const nextSummary = {
     date,
     step_count: Number(cacheMetrics.step_count || 0),
     total_distance_km: Number(cacheMetrics.total_distance_km || 0),
@@ -1363,7 +1463,29 @@ async function syncDailySummaryFromCache(date) {
     max_cadence: Number(cacheMetrics.max_cadence || 0),
     avg_speed: Number(cacheMetrics.avg_speed || 0),
     max_speed: Number(cacheMetrics.max_speed || 0)
+  };
+
+  const shouldRefreshMessage =
+    dailySummaryCoreDiffers(existing, nextSummary) ||
+    !(typeof existing?.message === 'string' && existing.message.trim());
+
+  await repo.saveDailySummaryExact({
+    ...nextSummary,
+    message: existing ? existing.message : null
   });
+
+  if (shouldRefreshMessage) {
+    const refreshedMessage = await regenerateDailySummaryMessageFromStoredData(
+      date,
+      existing ? existing.message : null
+    );
+    if (refreshedMessage && String(refreshedMessage).trim()) {
+      await repo.saveDailySummaryExact({
+        ...nextSummary,
+        message: refreshedMessage
+      });
+    }
+  }
 
   const summary = await repo.getDailySummary(date);
   return {

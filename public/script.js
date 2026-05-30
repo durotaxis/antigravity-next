@@ -1060,6 +1060,121 @@ async function copyTcxMinuteAsMarkdown() {
     alert('Clipboard unavailable. Opened MD in a copyable window.');
 }
 
+function isElementVisibleForExport(element) {
+    if (!element) return false;
+    if (element.style && element.style.display === 'none') return false;
+    return element.offsetParent !== null;
+}
+
+function buildTcxChartsCompositeCanvas() {
+    const wrapperIds = [
+        'fitSpeedChartWrapper',
+        'tcxStrideChartWrapper',
+        'tcxSpeedPitchChartWrapper'
+    ];
+    const wrappers = wrapperIds
+        .map((id) => document.getElementById(id))
+        .filter((el) => isElementVisibleForExport(el));
+
+    if (wrappers.length === 0) return null;
+
+    const horizontalPadding = 24;
+    const verticalPadding = 20;
+    const gap = 16;
+    const targetWidth = Math.max(...wrappers.map((wrapper) => wrapper.clientWidth || 0));
+    if (!(targetWidth > 0)) return null;
+
+    const sections = wrappers.map((wrapper) => {
+        const canvas = wrapper.querySelector('canvas');
+        if (!canvas) return null;
+        const sourceWidth = canvas.width || canvas.clientWidth || targetWidth;
+        const sourceHeight = canvas.height || canvas.clientHeight || 320;
+        if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
+        const drawWidth = targetWidth;
+        const drawHeight = Math.round(sourceHeight * (drawWidth / sourceWidth));
+        return { wrapper, canvas, drawWidth, drawHeight };
+    }).filter(Boolean);
+
+    if (sections.length === 0) return null;
+
+    const totalHeight =
+        verticalPadding * 2 +
+        sections.reduce((sum, section) => sum + section.drawHeight + 30, 0) +
+        gap * Math.max(0, sections.length - 1);
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = targetWidth + horizontalPadding * 2;
+    exportCanvas.height = totalHeight;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    let currentY = verticalPadding;
+    sections.forEach((section) => {
+        const titleText = section.wrapper.id === 'fitSpeedChartWrapper'
+            ? 'Speed (accurate) + HR (accurate)'
+            : section.wrapper.id === 'tcxStrideChartWrapper'
+                ? 'TCX Stride + HR'
+                : 'TCX Speed + Pitch';
+
+        ctx.fillStyle = '#1a1a1a';
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.fillRect(12, currentY - 8, exportCanvas.width - 24, section.drawHeight + 38);
+        ctx.strokeRect(12.5, currentY - 7.5, exportCanvas.width - 25, section.drawHeight + 37);
+
+        ctx.fillStyle = '#eeeeee';
+        ctx.font = '600 16px Inter, sans-serif';
+        ctx.fillText(titleText, horizontalPadding, currentY + 6);
+
+        ctx.drawImage(section.canvas, horizontalPadding, currentY + 14, section.drawWidth, section.drawHeight);
+        currentY += section.drawHeight + 30 + gap;
+    });
+
+    return exportCanvas;
+}
+
+async function copyCanvasImageToClipboard(canvas) {
+    if (!canvas) return false;
+    if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem === 'undefined') {
+        return false;
+    }
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) return false;
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return true;
+}
+
+function downloadCanvasAsPng(canvas, filename) {
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+async function copyVisibleTcxChartsAsImage() {
+    const exportCanvas = buildTcxChartsCompositeCanvas();
+    if (!exportCanvas) {
+        alert('No visible TCX charts available. Run ANALYZER on a TCX day first.');
+        return;
+    }
+
+    const copied = await copyCanvasImageToClipboard(exportCanvas);
+    if (copied) {
+        alert('TCX charts copied to clipboard as PNG.');
+        return;
+    }
+
+    const dateString = normalizeRunDate(document.getElementById('dateInput')?.value || '') || 'tcx-charts';
+    downloadCanvasAsPng(exportCanvas, `${dateString}-tcx-charts.png`);
+    alert('Clipboard image copy is unavailable in this browser. Downloaded PNG instead.');
+}
+
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
@@ -2919,6 +3034,13 @@ document.addEventListener('DOMContentLoaded', () => {
             await copyTcxMinuteAsMarkdown();
         } catch (err) {
             alert(`Failed to copy MD: ${err.message}`);
+        }
+    });
+    document.getElementById('copyTcxChartsBtn')?.addEventListener('click', async () => {
+        try {
+            await copyVisibleTcxChartsAsImage();
+        } catch (err) {
+            alert(`Failed to copy charts: ${err.message}`);
         }
     });
     document.getElementById('tcxRunPrevBtn')?.addEventListener('click', () => {

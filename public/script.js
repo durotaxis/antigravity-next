@@ -1483,7 +1483,7 @@ function pointBelongsToSession(point, session, dateString) {
     if (!session) return true;
     const pointMillis = Number.isFinite(Number(point && point.bucketStartMs))
         ? Number(point.bucketStartMs)
-        : pointTimeToMillis(dateString, point && point.time);
+        : (Number.isFinite(Number(point && point.timestampMs)) ? Number(point.timestampMs) : NaN);
     const startMillis = Number(session && session.startTimeMillis);
     const endMillis = Number(session && session.endTimeMillis);
     if (!Number.isFinite(pointMillis) || !Number.isFinite(startMillis) || !Number.isFinite(endMillis)) return false;
@@ -1900,12 +1900,10 @@ function chartPointTimeToMillis(point) {
     if (Number.isFinite(Number(point && point.bucketStartMs))) {
         return Number(point.bucketStartMs);
     }
-    const time = String(point && point.time || '').trim();
-    const match = time.match(/^(\d{2}):(\d{2})$/);
-    if (!match) return NaN;
-    const hour = Number(match[1]);
-    const minute = Number(match[2]);
-    return ((hour * 60) + minute) * 60 * 1000;
+    if (Number.isFinite(Number(point && point.timestampMs))) {
+        return Number(point.timestampMs);
+    }
+    return NaN;
 }
 
 function buildGapAwareChartData(data, gapMinutes = 2) {

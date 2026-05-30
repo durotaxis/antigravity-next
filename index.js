@@ -833,7 +833,7 @@ async function computeDerivedFromIntradayCache(dateString) {
 
     try {
       const raw = await fs.readFile(intradayFile, 'utf8');
-      const points = JSON.parse(raw);
+      const points = googleFitService.normalizeIntradayCacheRows(dateString, JSON.parse(raw));
       if (Array.isArray(points) && points.length > 0) {
         intradayPoints = points.length;
         let sumSpeed = 0;
@@ -1270,7 +1270,7 @@ async function computeDailySummaryFromCache(dateString) {
 
   try {
     const raw = await fs.readFile(intradayFile, 'utf8');
-    const points = JSON.parse(raw);
+    const points = googleFitService.normalizeIntradayCacheRows(dateString, JSON.parse(raw));
     if (Array.isArray(points) && points.length > 0) {
       let sumStride = 0, countStride = 0, maxStride = 0;
       let sumHr = 0, countHr = 0, maxHr = 0;
@@ -1612,8 +1612,8 @@ app.get('/api/sessions/:date', async (req, res) => {
   try {
     const date = normalizeRunDate(req.params && req.params.date);
     if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
-    const sessions = await googleFitService.fetchSessionsForDate(date);
-    res.json(Array.isArray(sessions) ? sessions : []);
+    const merged = await ensureLegacyRunOwnedCaches(date);
+    res.json(Array.isArray(merged?.sessions) ? merged.sessions : []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1624,7 +1624,8 @@ app.get('/api/fit-speed', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    const result = await googleFitService.getDetailedFitSpeedSeries(String(date).trim());
+    const merged = await ensureLegacyRunOwnedCaches(String(date).trim());
+    const result = merged?.speedSeries || { date: String(date).trim(), dataSourceId: null, pointCount: 0, points: [] };
     const points = Array.isArray(result?.points) ? result.points : [];
     const chartData = points.map((point) => {
       const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
@@ -1656,7 +1657,8 @@ app.get('/api/fit-hr', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    const result = await googleFitService.getDetailedFitHeartRateSeries(String(date).trim());
+    const merged = await ensureLegacyRunOwnedCaches(String(date).trim());
+    const result = merged?.hrSeries || { date: String(date).trim(), dataSourceId: null, pointCount: 0, points: [] };
     const points = Array.isArray(result?.points) ? result.points : [];
     const chartData = points.map((point) => {
       const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
@@ -1693,6 +1695,272 @@ function normalizeRunSessions(sessions = []) {
     .sort((a, b) => a.startMs - b.startMs);
 }
 
+function getLegacyRunSessionsCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `run_sessions_${dateString}.json`);
+}
+
+function getLegacyRunIntradayCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `run_intraday_${dateString}.json`);
+}
+
+function getLegacyRunFitSpeedCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `run_fit_speed_full_${dateString}.json`);
+}
+
+function getLegacyRunFitHrCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `run_fit_hr_full_${dateString}.json`);
+}
+
+function getLegacyRunFitPitchCachePath(dateString) {
+  return path.join(__dirname, 'storage', 'cache', `run_fit_pitch_full_${dateString}.json`);
+}
+
+const legacyRunOwnedBuilds = new Map();
+
+function getLocalDateLabelFromMs(timestampMs) {
+  if (!Number.isFinite(Number(timestampMs))) return '';
+  const d = new Date(Number(timestampMs));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isTodayDateString(dateString) {
+  return String(dateString || '').trim() === getLocalDateLabelFromMs(Date.now());
+}
+
+function buildSessionDedupKey(session) {
+  return [
+    Number(session?.activityType) || 0,
+    Number(session?.startTimeMillis) || 0,
+    Number(session?.endTimeMillis) || 0,
+    String(session?.name || '').trim()
+  ].join('|');
+}
+
+function dedupeSessions(sessions = []) {
+  const out = [];
+  const seen = new Set();
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const key = buildSessionDedupKey(session);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(session);
+  }
+  return out;
+}
+
+function filterRunSessionsOwnedByDate(sessions = [], dateString) {
+  return dedupeSessions(
+    (Array.isArray(sessions) ? sessions : []).filter((session) => {
+      if (Number(session?.activityType) !== 8) return false;
+      const startMs = Number(session?.startTimeMillis);
+      return Number.isFinite(startMs) && getLocalDateLabelFromMs(startMs) === dateString;
+    })
+  ).sort((a, b) => Number(a?.startTimeMillis || 0) - Number(b?.startTimeMillis || 0));
+}
+
+function pointWithinOwnedSessions(pointMs, ownedSessions = []) {
+  if (!Number.isFinite(pointMs)) return false;
+  return (Array.isArray(ownedSessions) ? ownedSessions : []).some((session) => {
+    const startMs = Number(session?.startTimeMillis);
+    const endMs = Number(session?.endTimeMillis);
+    return Number.isFinite(startMs) && Number.isFinite(endMs) && pointMs >= startMs && pointMs < endMs;
+  });
+}
+
+function rangeOverlapsOwnedSessions(startMs, endMs, ownedSessions = []) {
+  if (!Number.isFinite(startMs)) return false;
+  const safeEndMs = Number.isFinite(endMs) && endMs > startMs ? endMs : startMs + 1;
+  return (Array.isArray(ownedSessions) ? ownedSessions : []).some((session) => {
+    const sessionStart = Number(session?.startTimeMillis);
+    const sessionEnd = Number(session?.endTimeMillis);
+    return Number.isFinite(sessionStart) && Number.isFinite(sessionEnd) && safeEndMs > sessionStart && startMs < sessionEnd;
+  });
+}
+
+function dedupeIntradayRows(rows = []) {
+  const sorted = (Array.isArray(rows) ? rows : [])
+    .filter((row) => Number.isFinite(Number(row?.bucketStartMs)))
+    .sort((a, b) => Number(a.bucketStartMs) - Number(b.bucketStartMs));
+  const out = [];
+  const seen = new Set();
+  for (const row of sorted) {
+    const key = String(Number(row.bucketStartMs));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function dedupeDetailedPoints(points = []) {
+  const sorted = (Array.isArray(points) ? points : [])
+    .filter((point) => Number.isFinite(Number(point?.startTimeNanos)))
+    .sort((a, b) => Number(a?.startTimeNanos || 0) - Number(b?.startTimeNanos || 0));
+  const out = [];
+  const seen = new Set();
+  for (const point of sorted) {
+    const key = [
+      String(point?.startTimeNanos || ''),
+      String(point?.endTimeNanos || ''),
+      String(point?.originDataSourceId || '')
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(point);
+  }
+  return out;
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function loadLegacyRunOwnedCachesFromDisk(dateString) {
+  const [sessions, intradayRows, speedSeries, hrSeries, pitchSeries] = await Promise.all([
+    readJsonIfExists(getLegacyRunSessionsCachePath(dateString)),
+    readJsonIfExists(getLegacyRunIntradayCachePath(dateString)),
+    readJsonIfExists(getLegacyRunFitSpeedCachePath(dateString)),
+    readJsonIfExists(getLegacyRunFitHrCachePath(dateString)),
+    readJsonIfExists(getLegacyRunFitPitchCachePath(dateString))
+  ]);
+  if (
+    !Array.isArray(sessions) ||
+    !Array.isArray(intradayRows) ||
+    !speedSeries || !Array.isArray(speedSeries.points) ||
+    !hrSeries || !Array.isArray(hrSeries.points) ||
+    !pitchSeries || !Array.isArray(pitchSeries.points)
+  ) {
+    return null;
+  }
+  return {
+    date: dateString,
+    sessions,
+    intradayRows,
+    speedSeries,
+    hrSeries,
+    pitchSeries
+  };
+}
+
+async function ensureLegacyRunOwnedCaches(dateString) {
+  const date = normalizeRunDate(dateString);
+  if (!date) {
+    return {
+      date: '',
+      sourceDates: [],
+      sessions: [],
+      intradayRows: [],
+      speedSeries: { date: '', dataSourceId: null, pointCount: 0, points: [] },
+      hrSeries: { date: '', dataSourceId: null, pointCount: 0, points: [] },
+      pitchSeries: { date: '', dataSourceId: null, pointCount: 0, points: [] }
+    };
+  }
+
+  if (!isTodayDateString(date)) {
+    const existing = await loadLegacyRunOwnedCachesFromDisk(date);
+    if (existing) return existing;
+  }
+
+  if (legacyRunOwnedBuilds.has(date)) {
+    return legacyRunOwnedBuilds.get(date);
+  }
+
+  const buildPromise = (async () => {
+    const baseSessions = await googleFitService.fetchSessionsForDate(date);
+    const ownedRunSessions = filterRunSessionsOwnedByDate(baseSessions, date);
+    if (ownedRunSessions.length === 0) {
+      const empty = {
+        date,
+        sessions: [],
+        intradayRows: [],
+        speedSeries: { date, dataSourceId: null, pointCount: 0, points: [] },
+        hrSeries: { date, dataSourceId: null, pointCount: 0, points: [] },
+        pitchSeries: { date, dataSourceId: null, pointCount: 0, points: [] }
+      };
+      await Promise.all([
+        fs.writeFile(getLegacyRunSessionsCachePath(date), JSON.stringify(empty.sessions, null, 2)),
+        fs.writeFile(getLegacyRunIntradayCachePath(date), JSON.stringify(empty.intradayRows, null, 2)),
+        fs.writeFile(getLegacyRunFitSpeedCachePath(date), JSON.stringify(empty.speedSeries, null, 2)),
+        fs.writeFile(getLegacyRunFitHrCachePath(date), JSON.stringify(empty.hrSeries, null, 2)),
+        fs.writeFile(getLegacyRunFitPitchCachePath(date), JSON.stringify(empty.pitchSeries, null, 2))
+      ]);
+      return empty;
+    }
+
+    const rangeStartMs = Math.min(...ownedRunSessions.map((session) => Number(session.startTimeMillis)));
+    const rangeEndMs = Math.max(...ownedRunSessions.map((session) => Number(session.endTimeMillis)));
+
+    const [rangeBuckets, speedSeriesRaw, hrSeriesRaw, pitchSeriesRaw] = await Promise.all([
+      googleFitService.fetchIntradayBucketsForRange(rangeStartMs, rangeEndMs),
+      googleFitService.getDetailedFitSpeedSeriesForRange(rangeStartMs, rangeEndMs),
+      googleFitService.getDetailedFitHeartRateSeriesForRange(rangeStartMs, rangeEndMs),
+      googleFitService.getDetailedFitPitchSeriesForRange(rangeStartMs, rangeEndMs)
+    ]);
+
+    const processedIntraday = googleFitService.processIntradayBuckets(rangeBuckets, ownedRunSessions);
+    const intradayRows = dedupeIntradayRows(processedIntraday?.smoothedData || processedIntraday?.chartData || []);
+    const speedSeries = {
+      date,
+      dataSourceId: speedSeriesRaw?.dataSourceId || null,
+      points: dedupeDetailedPoints(Array.isArray(speedSeriesRaw?.points) ? speedSeriesRaw.points.filter((point) => {
+        const pointMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+        return pointWithinOwnedSessions(pointMs, ownedRunSessions);
+      }) : [])
+    };
+    speedSeries.pointCount = speedSeries.points.length;
+
+    const hrSeries = {
+      date,
+      dataSourceId: hrSeriesRaw?.dataSourceId || null,
+      points: dedupeDetailedPoints(Array.isArray(hrSeriesRaw?.points) ? hrSeriesRaw.points.filter((point) => {
+        const pointMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+        return pointWithinOwnedSessions(pointMs, ownedRunSessions);
+      }) : [])
+    };
+    hrSeries.pointCount = hrSeries.points.length;
+
+    const pitchSeries = {
+      date,
+      dataSourceId: pitchSeriesRaw?.dataSourceId || null,
+      points: dedupeDetailedPoints(Array.isArray(pitchSeriesRaw?.points) ? pitchSeriesRaw.points.filter((point) => {
+        const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
+        const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
+        return rangeOverlapsOwnedSessions(startMs, endMs, ownedRunSessions);
+      }) : [])
+    };
+    pitchSeries.pointCount = pitchSeries.points.length;
+
+    await Promise.all([
+      fs.writeFile(getLegacyRunSessionsCachePath(date), JSON.stringify(ownedRunSessions, null, 2)),
+      fs.writeFile(getLegacyRunIntradayCachePath(date), JSON.stringify(intradayRows, null, 2)),
+      fs.writeFile(getLegacyRunFitSpeedCachePath(date), JSON.stringify(speedSeries, null, 2)),
+      fs.writeFile(getLegacyRunFitHrCachePath(date), JSON.stringify(hrSeries, null, 2)),
+      fs.writeFile(getLegacyRunFitPitchCachePath(date), JSON.stringify(pitchSeries, null, 2))
+    ]);
+
+    return {
+      date,
+      sessions: ownedRunSessions,
+      intradayRows,
+      speedSeries,
+      hrSeries,
+      pitchSeries
+    };
+  })();
+
+  legacyRunOwnedBuilds.set(date, buildPromise);
+  try {
+    return await buildPromise;
+  } finally {
+    legacyRunOwnedBuilds.delete(date);
+  }
+}
+
 function pointOverlapsRunSessions(startMs, endMs, runSessions = []) {
   if (!Number.isFinite(startMs)) return false;
   const safeEndMs = Number.isFinite(endMs) && endMs > startMs ? endMs : startMs + 1;
@@ -1704,8 +1972,9 @@ app.get('/api/fit-pitch', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    const runSessions = normalizeRunSessions(await googleFitService.fetchSessionsForDate(String(date).trim()));
-    const result = await googleFitService.getDetailedFitPitchSeries(String(date).trim());
+    const merged = await ensureLegacyRunOwnedCaches(String(date).trim());
+    const runSessions = normalizeRunSessions(merged?.sessions || []);
+    const result = merged?.pitchSeries || { date: String(date).trim(), dataSourceId: null, pointCount: 0, points: [] };
     const points = (Array.isArray(result?.points) ? result.points : []).filter((point) => {
       const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
       const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
@@ -1748,11 +2017,12 @@ app.get('/api/fit-stride', async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    const [runSessions, pitchResult, speedResult] = await Promise.all([
-      googleFitService.fetchSessionsForDate(String(date).trim()).then(normalizeRunSessions),
-      googleFitService.getDetailedFitPitchSeries(String(date).trim()),
-      googleFitService.getDetailedFitSpeedSeries(String(date).trim())
-    ]);
+    const merged = await ensureLegacyRunOwnedCaches(String(date).trim());
+    const [runSessions, pitchResult, speedResult] = [
+      normalizeRunSessions(merged?.sessions || []),
+      merged?.pitchSeries || { date: String(date).trim(), dataSourceId: null, pointCount: 0, points: [] },
+      merged?.speedSeries || { date: String(date).trim(), dataSourceId: null, pointCount: 0, points: [] }
+    ];
 
     const pitchPoints = (Array.isArray(pitchResult?.points) ? pitchResult.points : []).filter((point) => {
       const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
@@ -1948,21 +2218,8 @@ app.get('/api/stride', async (req, res) => {
     const syncSummary = String(req.query.sync || '') === '1';
     if (!date) return res.status(400).json({ error: 'Date required' });
 
-    // Always go through googleFitService first.
-    // If it yields empty, fall back to processed cache for operational resilience.
-    let chartData = await googleFitService.getIntradayMetrics(date);
-    if (!Array.isArray(chartData) || chartData.length === 0) {
-      try {
-        const cacheFile = path.join(__dirname, 'storage', 'cache', `intraday_${date}.json`);
-        const raw = await fs.readFile(cacheFile, 'utf8');
-        const cached = JSON.parse(raw);
-        if (Array.isArray(cached) && cached.length > 0) {
-          chartData = cached;
-        }
-      } catch {
-        // keep empty
-      }
-    }
+    const merged = await ensureLegacyRunOwnedCaches(String(date).trim());
+    let chartData = Array.isArray(merged?.intradayRows) ? merged.intradayRows : [];
 
     // Optional sync for legacy RUN ANALYZER: fill missing daily_summary fields from intraday.
     if (syncSummary && Array.isArray(chartData) && chartData.length > 0) {

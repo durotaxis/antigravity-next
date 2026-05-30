@@ -34,6 +34,37 @@ function getLocalDayRangeMs(dateString) {
     return { startMs: start, endMs: end };
 }
 
+function synthesizeIntradayBucketStartMs(dateString, timeText) {
+    const [year, month, day] = String(dateString || '').split('-').map(Number);
+    const match = String(timeText || '').trim().match(/^(\d{2}):(\d{2})$/);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day) || !match) {
+        return NaN;
+    }
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    return new Date(year, month - 1, day, hour, minute, 0, 0).getTime();
+}
+
+function normalizeIntradayCacheRows(dateString, rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => {
+        const next = { ...(row || {}) };
+        const existingStart = Number(next.bucketStartMs);
+        if (!Number.isFinite(existingStart)) {
+            const synthesizedStart = synthesizeIntradayBucketStartMs(dateString, next.time);
+            if (Number.isFinite(synthesizedStart)) {
+                next.bucketStartMs = synthesizedStart;
+            }
+        }
+        const existingEnd = Number(next.bucketEndMs);
+        const startMs = Number(next.bucketStartMs);
+        if (!Number.isFinite(existingEnd) && Number.isFinite(startMs)) {
+            next.bucketEndMs = startMs + 60000;
+        }
+        return next;
+    });
+}
+
 function countActiveBuckets(buckets) {
     if (!Array.isArray(buckets) || buckets.length === 0) return 0;
     let active = 0;
@@ -184,6 +215,49 @@ async function fetchSessionsForDate(dateString) {
     }
 }
 
+async function fetchSessionsForRange(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return [];
+    }
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const sessions = [];
+    let pageToken = null;
+    do {
+        const response = await fitness.users.sessions.list({
+            userId: 'me',
+            startTime: toRfc3339(startMs),
+            endTime: toRfc3339(endMs),
+            pageToken: pageToken || undefined
+        });
+        const pageSessions = Array.isArray(response?.data?.session) ? response.data.session : [];
+        sessions.push(...pageSessions);
+        pageToken = response?.data?.nextPageToken || null;
+    } while (pageToken);
+    return sessions;
+}
+
+async function fetchIntradayBucketsForRange(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return [];
+    }
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const requestBody = {
+        aggregateBy: [
+            { dataTypeName: 'com.google.step_count.delta' },
+            { dataTypeName: 'com.google.distance.delta' },
+            { dataTypeName: 'com.google.heart_rate.bpm' },
+            { dataTypeName: 'com.google.activity.segment' }
+        ],
+        bucketByTime: { durationMillis: 60 * 1000 },
+        startTimeMillis: Math.floor(startMs),
+        endTimeMillis: Math.floor(endMs)
+    };
+    const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
+    return Array.isArray(response?.data?.bucket) ? response.data.bucket : [];
+}
+
 async function getDetailedFitSpeedSeries(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const speedCacheFile = path.join(CACHE_DIR, `fit_speed_full_${dateString}.json`);
@@ -245,6 +319,40 @@ async function getDetailedFitSpeedSeries(dateString) {
     return out;
 }
 
+async function getDetailedFitSpeedSeriesForRange(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const speedSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.speed' && streamId.includes('merge_speed');
+    });
+    if (!speedSource) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: speedSource.dataStreamId,
+        datasetId
+    });
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const pointMs = nanosToMillis(point?.startTimeNanos);
+        return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
+    });
+    return {
+        date: '',
+        dataSourceId: speedSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
+}
+
 async function getDetailedFitHeartRateSeries(dateString) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const hrCacheFile = path.join(CACHE_DIR, `fit_hr_full_${dateString}.json`);
@@ -304,6 +412,40 @@ async function getDetailedFitHeartRateSeries(dateString) {
     };
     await fs.writeFile(hrCacheFile, JSON.stringify(out, null, 2));
     return out;
+}
+
+async function getDetailedFitHeartRateSeriesForRange(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const hrSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.heart_rate.bpm' && streamId.includes('merge_heart_rate_bpm');
+    });
+    if (!hrSource) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: hrSource.dataStreamId,
+        datasetId
+    });
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const pointMs = nanosToMillis(point?.startTimeNanos);
+        return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
+    });
+    return {
+        date: '',
+        dataSourceId: hrSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
 }
 
 async function getDetailedFitPitchSeries(dateString) {
@@ -372,6 +514,47 @@ async function getDetailedFitPitchSeries(dateString) {
     };
     await fs.writeFile(pitchCacheFile, JSON.stringify(out, null, 2));
     return out;
+}
+
+async function getDetailedFitPitchSeriesForRange(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const auth = await authorize();
+    const fitness = google.fitness({ version: 'v1', auth });
+    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+    const stepSource = allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('merge_step_deltas');
+    }) || allSources.find((ds) => {
+        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+        const streamId = String(ds?.dataStreamId || '').toLowerCase();
+        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('estimated_steps');
+    });
+    if (!stepSource) {
+        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    }
+    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+    const resp = await fitness.users.dataSources.datasets.get({
+        userId: 'me',
+        dataSourceId: stepSource.dataStreamId,
+        datasetId
+    });
+    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+        const pointStartMs = nanosToMillis(point?.startTimeNanos);
+        const pointEndMs = nanosToMillis(point?.endTimeNanos);
+        const steps = Number(point?.value?.[0]?.intVal || 0);
+        if (!(steps > 0)) return false;
+        return Number.isFinite(pointStartMs) && Number.isFinite(pointEndMs) && pointEndMs > pointStartMs && pointStartMs < endMs && pointEndMs > startMs;
+    });
+    return {
+        date: '',
+        dataSourceId: stepSource.dataStreamId,
+        pointCount: points.length,
+        points
+    };
 }
 
 /**
@@ -654,12 +837,14 @@ async function getDailyMetrics(dateString) {
 function cleanIntradayData(rawData) {
     if (!rawData || rawData.length === 0) return [];
 
-    // 1. Sort by time just in case
+    // 1. Sort by full timestamp only.
+    // If older rows do not carry sortable timestamp fields, preserve input order
+    // instead of inventing chronology from display-only HH:mm strings.
     rawData.sort((a, b) => {
         const aStart = Number(a?.bucketStartMs);
         const bStart = Number(b?.bucketStartMs);
         if (Number.isFinite(aStart) && Number.isFinite(bStart)) return aStart - bStart;
-        return String(a?.time || '').localeCompare(String(b?.time || ''));
+        return 0;
     });
 
     const cleaned = [];
@@ -932,7 +1117,12 @@ async function getIntradayMetricsWithMeta(dateString) {
         // If API fails, try falling back to the processed cache if it exists
         try {
             const finalCached = await fs.readFile(finalCacheFile, 'utf8');
-            const cached = JSON.parse(finalCached);
+            const cached = normalizeIntradayCacheRows(dateString, JSON.parse(finalCached));
+            try {
+                await fs.writeFile(finalCacheFile, JSON.stringify(cached, null, 2));
+            } catch {
+                // best-effort upgrade only
+            }
             const cachedMaxSpeed = (cached || []).reduce((max, p) => Math.max(max, Number(p?.speed) || 0), 0);
             return {
                 data: cached,
@@ -962,10 +1152,15 @@ async function getIntradayMetricsWithMeta(dateString) {
         let keepExisting = false;
         try {
             const existingRaw = await fs.readFile(finalCacheFile, 'utf8');
-            const existing = JSON.parse(existingRaw);
+            const existing = normalizeIntradayCacheRows(dateString, JSON.parse(existingRaw));
             if (Array.isArray(existing) && existing.length > 0) {
                 keepExisting = true;
                 console.log(`[GoogleFit] Keeping existing intraday cache for ${dateString} (${existing.length} points).`);
+                try {
+                    await fs.writeFile(finalCacheFile, JSON.stringify(existing, null, 2));
+                } catch {
+                    // best-effort upgrade only
+                }
             }
         } catch {
             // no existing cache
@@ -1022,4 +1217,18 @@ function getFpValue(dataset) {
     return 0;
 }
 
-module.exports = { getDailyMetrics, getIntradayMetrics, fetchSessionsForDate, getDetailedFitSpeedSeries, getDetailedFitHeartRateSeries, getDetailedFitPitchSeries };
+module.exports = {
+    getDailyMetrics,
+    getIntradayMetrics,
+    fetchSessionsForDate,
+    fetchSessionsForRange,
+    fetchIntradayBucketsForRange,
+    getDetailedFitSpeedSeries,
+    getDetailedFitSpeedSeriesForRange,
+    getDetailedFitHeartRateSeries,
+    getDetailedFitHeartRateSeriesForRange,
+    getDetailedFitPitchSeries,
+    getDetailedFitPitchSeriesForRange,
+    normalizeIntradayCacheRows,
+    processIntradayBuckets
+};

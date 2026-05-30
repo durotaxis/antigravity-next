@@ -59,6 +59,363 @@ const getDefaultChartStartDate = () => {
   return `${year}-${month}-${day}`;
 };
 
+function formatSpeedValue(value: number | undefined) {
+  if (value === undefined || value === null || value <= 0) return '-';
+  return new Intl.NumberFormat('ja-JP', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.arcTo(x + width, y, x + width, y + r, r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+  ctx.lineTo(x + r, y + height);
+  ctx.arcTo(x, y + height, x, y + height - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+function fillRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number, color: string) {
+  ctx.save();
+  roundRectPath(ctx, x, y, width, height, radius);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+function strokeRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number, color: string, lineWidth = 1) {
+  ctx.save();
+  roundRectPath(ctx, x, y, width, height, radius);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const paragraphs = text.split('\n');
+  const lines: string[] = [];
+  for (const paragraph of paragraphs) {
+    let current = '';
+    for (const char of paragraph) {
+      const candidate = current + char;
+      if (current && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(current);
+        current = char;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) {
+      lines.push(current);
+    } else if (paragraph === '') {
+      lines.push('');
+    }
+  }
+  return lines;
+}
+
+async function loadCanvasImage(src: string) {
+  const response = await fetch(src, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error(`Image fetch failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Failed to load copied card image.'));
+    });
+    image.src = objectUrl;
+    return await loaded;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function renderRunCardToCanvas(run: Run) {
+  const scale = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const width = 420;
+  const padding = 20;
+  const sectionGap = 18;
+  const lineHeight = 22;
+  const messageTitleHeight = 18;
+  const messageTopPadding = 18;
+  const messageBottomPadding = 16;
+  const images = Array.isArray(run.images) ? run.images.slice(0, 4) : [];
+
+  const measureCanvas = document.createElement('canvas');
+  const measureCtx = measureCanvas.getContext('2d');
+  if (!measureCtx) throw new Error('Canvas context unavailable.');
+
+  const messageWidth = width - padding * 2 - 24;
+  measureCtx.font = '500 15px system-ui, sans-serif';
+  const messageLines = run.message ? wrapText(measureCtx, run.message, messageWidth) : [];
+  const messageHeight = run.message
+    ? messageTopPadding + messageTitleHeight + messageLines.length * lineHeight + messageBottomPadding
+    : 0;
+
+  let imageHeight = 0;
+  if (images.length > 0) {
+    const imageGap = 12;
+    const columns = 2;
+    const imageSize = Math.floor((width - padding * 2 - imageGap) / columns);
+    const rows = Math.ceil(images.length / columns);
+    imageHeight = 24 + rows * imageSize + Math.max(0, rows - 1) * imageGap;
+  }
+
+  const distanceHeight = run.distance > 0 ? 92 : 44;
+  const metricsHeight = 140;
+  const totalHeight = padding + 28 + sectionGap + distanceHeight + (messageHeight ? sectionGap + messageHeight : 0) + sectionGap + metricsHeight + (imageHeight ? sectionGap + imageHeight : 0) + padding;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(totalHeight * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context unavailable.');
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = '#f3f4f6';
+  ctx.fillRect(0, 0, width, totalHeight);
+  fillRoundedRect(ctx, 0, 0, width, totalHeight, 20, '#ffffff');
+  strokeRoundedRect(ctx, 0.5, 0.5, width - 1, totalHeight - 1, 20, '#e5e7eb', 1);
+
+  let y = padding;
+
+  fillRoundedRect(ctx, padding, y, 96, 30, 10, '#f9fafb');
+  strokeRoundedRect(ctx, padding, y, 96, 30, 10, '#e5e7eb', 1);
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '600 16px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(run.date, padding + 12, y + 15);
+
+  ctx.fillStyle = '#d1d5db';
+  ctx.font = '500 14px system-ui, sans-serif';
+  const idText = `ID: ${run.id}`;
+  const idWidth = ctx.measureText(idText).width;
+  ctx.fillText(idText, width - padding - idWidth, y + 15);
+
+  y += 30 + sectionGap;
+
+  if (run.distance > 0) {
+    ctx.fillStyle = '#1f2937';
+    ctx.font = '700 56px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(String(run.distance), padding, y + 48);
+
+    const distanceWidth = ctx.measureText(String(run.distance)).width;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '600 20px system-ui, sans-serif';
+    ctx.fillText('km', padding + distanceWidth + 8, y + 45);
+
+    ctx.fillStyle = '#2563eb';
+    ctx.font = '700 34px system-ui, sans-serif';
+    ctx.fillText(`⏱ ${run.time}`, padding, y + 88);
+  } else {
+    fillRoundedRect(ctx, padding, y, 134, 32, 16, '#f3f4f6');
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '600 14px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Form Analysis Data', padding + 14, y + 16);
+  }
+
+  y += distanceHeight;
+
+  if (run.message) {
+    y += sectionGap;
+    fillRoundedRect(ctx, padding, y, width - padding * 2, messageHeight, 14, '#eff6ff');
+    strokeRoundedRect(ctx, padding, y, width - padding * 2, messageHeight, 14, '#bfdbfe', 1);
+
+    ctx.fillStyle = '#3b82f6';
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('COACH ADVICE', padding + 16, y + 22);
+
+    ctx.fillStyle = '#1e40af';
+    ctx.font = '500 15px system-ui, sans-serif';
+    messageLines.forEach((line, index) => {
+      ctx.fillText(line, padding + 16, y + messageTopPadding + messageTitleHeight + index * lineHeight + 18);
+    });
+    y += messageHeight;
+  }
+
+  y += sectionGap;
+  ctx.strokeStyle = '#f3f4f6';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, y);
+  ctx.lineTo(width - padding, y);
+  ctx.stroke();
+  y += 14;
+
+  const metrics = [
+    {
+      label1: 'STRIDE',
+      label2: '(CM)',
+      max: run.max_stride !== undefined && run.max_stride !== null && run.max_stride > 0 && run.max_stride <= 300 ? String(run.max_stride) : '-',
+      avg: run.avg_stride !== undefined && run.avg_stride !== null ? String(run.avg_stride) : '-',
+      maxColor: '#111827',
+      avgColor: '#4b5563',
+    },
+    {
+      label1: 'HR',
+      label2: '(BPM)',
+      max: run.max_heart_rate !== undefined && run.max_heart_rate !== null && run.max_heart_rate > 0 ? String(run.max_heart_rate) : '-',
+      avg: run.avg_heart_rate !== undefined && run.avg_heart_rate !== null && run.avg_heart_rate > 0 ? String(run.avg_heart_rate) : '-',
+      maxColor: '#b91c1c',
+      avgColor: '#ef4444',
+    },
+    {
+      label1: 'SPEED',
+      label2: '(KM/H)',
+      max: formatSpeedValue(run.max_speed),
+      avg: formatSpeedValue(run.avg_speed),
+      maxColor: '#4338ca',
+      avgColor: '#6366f1',
+    },
+    {
+      label1: 'PITCH',
+      label2: '(SPM)',
+      max: run.max_cadence !== undefined && run.max_cadence !== null && run.max_cadence > 0 ? String(run.max_cadence) : '-',
+      avg: run.avg_cadence !== undefined && run.avg_cadence !== null && run.avg_cadence > 0 ? String(run.avg_cadence) : '-',
+      maxColor: '#047857',
+      avgColor: '#10b981',
+    },
+  ];
+
+  const columnWidth = (width - padding * 2) / 4;
+  metrics.forEach((metric, index) => {
+    const x = padding + index * columnWidth;
+    if (index > 0) {
+      ctx.strokeStyle = '#f3f4f6';
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + 112);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(metric.label1, x + 12, y + 16);
+    ctx.fillText(metric.label2, x + 12, y + 32);
+
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('Max', x + 12, y + 62);
+    ctx.fillText('Avg', x + 12, y + 96);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = metric.maxColor;
+    ctx.font = '700 28px system-ui, sans-serif';
+    ctx.fillText(metric.max, x + columnWidth - 12, y + 66);
+    ctx.fillStyle = metric.avgColor;
+    ctx.fillText(metric.avg, x + columnWidth - 12, y + 100);
+    ctx.textAlign = 'left';
+  });
+
+  y += metricsHeight;
+
+  if (images.length > 0) {
+    y += sectionGap;
+    ctx.strokeStyle = '#f3f4f6';
+    ctx.beginPath();
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.stroke();
+    y += 24;
+
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.fillText('ANALYSIS IMAGES', padding, y);
+    y += 12;
+
+    const imageGap = 12;
+    const columns = 2;
+    const imageSize = Math.floor((width - padding * 2 - imageGap) / columns);
+
+    const loadedImages = await Promise.all(
+      images.map(async (image) => {
+        try {
+          return await loadCanvasImage(image.url);
+        } catch (error) {
+          console.warn('Failed to load image for copied run card:', error);
+          return null;
+        }
+      })
+    );
+
+    loadedImages.forEach((image, index) => {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const x = padding + col * (imageSize + imageGap);
+      const cellY = y + row * (imageSize + imageGap);
+
+      fillRoundedRect(ctx, x, cellY, imageSize, imageSize, 14, '#f3f4f6');
+      if (image) {
+        ctx.save();
+        roundRectPath(ctx, x, cellY, imageSize, imageSize, 14);
+        ctx.clip();
+
+        const sourceRatio = image.width / image.height;
+        const targetRatio = 1;
+        let drawWidth = imageSize;
+        let drawHeight = imageSize;
+        let drawX = x;
+        let drawY = cellY;
+
+        if (sourceRatio > targetRatio) {
+          drawWidth = imageSize * sourceRatio;
+          drawX = x - (drawWidth - imageSize) / 2;
+        } else {
+          drawHeight = imageSize / sourceRatio;
+          drawY = cellY - (drawHeight - imageSize) / 2;
+        }
+
+        ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+        ctx.restore();
+      }
+      strokeRoundedRect(ctx, x, cellY, imageSize, imageSize, 14, '#e5e7eb', 1);
+    });
+  }
+
+  return canvas;
+}
+
+async function copyCanvasToClipboard(canvas: HTMLCanvasElement) {
+  if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem === 'undefined') {
+    return false;
+  }
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return false;
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  return true;
+}
+
+async function downloadCanvas(canvas: HTMLCanvasElement, filename: string) {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) {
+    throw new Error('Failed to export card image.');
+  }
+  const link = document.createElement('a');
+  const objectUrl = URL.createObjectURL(blob);
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export default function Home() {
   const API_BASE = getApiBase();
   const [runs, setRuns] = useState<Run[]>([]);
@@ -67,13 +424,7 @@ export default function Home() {
   const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
   const [chartStartDate, setChartStartDate] = useState<string | null>(getDefaultChartStartDate());
 
-  const formatSpeed = (value: number | undefined) => {
-    if (value === undefined || value === null || value <= 0) return '-';
-    return new Intl.NumberFormat('ja-JP', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+  const formatSpeed = formatSpeedValue;
 
   // Lightbox逕ｨ縺ｮ迥ｶ諷狗ｮ｡逅・
   const [lightboxData, setLightboxData] = useState<{ url: string; assetId: number; runId: number; runDate: string } | null>(null);
@@ -86,6 +437,23 @@ export default function Home() {
   const closeLightbox = () => setLightboxData(null);
   const closeLegacyChart = () => setLegacyChartDate(null);
   const closeLegacyDetail = () => setLegacyDetailDate(null);
+
+  const copyRunCard = async (run: Run) => {
+    try {
+      const canvas = await renderRunCardToCanvas(run);
+      const copied = await copyCanvasToClipboard(canvas);
+      if (copied) {
+        alert('Run card copied to clipboard as PNG.');
+        return;
+      }
+
+      await downloadCanvas(canvas, `${run.date}-run-card.png`);
+      alert('Clipboard image copy is unavailable in this browser. Downloaded PNG instead.');
+    } catch (error) {
+      console.error('Failed to copy run card:', error);
+      alert('Failed to copy the run card image.');
+    }
+  };
 
   const isToday = (dateStr: string) => {
     const d = new Date();
@@ -218,7 +586,11 @@ export default function Home() {
       {/* データリスト表示エリア */}
       <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.isArray(runs) && runs.map((run) => (
-          <div key={run.id} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden border border-gray-100 flex flex-col">
+          <div
+            key={run.id}
+            id={`run-card-${run.id}`}
+            className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden border border-gray-100 flex flex-col"
+          >
             <div className="p-5 flex-grow">
 
               {/* 譌･莉倥・繝・ム繝ｼ */}
@@ -228,6 +600,13 @@ export default function Home() {
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-300">ID: {run.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => copyRunCard(run)}
+                    className="text-[11px] font-semibold px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  >
+                    COPY CARD
+                  </button>
                 </div>
 
               </div>

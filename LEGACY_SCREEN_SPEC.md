@@ -220,6 +220,38 @@ The current implementation can fill missing values such as:
 - `avg_speed`
 - `max_speed`
 
+### 5.6 Google Fit token-expiry limitation
+
+Current operational limitation:
+
+- Google Fit access tokens can expire or be revoked
+- in practice, this may appear after roughly 7 days
+- token-expiry handling is not yet enforced consistently across every Google Fit path used by the legacy screen
+
+Typical visible error:
+
+- `Error loading splits: {"error":"invalid_grant"}`
+- `Error loading data: {"error":"invalid_grant"}`
+
+Meaning of this error:
+
+- the failure is not limited to `1km Splits`
+- it indicates that a Google Fit request failed with `invalid_grant`
+- some legacy routes still surface this as a generic legacy-screen load error instead of a dedicated re-auth message
+
+Current manual response:
+
+1. delete `token.json`
+2. trigger a Google Fit flow again so that the OAuth consent / re-auth screen appears
+3. confirm that a new `token.json` is created
+4. if the legacy screen still hangs after re-auth, restart the local server process and retry `RUN ANALYZER`
+
+Current implementation gap:
+
+- some older Google Fit flows delete `token.json` when `invalid_grant` is detected
+- some newer range/session-based flows used by legacy run-owned cache rebuild do not yet enforce that behavior consistently
+- because of that inconsistency, token expiry may surface as a legacy-screen chart/table load failure instead of immediately forcing re-auth
+
 Important limits:
 
 - it does not create a new `daily_summary` row when none exists

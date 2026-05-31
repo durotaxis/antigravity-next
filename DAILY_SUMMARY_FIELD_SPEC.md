@@ -272,6 +272,11 @@ When `TCX` data exists for a date, the server:
 - recomputes one date-level summary from the combined run rows
 - writes the recomputed result back to `daily_summary`
 
+Current run ownership rule:
+
+- a TCX run belongs to its start date
+- when a TCX run starts on one date and its `end` is on the next day, the next-day portion still belongs to the start date's run cache and start-date `daily_summary`
+
 This means:
 
 - `TCX` is run-based

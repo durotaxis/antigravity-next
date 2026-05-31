@@ -123,6 +123,13 @@ The legacy run-analyzer result area currently shows:
 - `TCX 1km Splits`
   - lap table built from the selected TCX run's `<Lap>` blocks
 
+Current run-owned cache behavior:
+
+- legacy run-owned cache is start-date-owned
+- the selected date is the run ownership date
+- when a run starts on the selected date and its `end` is on the next day, the next-day portion is still included in the same start-date-owned run cache
+- therefore the legacy screen can treat one cross-midnight run as one run owned by its start date
+
 The legacy summary card currently displays:
 
 - `Peak Performance`
@@ -157,6 +164,8 @@ Current split-table behavior:
 Current TCX-driven legacy behavior:
 
 - when one or more TCX runs exist for the selected date, the legacy screen enables `TCX Run` page control
+- TCX run ownership is start-date-based
+- when a TCX run starts on the selected date and its `end` is on the next day, that run is still treated as the selected date's run
 - the selected page determines:
   - `TCX Per Minute`
   - `TCX 1km Splits`

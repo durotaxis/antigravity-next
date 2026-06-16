@@ -155,6 +155,7 @@ async function fetchIntradayBuckets(dateString) {
         }
         return buckets;
     } catch (err) {
+        await rethrowIfInvalidGrant(err);
         if (cachedBuckets && activeBuckets > 0) {
             console.warn(`[GoogleFit] API fetch failed for ${dateString}. Falling back to RAW cache (active=${activeBuckets}): ${err.message}`);
             return cachedBuckets;
@@ -207,6 +208,7 @@ async function fetchSessionsForDate(dateString) {
         console.log(`[GoogleFit] Saved sessions to cache: ${sessionsCacheFile} (${sessions.length} sessions)`);
         return sessions;
     } catch (err) {
+        await rethrowIfInvalidGrant(err);
         if (cachedSessions && Array.isArray(cachedSessions)) {
             console.warn(`[GoogleFit] Session API fetch failed for ${dateString}. Falling back to session cache: ${err.message}`);
             return cachedSessions;
@@ -219,43 +221,53 @@ async function fetchSessionsForRange(startMs, endMs) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return [];
     }
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
-    const sessions = [];
-    let pageToken = null;
-    do {
-        const response = await fitness.users.sessions.list({
-            userId: 'me',
-            startTime: toRfc3339(startMs),
-            endTime: toRfc3339(endMs),
-            pageToken: pageToken || undefined
-        });
-        const pageSessions = Array.isArray(response?.data?.session) ? response.data.session : [];
-        sessions.push(...pageSessions);
-        pageToken = response?.data?.nextPageToken || null;
-    } while (pageToken);
-    return sessions;
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const sessions = [];
+        let pageToken = null;
+        do {
+            const response = await fitness.users.sessions.list({
+                userId: 'me',
+                startTime: toRfc3339(startMs),
+                endTime: toRfc3339(endMs),
+                pageToken: pageToken || undefined
+            });
+            const pageSessions = Array.isArray(response?.data?.session) ? response.data.session : [];
+            sessions.push(...pageSessions);
+            pageToken = response?.data?.nextPageToken || null;
+        } while (pageToken);
+        return sessions;
+    } catch (err) {
+        await rethrowIfInvalidGrant(err);
+        throw err;
+    }
 }
 
 async function fetchIntradayBucketsForRange(startMs, endMs) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return [];
     }
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
-    const requestBody = {
-        aggregateBy: [
-            { dataTypeName: 'com.google.step_count.delta' },
-            { dataTypeName: 'com.google.distance.delta' },
-            { dataTypeName: 'com.google.heart_rate.bpm' },
-            { dataTypeName: 'com.google.activity.segment' }
-        ],
-        bucketByTime: { durationMillis: 60 * 1000 },
-        startTimeMillis: Math.floor(startMs),
-        endTimeMillis: Math.floor(endMs)
-    };
-    const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
-    return Array.isArray(response?.data?.bucket) ? response.data.bucket : [];
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const requestBody = {
+            aggregateBy: [
+                { dataTypeName: 'com.google.step_count.delta' },
+                { dataTypeName: 'com.google.distance.delta' },
+                { dataTypeName: 'com.google.heart_rate.bpm' },
+                { dataTypeName: 'com.google.activity.segment' }
+            ],
+            bucketByTime: { durationMillis: 60 * 1000 },
+            startTimeMillis: Math.floor(startMs),
+            endTimeMillis: Math.floor(endMs)
+        };
+        const response = await fitness.users.dataset.aggregate({ userId: 'me', requestBody });
+        return Array.isArray(response?.data?.bucket) ? response.data.bucket : [];
+    } catch (err) {
+        await rethrowIfInvalidGrant(err);
+        throw err;
+    }
 }
 
 async function getDetailedFitSpeedSeries(dateString) {
@@ -323,34 +335,39 @@ async function getDetailedFitSpeedSeriesForRange(startMs, endMs) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return { date: '', dataSourceId: null, pointCount: 0, points: [] };
     }
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
-    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
-    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
-    const speedSource = allSources.find((ds) => {
-        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
-        const streamId = String(ds?.dataStreamId || '').toLowerCase();
-        return dataTypeName === 'com.google.speed' && streamId.includes('merge_speed');
-    });
-    if (!speedSource) {
-        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+        const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+        const speedSource = allSources.find((ds) => {
+            const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+            const streamId = String(ds?.dataStreamId || '').toLowerCase();
+            return dataTypeName === 'com.google.speed' && streamId.includes('merge_speed');
+        });
+        if (!speedSource) {
+            return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+        }
+        const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+        const resp = await fitness.users.dataSources.datasets.get({
+            userId: 'me',
+            dataSourceId: speedSource.dataStreamId,
+            datasetId
+        });
+        const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+            const pointMs = nanosToMillis(point?.startTimeNanos);
+            return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
+        });
+        return {
+            date: '',
+            dataSourceId: speedSource.dataStreamId,
+            pointCount: points.length,
+            points
+        };
+    } catch (err) {
+        await rethrowIfInvalidGrant(err);
+        throw err;
     }
-    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
-    const resp = await fitness.users.dataSources.datasets.get({
-        userId: 'me',
-        dataSourceId: speedSource.dataStreamId,
-        datasetId
-    });
-    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
-        const pointMs = nanosToMillis(point?.startTimeNanos);
-        return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
-    });
-    return {
-        date: '',
-        dataSourceId: speedSource.dataStreamId,
-        pointCount: points.length,
-        points
-    };
 }
 
 async function getDetailedFitHeartRateSeries(dateString) {
@@ -418,34 +435,39 @@ async function getDetailedFitHeartRateSeriesForRange(startMs, endMs) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return { date: '', dataSourceId: null, pointCount: 0, points: [] };
     }
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
-    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
-    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
-    const hrSource = allSources.find((ds) => {
-        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
-        const streamId = String(ds?.dataStreamId || '').toLowerCase();
-        return dataTypeName === 'com.google.heart_rate.bpm' && streamId.includes('merge_heart_rate_bpm');
-    });
-    if (!hrSource) {
-        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+        const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+        const hrSource = allSources.find((ds) => {
+            const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+            const streamId = String(ds?.dataStreamId || '').toLowerCase();
+            return dataTypeName === 'com.google.heart_rate.bpm' && streamId.includes('merge_heart_rate_bpm');
+        });
+        if (!hrSource) {
+            return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+        }
+        const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+        const resp = await fitness.users.dataSources.datasets.get({
+            userId: 'me',
+            dataSourceId: hrSource.dataStreamId,
+            datasetId
+        });
+        const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+            const pointMs = nanosToMillis(point?.startTimeNanos);
+            return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
+        });
+        return {
+            date: '',
+            dataSourceId: hrSource.dataStreamId,
+            pointCount: points.length,
+            points
+        };
+    } catch (err) {
+        await rethrowIfInvalidGrant(err);
+        throw err;
     }
-    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
-    const resp = await fitness.users.dataSources.datasets.get({
-        userId: 'me',
-        dataSourceId: hrSource.dataStreamId,
-        datasetId
-    });
-    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
-        const pointMs = nanosToMillis(point?.startTimeNanos);
-        return Number.isFinite(pointMs) && pointMs >= startMs && pointMs < endMs;
-    });
-    return {
-        date: '',
-        dataSourceId: hrSource.dataStreamId,
-        pointCount: points.length,
-        points
-    };
 }
 
 async function getDetailedFitPitchSeries(dateString) {
@@ -520,41 +542,46 @@ async function getDetailedFitPitchSeriesForRange(startMs, endMs) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return { date: '', dataSourceId: null, pointCount: 0, points: [] };
     }
-    const auth = await authorize();
-    const fitness = google.fitness({ version: 'v1', auth });
-    const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
-    const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
-    const stepSource = allSources.find((ds) => {
-        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
-        const streamId = String(ds?.dataStreamId || '').toLowerCase();
-        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('merge_step_deltas');
-    }) || allSources.find((ds) => {
-        const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
-        const streamId = String(ds?.dataStreamId || '').toLowerCase();
-        return dataTypeName === 'com.google.step_count.delta' && streamId.includes('estimated_steps');
-    });
-    if (!stepSource) {
-        return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+    try {
+        const auth = await authorize();
+        const fitness = google.fitness({ version: 'v1', auth });
+        const dsResp = await fitness.users.dataSources.list({ userId: 'me' });
+        const allSources = Array.isArray(dsResp?.data?.dataSource) ? dsResp.data.dataSource : [];
+        const stepSource = allSources.find((ds) => {
+            const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+            const streamId = String(ds?.dataStreamId || '').toLowerCase();
+            return dataTypeName === 'com.google.step_count.delta' && streamId.includes('merge_step_deltas');
+        }) || allSources.find((ds) => {
+            const dataTypeName = String(ds?.dataType?.name || '').toLowerCase();
+            const streamId = String(ds?.dataStreamId || '').toLowerCase();
+            return dataTypeName === 'com.google.step_count.delta' && streamId.includes('estimated_steps');
+        });
+        if (!stepSource) {
+            return { date: '', dataSourceId: null, pointCount: 0, points: [] };
+        }
+        const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
+        const resp = await fitness.users.dataSources.datasets.get({
+            userId: 'me',
+            dataSourceId: stepSource.dataStreamId,
+            datasetId
+        });
+        const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
+            const pointStartMs = nanosToMillis(point?.startTimeNanos);
+            const pointEndMs = nanosToMillis(point?.endTimeNanos);
+            const steps = Number(point?.value?.[0]?.intVal || 0);
+            if (!(steps > 0)) return false;
+            return Number.isFinite(pointStartMs) && Number.isFinite(pointEndMs) && pointEndMs > pointStartMs && pointStartMs < endMs && pointEndMs > startMs;
+        });
+        return {
+            date: '',
+            dataSourceId: stepSource.dataStreamId,
+            pointCount: points.length,
+            points
+        };
+    } catch (err) {
+        await rethrowIfInvalidGrant(err);
+        throw err;
     }
-    const datasetId = `${Math.floor(startMs) * 1000000}-${Math.floor(endMs) * 1000000}`;
-    const resp = await fitness.users.dataSources.datasets.get({
-        userId: 'me',
-        dataSourceId: stepSource.dataStreamId,
-        datasetId
-    });
-    const points = (Array.isArray(resp?.data?.point) ? resp.data.point : []).filter((point) => {
-        const pointStartMs = nanosToMillis(point?.startTimeNanos);
-        const pointEndMs = nanosToMillis(point?.endTimeNanos);
-        const steps = Number(point?.value?.[0]?.intVal || 0);
-        if (!(steps > 0)) return false;
-        return Number.isFinite(pointStartMs) && Number.isFinite(pointEndMs) && pointEndMs > pointStartMs && pointStartMs < endMs && pointEndMs > startMs;
-    });
-    return {
-        date: '',
-        dataSourceId: stepSource.dataStreamId,
-        pointCount: points.length,
-        points
-    };
 }
 
 /**
@@ -605,6 +632,17 @@ async function deleteTokenFile() {
             console.warn(`[GoogleFit] Failed to delete token.json: ${err.message}`);
         }
     }
+}
+
+function isInvalidGrantError(err) {
+    const apiMsg = err?.response?.data?.error?.message || err?.message || '';
+    return String(apiMsg).toLowerCase().includes('invalid_grant');
+}
+
+async function rethrowIfInvalidGrant(err) {
+    if (!isInvalidGrantError(err)) return;
+    await deleteTokenFile();
+    throw new Error('Google Fit token expired. token.json deleted. Re-auth required.');
 }
 
 /**

@@ -1883,8 +1883,8 @@ function filterRunSessionsOwnedByDate(sessions = [], dateString) {
 function pointWithinOwnedSessions(pointMs, ownedSessions = []) {
   if (!Number.isFinite(pointMs)) return false;
   return (Array.isArray(ownedSessions) ? ownedSessions : []).some((session) => {
-    const startMs = Number(session?.startTimeMillis);
-    const endMs = Number(session?.endTimeMillis);
+    const startMs = Number(session?.startTimeMillis ?? session?.startMs);
+    const endMs = Number(session?.endTimeMillis ?? session?.endMs);
     return Number.isFinite(startMs) && Number.isFinite(endMs) && pointMs >= startMs && pointMs < endMs;
   });
 }
@@ -1893,8 +1893,8 @@ function rangeOverlapsOwnedSessions(startMs, endMs, ownedSessions = []) {
   if (!Number.isFinite(startMs)) return false;
   const safeEndMs = Number.isFinite(endMs) && endMs > startMs ? endMs : startMs + 1;
   return (Array.isArray(ownedSessions) ? ownedSessions : []).some((session) => {
-    const sessionStart = Number(session?.startTimeMillis);
-    const sessionEnd = Number(session?.endTimeMillis);
+    const sessionStart = Number(session?.startTimeMillis ?? session?.startMs);
+    const sessionEnd = Number(session?.endTimeMillis ?? session?.endMs);
     return Number.isFinite(sessionStart) && Number.isFinite(sessionEnd) && safeEndMs > sessionStart && startMs < sessionEnd;
   });
 }
@@ -1969,8 +1969,83 @@ async function loadLegacyRunOwnedCachesFromDisk(dateString) {
   };
 }
 
-async function ensureLegacyRunOwnedCaches(dateString) {
+function dedupeRunWindows(windows = []) {
+  const out = [];
+  const seen = new Set();
+  for (const window of Array.isArray(windows) ? windows : []) {
+    const startMs = Number(window?.startMs);
+    const endMs = Number(window?.endMs);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
+    const key = `${startMs}|${endMs}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ startMs, endMs });
+  }
+  return out.sort((a, b) => a.startMs - b.startMs);
+}
+
+async function loadTcxRunWindowsForDate(dateString) {
+  const descriptors = await listTcxRunDescriptorsForDate(dateString);
+  const windows = [];
+  for (const descriptor of Array.isArray(descriptors) ? descriptors : []) {
+    const loaded = await loadTcxMinuteRowsForDescriptor(descriptor);
+    const rows = Array.isArray(loaded?.rows) ? loaded.rows : [];
+    const starts = rows
+      .map((row) => Number(row?.bucketStartMs))
+      .filter((value) => Number.isFinite(value));
+    if (starts.length === 0) continue;
+    const startMs = Math.min(...starts);
+    const endMs = rows.reduce((max, row) => {
+      const bucketStartMs = Number(row?.bucketStartMs);
+      const coverageSeconds = Number(row?.coverageSeconds) > 0 ? Number(row.coverageSeconds) : 60;
+      if (!Number.isFinite(bucketStartMs)) return max;
+      return Math.max(max, bucketStartMs + (coverageSeconds * 1000));
+    }, startMs);
+    if (Number.isFinite(endMs) && endMs > startMs) {
+      windows.push({ startMs, endMs });
+    }
+  }
+  return dedupeRunWindows(windows);
+}
+
+function buildIntradayCoverageWindows(rows = []) {
+  const windows = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const startMs = Number(row?.bucketStartMs);
+    const coverageSeconds = Number(row?.coverageSeconds) > 0 ? Number(row.coverageSeconds) : 60;
+    if (!Number.isFinite(startMs) || !(coverageSeconds > 0)) continue;
+    windows.push({ startMs, endMs: startMs + (coverageSeconds * 1000) });
+  }
+  return dedupeRunWindows(windows);
+}
+
+function windowOverlapsAny(target, windows = []) {
+  const startMs = Number(target?.startMs);
+  const endMs = Number(target?.endMs);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false;
+  return (Array.isArray(windows) ? windows : []).some((window) => {
+    const otherStart = Number(window?.startMs);
+    const otherEnd = Number(window?.endMs);
+    return Number.isFinite(otherStart) && Number.isFinite(otherEnd) && endMs > otherStart && startMs < otherEnd;
+  });
+}
+
+function legacyRunOwnedCacheIsStale(existing, tcxRunWindows = []) {
+  if (!existing || !Array.isArray(tcxRunWindows) || tcxRunWindows.length === 0) return false;
+  const sessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+  const sessionWindows = dedupeRunWindows(sessions.map((session) => ({
+    startMs: Number(session?.startTimeMillis),
+    endMs: Number(session?.endTimeMillis)
+  })));
+  const intradayWindows = buildIntradayCoverageWindows(existing.intradayRows || []);
+  const coverageWindows = intradayWindows.length > 0 ? intradayWindows : sessionWindows;
+  if (coverageWindows.length === 0) return true;
+  return tcxRunWindows.some((tcxWindow) => !windowOverlapsAny(tcxWindow, coverageWindows));
+}
+
+async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
   const date = normalizeRunDate(dateString);
+  const force = Boolean(options && options.force);
   if (!date) {
     return {
       date: '',
@@ -1983,9 +2058,12 @@ async function ensureLegacyRunOwnedCaches(dateString) {
     };
   }
 
-  if (!isTodayDateString(date)) {
-    const existing = await loadLegacyRunOwnedCachesFromDisk(date);
-    if (existing) return existing;
+  const tcxRunWindows = await loadTcxRunWindowsForDate(date).catch(() => []);
+  const existing = await loadLegacyRunOwnedCachesFromDisk(date);
+  const existingIsStale = legacyRunOwnedCacheIsStale(existing, tcxRunWindows);
+
+  if (!force && existing && !existingIsStale) {
+    return existing;
   }
 
   if (legacyRunOwnedBuilds.has(date)) {
@@ -1993,9 +2071,18 @@ async function ensureLegacyRunOwnedCaches(dateString) {
   }
 
   const buildPromise = (async () => {
-    const baseSessions = await googleFitService.fetchSessionsForDate(date);
+    const [baseSessions] = await Promise.all([
+      googleFitService.fetchSessionsForDate(date),
+    ]);
     const ownedRunSessions = filterRunSessionsOwnedByDate(baseSessions, date);
-    if (ownedRunSessions.length === 0) {
+    const ownedRunWindows = dedupeRunWindows([
+      ...ownedRunSessions.map((session) => ({
+        startMs: Number(session?.startTimeMillis),
+        endMs: Number(session?.endTimeMillis)
+      })),
+      ...tcxRunWindows
+    ]);
+    if (ownedRunWindows.length === 0) {
       const empty = {
         date,
         sessions: [],
@@ -2014,8 +2101,8 @@ async function ensureLegacyRunOwnedCaches(dateString) {
       return empty;
     }
 
-    const rangeStartMs = Math.min(...ownedRunSessions.map((session) => Number(session.startTimeMillis)));
-    const rangeEndMs = Math.max(...ownedRunSessions.map((session) => Number(session.endTimeMillis)));
+    const rangeStartMs = Math.min(...ownedRunWindows.map((window) => Number(window.startMs)));
+    const rangeEndMs = Math.max(...ownedRunWindows.map((window) => Number(window.endMs)));
 
     const [rangeBuckets, speedSeriesRaw, hrSeriesRaw, pitchSeriesRaw] = await Promise.all([
       googleFitService.fetchIntradayBucketsForRange(rangeStartMs, rangeEndMs),
@@ -2031,7 +2118,7 @@ async function ensureLegacyRunOwnedCaches(dateString) {
       dataSourceId: speedSeriesRaw?.dataSourceId || null,
       points: dedupeDetailedPoints(Array.isArray(speedSeriesRaw?.points) ? speedSeriesRaw.points.filter((point) => {
         const pointMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
-        return pointWithinOwnedSessions(pointMs, ownedRunSessions);
+        return pointWithinOwnedSessions(pointMs, ownedRunWindows);
       }) : [])
     };
     speedSeries.pointCount = speedSeries.points.length;
@@ -2041,7 +2128,7 @@ async function ensureLegacyRunOwnedCaches(dateString) {
       dataSourceId: hrSeriesRaw?.dataSourceId || null,
       points: dedupeDetailedPoints(Array.isArray(hrSeriesRaw?.points) ? hrSeriesRaw.points.filter((point) => {
         const pointMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
-        return pointWithinOwnedSessions(pointMs, ownedRunSessions);
+        return pointWithinOwnedSessions(pointMs, ownedRunWindows);
       }) : [])
     };
     hrSeries.pointCount = hrSeries.points.length;
@@ -2052,7 +2139,7 @@ async function ensureLegacyRunOwnedCaches(dateString) {
       points: dedupeDetailedPoints(Array.isArray(pitchSeriesRaw?.points) ? pitchSeriesRaw.points.filter((point) => {
         const startMs = Math.floor(Number(point?.startTimeNanos || 0) / 1000000);
         const endMs = Math.floor(Number(point?.endTimeNanos || 0) / 1000000);
-        return rangeOverlapsOwnedSessions(startMs, endMs, ownedRunSessions);
+        return rangeOverlapsOwnedSessions(startMs, endMs, ownedRunWindows);
       }) : [])
     };
     pitchSeries.pointCount = pitchSeries.points.length;
@@ -2078,6 +2165,12 @@ async function ensureLegacyRunOwnedCaches(dateString) {
   legacyRunOwnedBuilds.set(date, buildPromise);
   try {
     return await buildPromise;
+  } catch (err) {
+    if (existing) {
+      console.warn(`[legacy-run-owned] Rebuild failed for ${date}. Falling back to existing run-owned cache: ${err?.message || err}`);
+      return existing;
+    }
+    throw err;
   } finally {
     legacyRunOwnedBuilds.delete(date);
   }
@@ -2681,6 +2774,19 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
     const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
     const computed = await computeDailySummaryFromTcx(resolvedDate);
     const persisted = await persistComputedTcxSummary(resolvedDate, computed);
+
+    try {
+      await ensureLegacyRunOwnedCaches(resolvedDate, { force: true });
+    } catch (e) {
+      console.warn('[import-tcx] Failed to rebuild legacy run-owned caches:', e?.message || e);
+    }
+
+    // --- Google Fit intradayキャッシュ再生成 ---
+    try {
+      await googleFitService.getIntradayMetricsWithMeta(resolvedDate);
+    } catch (e) {
+      console.warn('[import-tcx] Failed to rebuild Google Fit intraday cache:', e?.message || e);
+    }
 
     res.json({
       success: true,

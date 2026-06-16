@@ -16,6 +16,8 @@ type Run = {
   date: string;
   avg_stride: number;
   avg_heart_rate: number;
+  avg_speed?: number | null;
+  avg_cadence?: number | null;
   max_stride?: number | null;
   max_heart_rate?: number | null; // Updated to match API
   hr_max?: number | null; // Compatibility
@@ -48,6 +50,8 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
     // Avg values
     let avgHr = run.avg_heart_rate || 0;
     let avgStride = run.avg_stride || 0;
+    let avgSpeed = Number(run.avg_speed || 0);
+    let avgPitch = Number(run.avg_cadence || 0);
 
     // Apply Filters (Matching Old Screen Logic) - for Max values
     // 1. Invalid Stride > 300cm
@@ -60,6 +64,10 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
     if (avgStride > 400) avgStride = 0;
     // 2. Invalid Avg HR <= 50 or > 200
     if (avgHr <= 50 || avgHr > 200) avgHr = 0;
+    // 3. Invalid Avg Speed <= 0 or implausibly high
+    if (avgSpeed <= 0 || avgSpeed > 30) avgSpeed = 0;
+    // 4. Invalid Avg Pitch <= 0 or implausibly high/low
+    if (avgPitch <= 30 || avgPitch > 260) avgPitch = 0;
 
     return {
       ...run,
@@ -69,8 +77,16 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
       // Avg values
       displayAvgStride: avgStride,
       displayAvgHr: avgHr,
+      displayAvgSpeed: avgSpeed,
+      displayAvgPitch: avgPitch,
+      displayAvgSpeedScaled: avgSpeed > 0 ? avgSpeed * 9 : 0,
     };
   });
+
+  const formatFixed = (value: unknown, digits: number) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num.toFixed(digits) : '-';
+  };
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -105,8 +121,10 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
         <div className="bg-white p-3 border border-gray-200 shadow-lg rounded text-sm">
           <p className="font-bold text-gray-700 mb-1">{formatDate(data.date)}</p>
           <div className="space-y-1">
-            <p className="text-blue-400">Stride: <strong>{data.displayAvgStride.toFixed(1)}</strong> cm</p>
-            <p className="text-red-400">Heart Rate: <strong>{data.displayAvgHr.toFixed(0)}</strong> bpm</p>
+            <p className="text-blue-400">Stride: <strong>{formatFixed(data.displayAvgStride, 1)}</strong> cm</p>
+            <p className="text-green-400">Speed: <strong>{formatFixed(data.displayAvgSpeed, 1)}</strong> km/h</p>
+            <p className="text-amber-400">Pitch: <strong>{formatFixed(data.displayAvgPitch, 0)}</strong> spm</p>
+            <p className="text-red-400">Heart Rate: <strong>{formatFixed(data.displayAvgHr, 0)}</strong> bpm</p>
           </div>
         </div>
       );
@@ -167,7 +185,13 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
               />
 
               <Tooltip content={<MaxTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} />
+              <Legend
+                wrapperStyle={{ paddingTop: '20px' }}
+                payload={[
+                  { value: 'Max Stride', type: 'line', id: 'max-stride', color: '#3b82f6' },
+                  { value: 'Max Heart Rate', type: 'line', id: 'max-hr', color: '#ef4444' }
+                ]}
+              />
 
               {/* Max Stride Line */}
               <Line
@@ -206,7 +230,7 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
             Average Performance
           </h2>
           <p className="text-xs text-center text-gray-400">
-            Avg Stride / Heart Rate
+            Avg Stride / Speed / Pitch / Heart Rate
           </p>
         </div>
 
@@ -231,7 +255,7 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                 yAxisId="left"
                 orientation="left"
                 stroke="#60a5fa"
-                domain={[0, 'auto']}
+                domain={[0, 72.5]}
                 tick={{ fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
@@ -242,7 +266,7 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                 yAxisId="right"
                 orientation="right"
                 stroke="#f87171"
-                domain={[0, 'auto']}
+                domain={[0, 220]}
                 tick={{ fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
@@ -250,21 +274,13 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
               />
 
               <Tooltip content={<AvgTooltip />} />
-              <Legend
-                wrapperStyle={{ paddingTop: '20px' }}
-                payload={[
-                  { value: 'Avg Stride', type: 'line', id: 'avg-stride', color: '#60a5fa' },
-                  { value: 'Avg Heart Rate', type: 'line', id: 'avg-hr', color: '#f87171' }
-                ]}
-              />
 
-              {/* Avg Stride Line */}
               <Line
                 yAxisId="left"
                 type="monotone"
-                dataKey="displayAvgStride"
-                name="Avg Stride"
-                stroke="#60a5fa"
+                dataKey="displayAvgSpeedScaled"
+                name="Avg Speed"
+                stroke="#4ade80"
                 strokeWidth={2}
                 dot={{ r: 3 }}
                 connectNulls={true}
@@ -282,8 +298,37 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                 connectNulls={true}
               />
 
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="displayAvgPitch"
+                name="Avg Pitch"
+                stroke="#fbbf24"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls={true}
+              />
+
+              {/* Avg Stride Line */}
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="displayAvgStride"
+                name="Avg Stride"
+                stroke="#60a5fa"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls={true}
+              />
+
             </ComposedChart>
           </ResponsiveContainer>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm">
+          <span className="text-[#60a5fa]">- Avg Stride</span>
+          <span className="text-[#4ade80]">- Avg Speed</span>
+          <span className="text-[#fbbf24]">- Avg Pitch</span>
+          <span className="text-[#f87171]">- Avg Heart Rate</span>
         </div>
       </div>
     </div>

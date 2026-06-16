@@ -2262,6 +2262,27 @@ function clearTcxSpeedPitchChart() {
     }
 }
 
+function buildAltitudeBackgroundSeries(rows = []) {
+    const altitudes = (Array.isArray(rows) ? rows : []).map((row) => {
+        const altitude = Number(row?.altitude);
+        return Number.isFinite(altitude) ? altitude : null;
+    });
+    const valid = altitudes.filter((value) => Number.isFinite(value));
+    if (valid.length === 0) {
+        return altitudes.map(() => null);
+    }
+    const min = Math.min(...valid);
+    const max = Math.max(...valid);
+    if (!(max > min)) {
+        return altitudes.map((value) => (Number.isFinite(value) ? 55 : null));
+    }
+    return altitudes.map((value) => {
+        if (!Number.isFinite(value)) return null;
+        const normalized = (value - min) / (max - min);
+        return Number((15 + (normalized * 80)).toFixed(2));
+    });
+}
+
 function renderTcxMinuteCharts(rows = []) {
     const tcxStrideCtx = document.getElementById('tcxStrideChart').getContext('2d');
     const tcxSpeedPitchCtx = document.getElementById('tcxSpeedPitchChart').getContext('2d');
@@ -2275,12 +2296,24 @@ function renderTcxMinuteCharts(rows = []) {
     const heartRates = chartData.map((d) => Number(d.heartRate) > 0 ? Number(d.heartRate) : null);
     const speeds = chartData.map((d) => Number(d.speed) > 0 ? Number(d.speed) : null);
     const pitches = chartData.map((d) => Number(d.pitch) > 0 ? Number(d.pitch) : null);
+    const altitudeBackground = buildAltitudeBackgroundSeries(chartData);
 
     tcxStrideChartInstance = new Chart(tcxStrideCtx, {
         type: 'line',
         data: {
             labels: times,
             datasets: [
+                {
+                    label: 'Altitude',
+                    data: altitudeBackground,
+                    borderColor: 'rgba(192, 132, 252, 0.35)',
+                    backgroundColor: 'rgba(192, 132, 252, 0.10)',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0.25,
+                    fill: 'origin',
+                    yAxisID: 'y-altitude-bg'
+                },
                 {
                     label: 'Stride',
                     data: strides,
@@ -2314,6 +2347,12 @@ function renderTcxMinuteCharts(rows = []) {
                     grid: { color: '#444' },
                     ticks: { color: '#eee' }
                 },
+                'y-altitude-bg': {
+                    type: 'linear',
+                    display: false,
+                    min: 0,
+                    max: 100
+                },
                 'y-stride': {
                     type: 'linear',
                     display: true,
@@ -2342,8 +2381,17 @@ function renderTcxMinuteCharts(rows = []) {
                 }
             },
             plugins: {
-                legend: { labels: { color: '#eee' } },
-                tooltip: { mode: 'index', intersect: false }
+                legend: {
+                    labels: {
+                        color: '#eee',
+                        filter: (item) => item.text !== 'Altitude'
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg'
+                }
             }
         }
     });
@@ -2353,6 +2401,17 @@ function renderTcxMinuteCharts(rows = []) {
         data: {
             labels: times,
             datasets: [
+                {
+                    label: 'Altitude',
+                    data: altitudeBackground,
+                    borderColor: 'rgba(192, 132, 252, 0.35)',
+                    backgroundColor: 'rgba(192, 132, 252, 0.10)',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0.25,
+                    fill: 'origin',
+                    yAxisID: 'y-altitude-bg'
+                },
                 {
                     label: 'Speed',
                     data: speeds,
@@ -2386,6 +2445,12 @@ function renderTcxMinuteCharts(rows = []) {
                     grid: { color: '#444' },
                     ticks: { color: '#eee' }
                 },
+                'y-altitude-bg': {
+                    type: 'linear',
+                    display: false,
+                    min: 0,
+                    max: 100
+                },
                 'y-speed': {
                     type: 'linear',
                     display: true,
@@ -2414,8 +2479,17 @@ function renderTcxMinuteCharts(rows = []) {
                 }
             },
             plugins: {
-                legend: { labels: { color: '#eee' } },
-                tooltip: { mode: 'index', intersect: false }
+                legend: {
+                    labels: {
+                        color: '#eee',
+                        filter: (item) => item.text !== 'Altitude'
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg'
+                }
             }
         }
     });

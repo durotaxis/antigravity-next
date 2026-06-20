@@ -1,8 +1,10 @@
 'use client';
 
 import {
+  Area,
   ComposedChart,
   Line,
+  ReferenceDot,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -14,6 +16,7 @@ import {
 type Run = {
   id: number;
   date: string;
+  distance?: number | null;
   avg_stride: number;
   avg_heart_rate: number;
   avg_speed?: number | null;
@@ -46,6 +49,7 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
     // Max values
     let maxHr = run.max_heart_rate || run.hr_max || run.avg_heart_rate || 0;
     let maxStride = run.max_stride || run.avg_stride || 0;
+    let distance = Number(run.distance || 0);
 
     // Avg values
     let avgHr = run.avg_heart_rate || 0;
@@ -68,6 +72,8 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
     if (avgSpeed <= 0 || avgSpeed > 30) avgSpeed = 0;
     // 4. Invalid Avg Pitch <= 0 or implausibly high/low
     if (avgPitch <= 30 || avgPitch > 260) avgPitch = 0;
+    // 5. Invalid Distance <= 0
+    if (distance <= 0 || distance > 200) distance = 0;
 
     return {
       ...run,
@@ -80,8 +86,15 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
       displayAvgSpeed: avgSpeed,
       displayAvgPitch: avgPitch,
       displayAvgSpeedScaled: avgSpeed > 0 ? avgSpeed * 9 : 0,
+      displayDistance: distance,
     };
   });
+
+  const maxDistancePoint = chartData.reduce<null | (typeof chartData)[number]>((best, row) => {
+    if (!(Number(row.displayDistance) > 0)) return best;
+    if (!best) return row;
+    return Number(row.displayDistance) > Number(best.displayDistance) ? row : best;
+  }, null);
 
   const formatFixed = (value: unknown, digits: number) => {
     const num = Number(value);
@@ -163,15 +176,21 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
               />
 
               <YAxis
-                yAxisId="left"
-                orientation="left"
-                stroke="#3b82f6"
+                yAxisId="distance-bg"
+                hide
                 domain={[0, 'auto']}
-                tick={{ fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                label={{ value: 'Stride (cm)', angle: -90, position: 'insideLeft', fill: '#3b82f6', fontSize: 10 }}
               />
+
+                <YAxis
+                  yAxisId="left"
+                  orientation="left"
+                  stroke="#3b82f6"
+                  domain={[0, (dataMax: number) => Math.max(100, Math.ceil(dataMax + 15))]}
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{ value: 'Stride (cm)', angle: -90, position: 'insideLeft', fill: '#3b82f6', fontSize: 10 }}
+                />
 
               <YAxis
                 yAxisId="right"
@@ -192,6 +211,35 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                   { value: 'Max Heart Rate', type: 'line', id: 'max-hr', color: '#ef4444' }
                 ]}
               />
+
+              <Area
+                yAxisId="distance-bg"
+                type="monotone"
+                dataKey="displayDistance"
+                name="Distance"
+                stroke="#cbd5e1"
+                fill="#e2e8f0"
+                fillOpacity={0.22}
+                strokeWidth={1}
+                isAnimationActive={false}
+                connectNulls={true}
+              />
+
+              {maxDistancePoint && (
+                <ReferenceDot
+                  yAxisId="distance-bg"
+                  x={maxDistancePoint.date}
+                  y={maxDistancePoint.displayDistance}
+                  r={0}
+                  isFront={false}
+                  label={{
+                    value: `${formatFixed(maxDistancePoint.displayDistance, 2)} km`,
+                    position: 'top',
+                    fill: '#64748b',
+                    fontSize: 11,
+                  }}
+                />
+              )}
 
               {/* Max Stride Line */}
               <Line

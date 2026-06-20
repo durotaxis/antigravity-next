@@ -779,6 +779,8 @@ let currentTcxMinuteExport = null;
 let currentTcxRunPages = [];
 let currentTcxRunPageIndex = 0;
 let currentTcxRunPageDate = '';
+let currentAdviceRunDate = '';
+let currentAdviceData = [];
 
 function setLapExportState(payload) {
     currentLapSplitExport = payload || null;
@@ -1066,12 +1068,25 @@ function isElementVisibleForExport(element) {
     return element.offsetParent !== null;
 }
 
-function buildTcxChartsCompositeCanvas() {
+function buildVisibleChartsCompositeCanvas() {
     const wrapperIds = [
+        'legacyStrideChartWrapper',
+        'legacySpeedChartWrapper',
         'fitSpeedChartWrapper',
+        'fitPitchChartWrapper',
+        'fitStrideChartWrapper',
         'tcxStrideChartWrapper',
         'tcxSpeedPitchChartWrapper'
     ];
+    const titleByWrapperId = {
+        legacyStrideChartWrapper: 'Stride + HR',
+        legacySpeedChartWrapper: 'Speed + Pitch',
+        fitSpeedChartWrapper: 'Speed (accurate) + HR (accurate)',
+        fitPitchChartWrapper: 'Pitch (accurate)',
+        fitStrideChartWrapper: 'Stride (accurate)',
+        tcxStrideChartWrapper: 'TCX Stride + HR',
+        tcxSpeedPitchChartWrapper: 'TCX Speed + Pitch'
+    };
     const wrappers = wrapperIds
         .map((id) => document.getElementById(id))
         .filter((el) => isElementVisibleForExport(el));
@@ -1113,11 +1128,7 @@ function buildTcxChartsCompositeCanvas() {
 
     let currentY = verticalPadding;
     sections.forEach((section) => {
-        const titleText = section.wrapper.id === 'fitSpeedChartWrapper'
-            ? 'Speed (accurate) + HR (accurate)'
-            : section.wrapper.id === 'tcxStrideChartWrapper'
-                ? 'TCX Stride + HR'
-                : 'TCX Speed + Pitch';
+        const titleText = titleByWrapperId[section.wrapper.id] || 'Chart';
 
         ctx.fillStyle = '#1a1a1a';
         ctx.strokeStyle = '#333333';
@@ -1134,6 +1145,40 @@ function buildTcxChartsCompositeCanvas() {
     });
 
     return exportCanvas;
+}
+
+function buildVisibleMinuteTablesMarkdown() {
+    const tableDefs = [
+        { wrapperId: 'legacyPerMinuteWrapper', tableId: 'resultTable', title: 'Per Minute' },
+        { wrapperId: 'tcxPerMinuteWrapper', tableId: 'tcxResultTable', title: 'TCX Per Minute' }
+    ];
+    const sections = [];
+
+    tableDefs.forEach(({ wrapperId, tableId, title }) => {
+        const wrapper = document.getElementById(wrapperId);
+        const table = document.getElementById(tableId);
+        if (!isElementVisibleForExport(wrapper) || !table) return;
+
+        const headers = Array.from(table.querySelectorAll('thead th'))
+            .map((th) => String(th.textContent || '').trim())
+            .filter(Boolean);
+        const rows = Array.from(table.querySelectorAll('tbody tr'))
+            .map((tr) => Array.from(tr.querySelectorAll('td')).map((td) => String(td.textContent || '').trim()))
+            .filter((cells) => cells.length > 0 && cells.some((cell) => cell));
+
+        if (headers.length === 0 || rows.length === 0) return;
+        if (rows.length === 1 && rows[0].some((cell) => /^No\b/i.test(cell))) return;
+
+        const lines = [
+            `## ${title}`,
+            `| ${headers.join(' | ')} |`,
+            `| ${headers.map(() => '---').join(' | ')} |`,
+            ...rows.map((cells) => `| ${cells.join(' | ')} |`)
+        ];
+        sections.push(lines.join('\n'));
+    });
+
+    return sections.join('\n\n').trim();
 }
 
 async function copyCanvasImageToClipboard(canvas) {
@@ -1158,7 +1203,7 @@ function downloadCanvasAsPng(canvas, filename) {
 }
 
 async function copyVisibleTcxChartsAsImage() {
-    const exportCanvas = buildTcxChartsCompositeCanvas();
+    const exportCanvas = buildVisibleChartsCompositeCanvas();
     if (!exportCanvas) {
         alert('No visible TCX charts available. Run ANALYZER on a TCX day first.');
         return;
@@ -1262,6 +1307,8 @@ async function loadData(options = {}) {
             : fitHeartRateSeriesRaw;
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
         const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
+        currentAdviceRunDate = date;
+        currentAdviceData = Array.isArray(data) ? data : [];
         setLegacyChartVisibility(hasTcxRunData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
@@ -1493,6 +1540,8 @@ async function loadData(options = {}) {
         console.error(error);
         currentTcxRunPages = [];
         currentTcxRunPageIndex = 0;
+        currentAdviceRunDate = '';
+        currentAdviceData = [];
         updateTcxRunPager([], 0);
         setLegacyChartVisibility(false);
         setLapExportState(null);
@@ -1889,6 +1938,17 @@ async function getGeminiAdvice(date, maxStride, data) {
 
     try {
         const payload = await buildAdvicePayload(date, maxStride, data);
+        const chartCanvas = buildVisibleChartsCompositeCanvas();
+        const minuteTableMarkdown = buildVisibleMinuteTablesMarkdown();
+        if (chartCanvas) {
+            payload.chartImageDataUrl = chartCanvas.toDataURL('image/png');
+        }
+        if (minuteTableMarkdown) {
+            payload.minuteTableMarkdown = minuteTableMarkdown;
+            console.log('[Gemini payload] minuteTableMarkdown\n' + minuteTableMarkdown);
+        } else {
+            console.log('[Gemini payload] minuteTableMarkdown is empty');
+        }
         const res = await fetch('/api/advice/gemini', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1899,6 +1959,27 @@ async function getGeminiAdvice(date, maxStride, data) {
         textSpan.textContent = String(json.advice || '').trim() || 'No advice returned.';
     } catch (e) {
         textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
+    }
+}
+
+async function refreshTcxAdviceFromCurrentView() {
+    if (!currentAdviceRunDate || !Array.isArray(currentAdviceData) || currentAdviceData.length === 0) {
+        alert('No visible run data available. Run ANALYZER first.');
+        return;
+    }
+    const btn = document.getElementById('refreshTcxAdviceBtn');
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Applying...';
+    }
+    try {
+        await getGeminiAdvice(currentAdviceRunDate, 0, currentAdviceData);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText || 'Apply';
+        }
     }
 }
 
@@ -3115,6 +3196,13 @@ document.addEventListener('DOMContentLoaded', () => {
             await copyVisibleTcxChartsAsImage();
         } catch (err) {
             alert(`Failed to copy charts: ${err.message}`);
+        }
+    });
+    document.getElementById('refreshTcxAdviceBtn')?.addEventListener('click', async () => {
+        try {
+            await refreshTcxAdviceFromCurrentView();
+        } catch (err) {
+            alert(`Failed to refresh advice: ${err.message}`);
         }
     });
     document.getElementById('tcxRunPrevBtn')?.addEventListener('click', () => {

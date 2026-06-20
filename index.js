@@ -1555,7 +1555,7 @@ async function importInboxFilesToAssets(filenames = []) {
 // --- Security & Config ---
 // 蜈ｨ繧ｪ繝ｪ繧ｸ繝ｳ險ｱ蜿ｯ (繧ｹ繝槭・縺九ｉ縺ｮ謗･邯壹ｒ繧ｹ繝繝ｼ繧ｺ縺ｫ)
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
 const genAI = null; // Removed generic init
 const model = null; // Removed generic init
@@ -3361,7 +3361,22 @@ app.post('/api/advice', async (req, res) => {
 // Advice API (Gemini)
 app.post('/api/advice/gemini', async (req, res) => {
   try {
-    const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
+    const {
+      date,
+      stepCount,
+      totalDistanceKm,
+      totalTime,
+      avgStride,
+      maxStride,
+      avgHR,
+      maxHR,
+      avgCadence,
+      maxCadence,
+      avgSpeed,
+      maxSpeed,
+      chartImageDataUrl,
+      minuteTableMarkdown
+    } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
     const dailySummary = await repo.getDailySummary(date);
@@ -3382,6 +3397,63 @@ app.post('/api/advice/gemini', async (req, res) => {
     const resolvedMaxSpeed = pickPositive(dailySummary && dailySummary.max_speed, pickPositive(cacheMetrics.max_speed, maxSpeed));
     const images = await imageRepo.getImagesForRun(date);
     const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
+    const allRuns = await repo.getAllRuns();
+    const compareRunSummaries = Array.isArray(allRuns)
+      ? allRuns
+          .filter((run) => run && typeof run.date === 'string' && run.date < date)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .slice(-8)
+          .map((run) => ({
+            date: String(run.date || ''),
+            distanceKm: Number(run.total_distance_km || 0),
+            maxStride: Number(run.max_stride || 0),
+            avgStride: Number(run.avg_stride || 0),
+            avgSpeed: Number(run.avg_speed || 0),
+            avgPitch: Number(run.avg_cadence || 0),
+            avgHr: Number(run.hr_avg || 0),
+              maxHr: Number(run.hr_max || 0)
+            }))
+      : [];
+    const latestRunSummary = {
+      date,
+      distanceKm: Number(resolvedTotalDistanceKm || 0),
+      maxStride: Number(resolvedMaxStride || 0),
+      avgStride: Number(resolvedAvgStride || 0),
+      avgSpeed: Number(resolvedAvgSpeed || 0),
+      avgPitch: Number(resolvedAvgCadence || 0),
+      avgHr: Number(resolvedAvgHr || 0),
+      maxHr: Number(resolvedMaxHr || 0)
+    };
+    const chartImageText = typeof chartImageDataUrl === 'string' ? chartImageDataUrl : '';
+    const minuteTableText = typeof minuteTableMarkdown === 'string' ? minuteTableMarkdown : '';
+    console.log('[Gemini payload][legacy]', {
+      date,
+      resolvedMetrics: {
+        stepCount: resolvedStepCount,
+        totalDistanceKm: resolvedTotalDistanceKm,
+        totalTime: resolvedTotalTime,
+        avgStride: resolvedAvgStride,
+        maxStride: resolvedMaxStride,
+        avgHr: resolvedAvgHr,
+        maxHr: resolvedMaxHr,
+        avgCadence: resolvedAvgCadence,
+        maxCadence: resolvedMaxCadence,
+        avgSpeed: resolvedAvgSpeed,
+        maxSpeed: resolvedMaxSpeed
+      },
+      chartImage: {
+        present: chartImageText.trim().length > 0,
+        length: chartImageText.length
+      },
+      minuteTableMarkdown: {
+        present: minuteTableText.trim().length > 0,
+        length: minuteTableText.length,
+        preview: minuteTableText.slice(0, 1200)
+      },
+      latestRunSummary,
+      compareRunSummaryCount: compareRunSummaries.length,
+      compareRunSummaries
+    });
 
     const advice = await geminiService.generateAdvice({
       date,
@@ -3396,7 +3468,12 @@ app.post('/api/advice/gemini', async (req, res) => {
       max_cadence: resolvedMaxCadence,
       avg_speed: resolvedAvgSpeed,
       max_speed: resolvedMaxSpeed
-    }, imagePaths);
+    }, imagePaths, {
+      chartImageDataUrl: chartImageText,
+      minuteTableMarkdown: minuteTableText,
+      latestRunSummary,
+      compareRunSummaries
+    });
 
     await repo.saveDailySummary({
       date,
@@ -3415,6 +3492,38 @@ app.post('/api/advice/gemini', async (req, res) => {
     });
 
     return res.json({ advice, provider: 'gemini-live' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/advice/gemini/chart', async (req, res) => {
+  try {
+    const {
+      chartImageDataUrl,
+      dateRangeText,
+      runCount,
+      maxDistanceDate,
+      maxDistanceKm,
+      latestRunSummary,
+      chartRunSummaries
+    } = req.body || {};
+    if (!(typeof chartImageDataUrl === 'string' && chartImageDataUrl.trim())) {
+      return res.status(400).json({ error: 'chartImageDataUrl is required' });
+    }
+
+    const advice = await geminiService.generateTrendChartAdvice({
+      chartImageDataUrl: chartImageDataUrl.trim(),
+      dateRangeText: typeof dateRangeText === 'string' ? dateRangeText : '',
+      runCount: Number.isFinite(Number(runCount)) ? Number(runCount) : 0,
+      maxDistanceDate: typeof maxDistanceDate === 'string' ? maxDistanceDate : '',
+      maxDistanceKm: Number.isFinite(Number(maxDistanceKm)) ? Number(maxDistanceKm) : 0,
+      latestRunSummary: latestRunSummary && typeof latestRunSummary === 'object' ? latestRunSummary : null,
+      chartRunSummaries: Array.isArray(chartRunSummaries) ? chartRunSummaries : []
+    });
+
+    return res.json({ advice, provider: 'gemini-chart-live' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: err.message });

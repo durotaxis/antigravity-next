@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import EfficiencyChart from './EfficiencyChart';
 // 菴懈・縺励◆繧ｳ繝ｳ繝昴・繝阪Φ繝医ｒ繧､繝ｳ繝昴・繝・
 import ImageGrid from './components/ImageGrid';
@@ -50,14 +50,7 @@ type ApiRun = Partial<Run> & {
   hr_max?: number;
 };
 
-const getDefaultChartStartDate = () => {
-  const date = new Date();
-  date.setMonth(date.getMonth() - 1);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const getDefaultChartStartDate = () => '2026-05-24';
 
 function formatSpeedValue(value: number | undefined) {
   if (value === undefined || value === null || value <= 0) return '-';
@@ -416,6 +409,66 @@ async function downloadCanvas(canvas: HTMLCanvasElement, filename: string) {
   URL.revokeObjectURL(objectUrl);
 }
 
+async function loadImageElement(src: string) {
+  const image = new Image();
+  const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load chart image.'));
+  });
+  image.src = src;
+  return loaded;
+}
+
+async function renderChartContainerToCanvas(container: HTMLElement) {
+  const svgNodes = Array.from(container.querySelectorAll('svg')) as SVGSVGElement[];
+  const charts = svgNodes
+    .map((svg) => {
+      const rect = svg.getBoundingClientRect();
+      return {
+        svg,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      };
+    })
+    .filter((entry) => entry.width > 0 && entry.height > 0);
+
+  if (charts.length === 0) {
+    throw new Error('No visible chart found.');
+  }
+
+  const gap = 16;
+  const width = Math.max(...charts.map((entry) => entry.width));
+  const height = charts.reduce((sum, entry) => sum + entry.height, 0) + gap * Math.max(0, charts.length - 1);
+  const scale = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context unavailable.');
+
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  let offsetY = 0;
+  for (const entry of charts) {
+    const clone = entry.svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', String(entry.width));
+    clone.setAttribute('height', String(entry.height));
+    if (!clone.getAttribute('viewBox')) {
+      clone.setAttribute('viewBox', `0 0 ${entry.width} ${entry.height}`);
+    }
+    const svgText = new XMLSerializer().serializeToString(clone);
+    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+    const image = await loadImageElement(dataUrl);
+    ctx.drawImage(image, 0, offsetY, entry.width, entry.height);
+    offsetY += entry.height + gap;
+  }
+
+  return canvas;
+}
+
 export default function Home() {
   const API_BASE = getApiBase();
   const [runs, setRuns] = useState<Run[]>([]);
@@ -423,6 +476,9 @@ export default function Home() {
   const [legacyChartDate, setLegacyChartDate] = useState<string | null>(null);
   const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
   const [chartStartDate, setChartStartDate] = useState<string | null>(getDefaultChartStartDate());
+  const [chartAdvice, setChartAdvice] = useState<string | null>(null);
+  const [chartAdviceLoading, setChartAdviceLoading] = useState(false);
+  const chartCaptureRef = useRef<HTMLDivElement | null>(null);
 
   const formatSpeed = formatSpeedValue;
 
@@ -452,6 +508,76 @@ export default function Home() {
     } catch (error) {
       console.error('Failed to copy run card:', error);
       alert('Failed to copy the run card image.');
+    }
+  };
+
+  const analyzeChartWithGemini = async () => {
+    if (!chartCaptureRef.current) {
+      alert('Chart area not found.');
+      return;
+    }
+
+    try {
+      setChartAdviceLoading(true);
+      setChartAdvice(null);
+
+      const visibleRuns = [...runs]
+        .filter((run) => !chartStartDate || run.date >= chartStartDate)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const dateRangeText = visibleRuns.length > 0
+        ? `${visibleRuns[0].date}〜${visibleRuns[visibleRuns.length - 1].date}`
+        : (chartStartDate || '不明');
+      const latestRun = visibleRuns.length > 0 ? visibleRuns[visibleRuns.length - 1] : null;
+      const maxDistanceRun = visibleRuns.reduce<Run | null>((best, run) => {
+        const distance = Number(run.distance || 0);
+        if (!(distance > 0)) return best;
+        if (!best) return run;
+        return distance > Number(best.distance || 0) ? run : best;
+      }, null);
+      const chartRunSummaries = visibleRuns.map((run) => ({
+        date: run.date,
+        distanceKm: Number(run.distance || 0),
+        maxStride: Number(run.max_stride || 0),
+        avgStride: Number(run.avg_stride || 0),
+        avgSpeed: Number(run.avg_speed || 0),
+        avgPitch: Number(run.avg_cadence || 0),
+        avgHr: Number(run.avg_heart_rate || 0),
+        maxHr: Number(run.max_heart_rate || 0)
+      }));
+
+      const canvas = await renderChartContainerToCanvas(chartCaptureRef.current);
+      const res = await fetch(`${API_BASE}/api/advice/gemini/chart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chartImageDataUrl: canvas.toDataURL('image/png'),
+          dateRangeText,
+          runCount: visibleRuns.length,
+          maxDistanceDate: maxDistanceRun?.date || '',
+          maxDistanceKm: Number(maxDistanceRun?.distance || 0),
+          latestRunSummary: latestRun ? {
+            date: latestRun.date,
+            distanceKm: Number(latestRun.distance || 0),
+            maxStride: Number(latestRun.max_stride || 0),
+            avgStride: Number(latestRun.avg_stride || 0),
+            avgSpeed: Number(latestRun.avg_speed || 0),
+            avgPitch: Number(latestRun.avg_cadence || 0),
+            avgHr: Number(latestRun.avg_heart_rate || 0),
+            maxHr: Number(latestRun.max_heart_rate || 0)
+          } : null,
+          chartRunSummaries
+        })
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        throw new Error(json.error || `API ${res.status}`);
+      }
+      setChartAdvice(String(json.advice || '').trim() || 'No advice returned.');
+    } catch (error) {
+      console.error('Failed to analyze chart with Gemini:', error);
+      setChartAdvice(`Gemini analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setChartAdviceLoading(false);
     }
   };
 
@@ -567,8 +693,22 @@ export default function Home() {
               Clear Filter
             </button>
           )}
+          <button
+            type="button"
+            onClick={analyzeChartWithGemini}
+            disabled={chartAdviceLoading || runs.length === 0}
+            className="text-xs px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+          >
+            {chartAdviceLoading ? 'Analyzing...' : 'Analyze Chart'}
+          </button>
         </div>
       </div>
+
+      {chartAdvice && (
+        <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          {chartAdvice}
+        </div>
+      )}
 
       {/* エラー表示 */}
       {error && (
@@ -579,7 +719,7 @@ export default function Home() {
       )}
 
       {/* グラフエリア */}
-      <div className="mb-10 bg-white rounded-xl shadow-sm border border-gray-100">
+      <div ref={chartCaptureRef} className="mb-10 bg-white rounded-xl shadow-sm border border-gray-100">
         <EfficiencyChart runs={runs} startDate={chartStartDate} />
       </div>
 

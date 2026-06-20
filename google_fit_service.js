@@ -1258,6 +1258,7 @@ function getFpValue(dataset) {
 module.exports = {
     getDailyMetrics,
     getIntradayMetrics,
+    getIntradayMetricsWithMeta,
     fetchSessionsForDate,
     fetchSessionsForRange,
     fetchIntradayBucketsForRange,

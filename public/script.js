@@ -781,6 +781,7 @@ let currentTcxRunPageIndex = 0;
 let currentTcxRunPageDate = '';
 let currentAdviceRunDate = '';
 let currentAdviceData = [];
+let currentAdviceUsesTcx = false;
 
 function setLapExportState(payload) {
     currentLapSplitExport = payload || null;
@@ -1308,7 +1309,10 @@ async function loadData(options = {}) {
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
         const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
         currentAdviceRunDate = date;
-        currentAdviceData = Array.isArray(data) ? data : [];
+        currentAdviceUsesTcx = hasTcxMinuteData;
+        currentAdviceData = hasTcxMinuteData
+            ? (Array.isArray(tcxMinuteData) ? tcxMinuteData : [])
+            : (Array.isArray(data) ? data : []);
         setLegacyChartVisibility(hasTcxRunData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
@@ -1542,6 +1546,7 @@ async function loadData(options = {}) {
         currentTcxRunPageIndex = 0;
         currentAdviceRunDate = '';
         currentAdviceData = [];
+        currentAdviceUsesTcx = false;
         updateTcxRunPager([], 0);
         setLegacyChartVisibility(false);
         setLapExportState(null);
@@ -1836,12 +1841,24 @@ function renderLapTableRows(tbody, splits) {
 }
 
 async function buildAdvicePayload(date, maxStride, data) {
-    const runningData = data.filter(d => d.steps > 140);
-    const totalRunningSteps = runningData.reduce((acc, d) => acc + d.steps, 0);
-    const avgStride = totalRunningSteps > 0 ? (runningData.reduce((acc, d) => acc + (d.stride * d.steps), 0) / totalRunningSteps) : 0;
-    const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
-    const totalDistanceKm = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0) / 1000;
-    const totalSeconds = Math.max(0, data.length * 60);
+    const normalizedData = (Array.isArray(data) ? data : []).map((d) => ({
+        stride: Number(d?.stride || 0),
+        cadence: Number(d?.steps || d?.pitch || 0),
+        distance: Number(d?.distance || 0),
+        speed: Number(d?.speed || 0),
+        heartRate: Number(d?.heartRate || 0),
+        coverageSeconds: Number(d?.coverageSeconds) > 0 ? Number(d.coverageSeconds) : 60
+    }));
+
+    const runningData = normalizedData.filter(d => d.cadence > 140);
+    const totalRunningSteps = runningData.reduce((acc, d) => acc + d.cadence, 0);
+    const avgStride = totalRunningSteps > 0 ? (runningData.reduce((acc, d) => acc + (d.stride * d.cadence), 0) / totalRunningSteps) : 0;
+    const totalSteps = normalizedData.reduce((acc, d) => acc + (Number(d.cadence) || 0), 0);
+    const totalDistanceKm = normalizedData.reduce((acc, d) => acc + (Number(d.distance) || 0), 0) / 1000;
+    const totalSeconds = Math.max(0, normalizedData.reduce((acc, d) => {
+        const coverageSeconds = Number(d.coverageSeconds) > 0 ? Number(d.coverageSeconds) : 60;
+        return acc + coverageSeconds;
+    }, 0));
     const hh = Math.floor(totalSeconds / 3600);
     const mm = Math.floor((totalSeconds % 3600) / 60);
     const ss = totalSeconds % 60;
@@ -1853,10 +1870,10 @@ async function buildAdvicePayload(date, maxStride, data) {
     let sumSpeed = 0;
     let countSpeed = 0;
     let maxSpeed = 0;
-    data.forEach(d => {
-        if (d.steps > maxCadence) maxCadence = d.steps;
-        if (d.steps > 140) {
-            sumCadence += d.steps;
+    normalizedData.forEach(d => {
+        if (d.cadence > maxCadence) maxCadence = d.cadence;
+        if (d.cadence > 140) {
+            sumCadence += d.cadence;
             countCadence += 1;
         }
         if (d.speed > 0) {
@@ -1872,14 +1889,23 @@ async function buildAdvicePayload(date, maxStride, data) {
     let maxHR = 0;
     let sumHR = 0;
     let countHR = 0;
-    data.forEach(d => {
+    const heartRateGuide = getHeartRateZoneGuide();
+    const lthrMatch = String(heartRateGuide.maxText || '').match(/LTHR:\s*(\d+)/i);
+    const lthr = lthrMatch ? Number(lthrMatch[1]) : 0;
+    let lthrExceededSeconds = 0;
+    normalizedData.forEach(d => {
+        const coverageSeconds = Number(d.coverageSeconds) > 0 ? Number(d.coverageSeconds) : 60;
         if (d.heartRate > 0) {
             sumHR += d.heartRate;
             countHR += 1;
+            if (lthr > 0 && Number(d.heartRate) > lthr) {
+                lthrExceededSeconds += coverageSeconds;
+            }
         }
         if (d.heartRate > maxHR) maxHR = d.heartRate;
     });
     const avgHR = countHR > 0 ? (sumHR / countHR) : 0;
+    const lthrExceededRatio = totalSeconds > 0 ? (lthrExceededSeconds / totalSeconds) : 0;
 
     let summary = null;
     try {
@@ -1901,7 +1927,10 @@ async function buildAdvicePayload(date, maxStride, data) {
         avgCadence: Number(summary?.avg_cadence) > 0 ? Number(summary.avg_cadence) : Math.round(avgCadence || 0),
         maxCadence: Number(summary?.max_cadence) > 0 ? Number(summary.max_cadence) : Math.round(maxCadence || 0),
         avgSpeed: Number(summary?.avg_speed) > 0 ? Number(summary.avg_speed) : Number((avgSpeed || 0).toFixed(1)),
-        maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : Number((maxSpeed || 0).toFixed(1))
+        maxSpeed: Number(summary?.max_speed) > 0 ? Number(summary.max_speed) : Number((maxSpeed || 0).toFixed(1)),
+        lthr: lthr > 0 ? lthr : null,
+        lthrExceededSeconds: Math.round(lthrExceededSeconds),
+        lthrExceededRatio: Number(lthrExceededRatio.toFixed(3))
     };
 }
 

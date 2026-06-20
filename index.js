@@ -3374,6 +3374,9 @@ app.post('/api/advice/gemini', async (req, res) => {
       maxCadence,
       avgSpeed,
       maxSpeed,
+      lthr,
+      lthrExceededSeconds,
+      lthrExceededRatio,
       chartImageDataUrl,
       minuteTableMarkdown
     } = req.body;
@@ -3439,7 +3442,10 @@ app.post('/api/advice/gemini', async (req, res) => {
         avgCadence: resolvedAvgCadence,
         maxCadence: resolvedMaxCadence,
         avgSpeed: resolvedAvgSpeed,
-        maxSpeed: resolvedMaxSpeed
+        maxSpeed: resolvedMaxSpeed,
+        lthr: Number.isFinite(Number(lthr)) && Number(lthr) > 0 ? Number(lthr) : null,
+        lthrExceededSeconds: Number.isFinite(Number(lthrExceededSeconds)) && Number(lthrExceededSeconds) > 0 ? Number(lthrExceededSeconds) : 0,
+        lthrExceededRatio: Number.isFinite(Number(lthrExceededRatio)) && Number(lthrExceededRatio) > 0 ? Number(lthrExceededRatio) : 0
       },
       chartImage: {
         present: chartImageText.trim().length > 0,
@@ -3451,6 +3457,11 @@ app.post('/api/advice/gemini', async (req, res) => {
         preview: minuteTableText.slice(0, 1200)
       },
       latestRunSummary,
+      lthrContext: {
+        lthr: Number.isFinite(Number(lthr)) && Number(lthr) > 0 ? Number(lthr) : null,
+        exceededSeconds: Number.isFinite(Number(lthrExceededSeconds)) && Number(lthrExceededSeconds) > 0 ? Number(lthrExceededSeconds) : 0,
+        exceededRatio: Number.isFinite(Number(lthrExceededRatio)) && Number(lthrExceededRatio) > 0 ? Number(lthrExceededRatio) : 0
+      },
       compareRunSummaryCount: compareRunSummaries.length,
       compareRunSummaries
     });
@@ -3472,6 +3483,11 @@ app.post('/api/advice/gemini', async (req, res) => {
       chartImageDataUrl: chartImageText,
       minuteTableMarkdown: minuteTableText,
       latestRunSummary,
+      lthrContext: {
+        lthr: Number.isFinite(Number(lthr)) && Number(lthr) > 0 ? Number(lthr) : null,
+        exceededSeconds: Number.isFinite(Number(lthrExceededSeconds)) && Number(lthrExceededSeconds) > 0 ? Number(lthrExceededSeconds) : 0,
+        exceededRatio: Number.isFinite(Number(lthrExceededRatio)) && Number(lthrExceededRatio) > 0 ? Number(lthrExceededRatio) : 0
+      },
       compareRunSummaries
     });
 

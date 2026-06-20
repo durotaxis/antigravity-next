@@ -231,7 +231,7 @@ async function renderRunCardToCanvas(run: Run) {
     ctx.fillStyle = '#3b82f6';
     ctx.font = '700 12px system-ui, sans-serif';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('COACH ADVICE', padding + 16, y + 22);
+    ctx.fillText('RUN COMMENT', padding + 16, y + 22);
 
     ctx.fillStyle = '#1e40af';
     ctx.font = '500 15px system-ui, sans-serif';
@@ -773,7 +773,7 @@ export default function Home() {
               {/* Message Display */}
               {run.message && (
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
-                  <span className="block text-xs font-bold text-blue-400 uppercase mb-1">Coach Advice</span>
+                  <span className="block text-xs font-bold text-blue-400 uppercase mb-1">Run Comment</span>
                   {run.message}
                 </div>
               )}

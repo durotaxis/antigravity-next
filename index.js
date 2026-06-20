@@ -210,11 +210,11 @@ function buildTcxMinuteChartData(trackpoints) {
 
     const bucket = minuteMap.get(minuteStartMs);
     bucket.coverageSeconds += 1;
-    if (Number.isFinite(point.distanceMeters) && Number.isFinite(previousDistanceMeters)) {
+    if (Number.isFinite(point.distanceMeters) && point.distanceMeters > 0 && Number.isFinite(previousDistanceMeters)) {
       const delta = point.distanceMeters - previousDistanceMeters;
       if (delta > 0) bucket.distance += delta;
     }
-    if (Number.isFinite(point.distanceMeters)) {
+    if (Number.isFinite(point.distanceMeters) && point.distanceMeters > 0) {
       previousDistanceMeters = point.distanceMeters;
     }
     // COROS-exported TCX Speed is already aligned with the values we want to

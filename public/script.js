@@ -1529,12 +1529,16 @@ async function loadData(options = {}) {
 
         // --- Call AI Advice (only when daily_summary exists and message is empty) ---
         if (canTriggerAdvice) {
-            if (isGeminiEnabled()) {
-                getGeminiAdvice(date, maxStride, data);
-            } else if (isOpenAiEnabled()) {
-                getOpenAiAdvice(date, maxStride, data);
-            } else {
-                renderSavedAdvice(dailySummary);
+            try {
+                if (isGeminiEnabled()) {
+                    await getGeminiAdvice(date, peakMetrics.maxStride, data);
+                } else if (isOpenAiEnabled()) {
+                    await getOpenAiAdvice(date, peakMetrics.maxStride, data);
+                } else {
+                    renderSavedAdvice(dailySummary);
+                }
+            } catch (adviceError) {
+                console.error('Auto advice failed:', adviceError);
             }
         } else {
             renderSavedAdvice(dailySummary);

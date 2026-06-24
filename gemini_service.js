@@ -81,9 +81,7 @@ async function generateAdvice(metrics, imagePaths = [], extraContext = {}) {
         return await generateCoachAdvice(stats, imagePaths, extraContext);
     } catch (e) {
         console.error(`[GeminiError] status=${formatErrorStatusLabel(e)}`);
-        if (isRateLimitError(e)) {
-            return TEMPORARY_UNAVAILABLE_MESSAGE;
-        }
+        if (isRateLimitError(e)) return TEMPORARY_UNAVAILABLE_MESSAGE;
         console.error('Gemini generateAdvice failed:', e && e.message ? e.message : e);
         return ANALYSIS_UNAVAILABLE_MESSAGE;
     }
@@ -92,10 +90,12 @@ async function generateAdvice(metrics, imagePaths = [], extraContext = {}) {
 async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
     try {
         if (!process.env.GEMINI_API_KEY) return 'No API Key';
+
         const minuteTableMarkdown = String(extraContext?.minuteTableMarkdown || '').trim();
         const chartImagePart = dataUrlToPart(extraContext?.chartImageDataUrl);
         const hasImageContext = Boolean(chartImagePart) || (Array.isArray(imagePaths) && imagePaths.length > 0);
         const hasMinuteTableContext = minuteTableMarkdown.length > 0;
+
         const latestRunSummary = extraContext?.latestRunSummary && typeof extraContext.latestRunSummary === 'object'
             ? extraContext.latestRunSummary
             : null;
@@ -105,14 +105,18 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
         const compareRunSummaries = Array.isArray(extraContext?.compareRunSummaries)
             ? extraContext.compareRunSummaries.slice(-8)
             : [];
+
         const hasCompareContext = Boolean(latestRunSummary) && compareRunSummaries.length > 0;
         const lthrValue = Number(lthrContext?.lthr);
         const lthrExceededSeconds = Number(lthrContext?.exceededSeconds);
         const lthrExceededRatio = Number(lthrContext?.exceededRatio);
         const hasLthrContext = Number.isFinite(lthrValue) && lthrValue > 0;
+        const hasLthrExceededContext = hasLthrContext && Number.isFinite(lthrExceededSeconds) && lthrExceededSeconds > 0;
+
         const latestRunText = latestRunSummary
             ? `最新ラン: ${String(latestRunSummary.date || '')} / 距離 ${Number(latestRunSummary.distanceKm || 0).toFixed(2)}km / Max Stride ${Number(latestRunSummary.maxStride || 0).toFixed(1)}cm / Avg Stride ${Number(latestRunSummary.avgStride || 0).toFixed(1)}cm / Avg Speed ${Number(latestRunSummary.avgSpeed || 0).toFixed(1)}km/h / Avg Pitch ${Math.round(Number(latestRunSummary.avgPitch || 0))}spm / Avg HR ${Math.round(Number(latestRunSummary.avgHr || 0))}bpm`
             : '最新ラン: 不明';
+
         const compareRunsText = compareRunSummaries.length > 0
             ? compareRunSummaries
                 .map((run) => `- ${String(run.date || '')}: ${Number(run.distanceKm || 0).toFixed(2)}km, MaxStride ${Number(run.maxStride || 0).toFixed(1)}cm, AvgStride ${Number(run.avgStride || 0).toFixed(1)}cm, AvgSpeed ${Number(run.avgSpeed || 0).toFixed(1)}km/h, AvgPitch ${Math.round(Number(run.avgPitch || 0))}spm, AvgHR ${Math.round(Number(run.avgHr || 0))}bpm`)
@@ -133,7 +137,7 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
 7. 画像や1分毎テーブル(MD)を渡された場合は、その内容を必ず反映する
 8. 高度については、チャートの薄い背景や1分毎テーブルの Altitude (m) 列も手掛かりとして扱う
 9. 最新ランと過去ラン候補が与えられている場合は、前回ランまたは意味のある過去ラン1件をあなた自身で選び、比較を1文入れる
-10. LTHR とその超過時間が与えられている場合は、心拍コメントの中で必ずその超過時間または割合に一言触れる
+10. LTHR とその超過時間が与えられていて、超過時間が0秒より大きい場合は、心拍コメントの中で必ずその超過時間または割合に一言触れる
 
 出力形式:
 - 1段落目: 総合分析。チャート画像がある場合は、その所見もこの段落に自然に含める
@@ -150,7 +154,7 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
 - 1分毎テーブル(MD)がない場合は「1分毎テーブル所見: データなし」と書く
 - 見出し名は「1分毎テーブル所見:」だけ必ずこの文言を使う
 - 最新ランと過去ラン候補がある場合は、比較を最低1文含める
-- LTHR情報がある場合は、LTHR値と超過時間または超過割合に最低1文節は触れる
+- LTHR超過時間が0秒より大きい場合だけ、LTHR値と超過時間または超過割合に最低1文節は触れる
 
 与えるデータ:
 日付: ${stats.date}
@@ -163,7 +167,7 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
 画像: ${hasImageContext ? 'あり' : 'なし'}
 1分毎テーブル(MD): ${hasMinuteTableContext ? 'あり' : 'なし'}
 比較候補: ${hasCompareContext ? 'あり' : 'なし'}
-LTHR情報: ${hasLthrContext ? 'あり' : 'なし'}
+LTHR超過情報: ${hasLthrExceededContext ? 'あり' : 'なし'}
 
 比較用補足:
 ${latestRunText}
@@ -225,9 +229,11 @@ async function generateTrendChartAdvice(extraContext = {}) {
         const chartRunSummaries = Array.isArray(extraContext?.chartRunSummaries)
             ? extraContext.chartRunSummaries.slice(-8)
             : [];
+
         const latestRunText = latestRunSummary
             ? `最新ラン: ${String(latestRunSummary.date || '')} / 距離 ${Number(latestRunSummary.distanceKm || 0).toFixed(2)}km / Max Stride ${Number(latestRunSummary.maxStride || 0).toFixed(1)}cm / Avg Speed ${Number(latestRunSummary.avgSpeed || 0).toFixed(1)}km/h / Avg Pitch ${Math.round(Number(latestRunSummary.avgPitch || 0))}spm / Avg HR ${Math.round(Number(latestRunSummary.avgHr || 0))}bpm`
             : '最新ラン: 不明';
+
         const runSummariesText = chartRunSummaries.length > 0
             ? chartRunSummaries
                 .map((run) => `- ${String(run.date || '')}: ${Number(run.distanceKm || 0).toFixed(2)}km, MaxStride ${Number(run.maxStride || 0).toFixed(1)}cm, AvgSpeed ${Number(run.avgSpeed || 0).toFixed(1)}km/h, AvgPitch ${Math.round(Number(run.avgPitch || 0))}spm, AvgHR ${Math.round(Number(run.avgHr || 0))}bpm`)

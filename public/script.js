@@ -765,13 +765,30 @@ function renderSavedAdvice(summary) {
     const container = document.getElementById('daily-message-container');
     const textSpan = document.getElementById('daily-message-text');
     if (!container || !textSpan) return;
+    const selectedRun = getSelectedTcxRun();
+    if (selectedRun) {
+        const owner = getTcxMessageOwner(currentTcxRunPageDate);
+        if (
+            owner &&
+            owner.runId &&
+            owner.runId === String(selectedRun.runId || '').trim() &&
+            String(owner.message || '').trim()
+        ) {
+            textSpan.textContent = String(owner.message).trim();
+            container.style.display = 'block';
+            return;
+        }
+        container.style.display = 'none';
+        textSpan.textContent = '';
+        return;
+    }
     if (hasNonEmptyMessage(summary)) {
         textSpan.textContent = String(summary.message).trim();
         container.style.display = 'block';
-    } else {
-        container.style.display = 'none';
-        textSpan.textContent = '';
+        return;
     }
+    container.style.display = 'none';
+    textSpan.textContent = '';
 }
 
 let currentLapSplitExport = null;
@@ -782,6 +799,45 @@ let currentTcxRunPageDate = '';
 let currentAdviceRunDate = '';
 let currentAdviceData = [];
 let currentAdviceUsesTcx = false;
+const TCX_MESSAGE_OWNER_STORAGE_KEY = 'tcxMessageOwnerByDate';
+
+function getSelectedTcxRun() {
+    if (!Array.isArray(currentTcxRunPages) || currentTcxRunPages.length === 0) return null;
+    const safeIndex = Math.min(Math.max(Number(currentTcxRunPageIndex) || 0, 0), currentTcxRunPages.length - 1);
+    return currentTcxRunPages[safeIndex] || null;
+}
+
+function readTcxMessageOwnerMap() {
+    try {
+        const raw = localStorage.getItem(TCX_MESSAGE_OWNER_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function getTcxMessageOwner(date) {
+    const normalizedDate = normalizeRunDate(date);
+    if (!normalizedDate) return null;
+    const map = readTcxMessageOwnerMap();
+    const row = map[normalizedDate];
+    if (!row || typeof row !== 'object') return null;
+    return {
+        runId: String(row.runId || '').trim(),
+        message: typeof row.message === 'string' ? row.message : ''
+    };
+}
+
+function setTcxMessageOwner(date, runId, message) {
+    const normalizedDate = normalizeRunDate(date);
+    const normalizedRunId = String(runId || '').trim();
+    const normalizedMessage = String(message || '').trim();
+    if (!normalizedDate || !normalizedRunId || !normalizedMessage) return;
+    const map = readTcxMessageOwnerMap();
+    map[normalizedDate] = { runId: normalizedRunId, message: normalizedMessage };
+    localStorage.setItem(TCX_MESSAGE_OWNER_STORAGE_KEY, JSON.stringify(map));
+}
 
 function setLapExportState(payload) {
     currentLapSplitExport = payload || null;
@@ -789,6 +845,24 @@ function setLapExportState(payload) {
 
 function setTcxExportState(payload) {
     currentTcxMinuteExport = payload || null;
+}
+
+function placeDailyMessageContainerInsidePager(usePager) {
+    const container = document.getElementById('daily-message-container');
+    const host = document.getElementById('dailyMessageHost');
+    const tcxSlot = document.getElementById('tcxDailyMessageSlot');
+    if (!container || !host || !tcxSlot) return;
+    if (usePager) {
+        if (container.parentElement !== tcxSlot) {
+            tcxSlot.appendChild(container);
+            container.style.margin = '14px auto 0';
+        }
+        return;
+    }
+    if (container.parentElement !== host) {
+        host.appendChild(container);
+        container.style.margin = '20px auto';
+    }
 }
 
 function buildTcxRunLabel(run, index, total) {
@@ -1308,6 +1382,7 @@ async function loadData(options = {}) {
             : fitHeartRateSeriesRaw;
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
         const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
+        placeDailyMessageContainerInsidePager(hasTcxRunData);
         currentAdviceRunDate = date;
         currentAdviceUsesTcx = hasTcxMinuteData;
         currentAdviceData = hasTcxMinuteData
@@ -1955,7 +2030,14 @@ async function getOpenAiAdvice(date, maxStride, data) {
         });
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
-        textSpan.textContent = String(json.advice || '').trim() || 'No advice returned.';
+        const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
+        if (currentAdviceUsesTcx) {
+            const selectedRun = getSelectedTcxRun();
+            if (selectedRun && selectedRun.runId) {
+                setTcxMessageOwner(date, selectedRun.runId, normalizedAdvice);
+            }
+        }
+        textSpan.textContent = normalizedAdvice;
     } catch (e) {
         textSpan.textContent = `OpenAI Advice Failed: ${e.message}`;
     }
@@ -1989,7 +2071,14 @@ async function getGeminiAdvice(date, maxStride, data) {
         });
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
-        textSpan.textContent = String(json.advice || '').trim() || 'No advice returned.';
+        const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
+        if (currentAdviceUsesTcx) {
+            const selectedRun = getSelectedTcxRun();
+            if (selectedRun && selectedRun.runId) {
+                setTcxMessageOwner(date, selectedRun.runId, normalizedAdvice);
+            }
+        }
+        textSpan.textContent = normalizedAdvice;
     } catch (e) {
         textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
     }
@@ -3834,6 +3923,17 @@ async function loadDailyMessage(date) {
         }
 
         const data = await res.json();
+        const selectedRun = getSelectedTcxRun();
+        if (selectedRun) {
+            const owner = getTcxMessageOwner(date);
+            if (owner && owner.runId === String(selectedRun.runId || '').trim() && String(owner.message || '').trim()) {
+                textSpan.textContent = owner.message;
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
+            return;
+        }
         if (data.message && data.message.trim().length > 0) {
             textSpan.textContent = data.message;
             container.style.display = 'block';

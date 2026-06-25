@@ -589,10 +589,20 @@ function buildTcxMinuteTableMarkdown(rows = [], title = 'TCX Per Minute') {
   ].join('\n');
 }
 
-async function generateTcxRunMessage(dateString, runId, minuteRows) {
+function normalizeAdviceProvider(provider) {
+  const normalized = String(provider || '').trim().toLowerCase();
+  return normalized === 'openai' ? 'openai' : 'gemini';
+}
+
+function isTemporaryRunMessage(message) {
+  return String(message || '').trim() === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE;
+}
+
+async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini') {
   const runSummary = computeDailySummaryFromTcxRows(dateString, minuteRows, { source: 'tcx-run-message' });
   if (!runSummary || !runSummary.summary) return '';
 
+  const adviceProvider = normalizeAdviceProvider(provider);
   const summary = runSummary.summary;
   const allRuns = await repo.getAllRuns();
   const compareRunSummaries = Array.isArray(allRuns)
@@ -623,6 +633,23 @@ async function generateTcxRunMessage(dateString, runId, minuteRows) {
     avgHr: Number(summary.hr_avg || 0),
     maxHr: Number(summary.hr_max || 0)
   };
+
+  if (adviceProvider === 'openai') {
+    return await openaiService.generateCoachMessage({
+      date: dateString,
+      stepCount: Number(summary.step_count || 0),
+      totalDistanceKm: Number(summary.total_distance_km || 0),
+      totalTime: summary.total_time || null,
+      avgStride: Number(summary.avg_stride || 0),
+      maxStride: Number(summary.max_stride || 0),
+      avgHR: Number(summary.hr_avg || 0),
+      maxHR: Number(summary.hr_max || 0),
+      avgCadence: Number(summary.avg_cadence || 0),
+      maxCadence: Number(summary.max_cadence || 0),
+      avgSpeed: Number(summary.avg_speed || 0),
+      maxSpeed: Number(summary.max_speed || 0)
+    }, []);
+  }
 
   return await geminiService.generateAdvice({
     date: dateString,
@@ -2050,7 +2077,7 @@ async function loadLegacyRunOwnedCachesFromDisk(dateString) {
   };
 }
 
-async function importTcxContent(originalName, xmlText, fallbackDate = '') {
+async function importTcxContent(originalName, xmlText, fallbackDate = '', options = {}) {
   const normalizedOriginalName = String(originalName || '').trim();
   if (!/\.tcx$/i.test(normalizedOriginalName)) {
     throw new Error('TCX file required');
@@ -2080,8 +2107,25 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '') {
 
   const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
   const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
-  const runMessage = String(await generateTcxRunMessage(resolvedDate, resolvedRunId, minuteRows) || '').trim();
-  if (runMessage) {
+  const adviceProvider = normalizeAdviceProvider(options && options.adviceProvider);
+  const existingRunMessageRow = await repo.getRunMessage(resolvedDate, resolvedRunId);
+  const existingRunMessage = String(existingRunMessageRow?.message || '').trim();
+  let runMessage = existingRunMessage;
+  const shouldGenerateRunMessage = !existingRunMessage || isTemporaryRunMessage(existingRunMessage);
+
+  if (shouldGenerateRunMessage) {
+    runMessage = String(await generateTcxRunMessage(resolvedDate, resolvedRunId, minuteRows, adviceProvider) || '').trim();
+  }
+
+  const shouldPersistRunMessage =
+    String(runMessage || '').trim().length > 0 &&
+    (
+      !existingRunMessage ||
+      isTemporaryRunMessage(existingRunMessage) ||
+      !isTemporaryRunMessage(runMessage)
+    );
+
+  if (shouldPersistRunMessage) {
     await repo.saveRunMessage({
       date: resolvedDate,
       run_id: resolvedRunId,
@@ -2111,6 +2155,7 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '') {
     original_filename: normalizedOriginalName,
     cache_path: cachePath,
     splits_cache_path: splitsCachePath,
+    advice_provider: adviceProvider,
     pointCount: minuteRows.length,
     splitCount: lapRows.length,
     run_message: runMessage || null,
@@ -2776,6 +2821,7 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
 app.post('/api/tcx/import-selected', async (req, res) => {
   try {
     const targetDate = normalizeRunDate(req.body && req.body.date);
+    const adviceProvider = normalizeAdviceProvider(req.body && req.body.adviceProvider);
     const filenames = Array.isArray(req.body && req.body.filenames) ? req.body.filenames : [];
     if (!targetDate) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
     if (filenames.length === 0) return res.status(400).json({ error: 'filenames is required' });
@@ -2817,7 +2863,7 @@ app.post('/api/tcx/import-selected', async (req, res) => {
         }
         const tcxPath = path.join(TCX_DOWNLOAD_DIR, name);
         const xmlText = await fs.readFile(tcxPath, 'utf8');
-        const imported = await importTcxContent(name, xmlText, targetDate);
+        const imported = await importTcxContent(name, xmlText, targetDate, { adviceProvider });
         results.push({
           filename: name,
           status: 'success',

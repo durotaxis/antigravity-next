@@ -3697,7 +3697,8 @@ async function importSelectedImages() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     date: currentRunDate,
-                    filenames: Array.from(selectedFiles)
+                    filenames: Array.from(selectedFiles),
+                    adviceProvider: getSelectedAdviceProvider()
                 })
             });
             const payload = await res.json().catch(() => ({}));

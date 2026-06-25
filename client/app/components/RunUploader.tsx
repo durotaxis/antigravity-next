@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+const ADVICE_PROVIDER_STORAGE_KEY = 'adviceProvider';
+
 function getApiBase(): string {
     const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
     if (envBase) return envBase;
@@ -31,6 +33,12 @@ export default function RunUploader() {
 
     const isTcxFile = (file: File) => /\.tcx$/i.test(String(file.name || '').trim());
 
+    const getLegacyAdviceProvider = (): 'gemini' | 'openai' => {
+        if (typeof window === 'undefined') return 'gemini';
+        const saved = String(window.localStorage.getItem(ADVICE_PROVIDER_STORAGE_KEY) || '').trim().toLowerCase();
+        return saved === 'openai' ? 'openai' : 'gemini';
+    };
+
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -49,6 +57,7 @@ export default function RunUploader() {
             if (runDate) {
                 formData.append('date', runDate);
             }
+            formData.append('adviceProvider', getLegacyAdviceProvider());
         } else {
             formData.append('image', file);
             formData.append('date', runDate);

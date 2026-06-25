@@ -2135,6 +2135,14 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
   const computed = await computeDailySummaryFromTcx(resolvedDate);
   const persisted = await persistComputedTcxSummary(resolvedDate, computed);
 
+  if (String(runMessage || '').trim().length > 0) {
+    await repo.saveDailySummary({
+      date: resolvedDate,
+      message: runMessage
+    });
+    persisted.summary = await repo.getDailySummary(resolvedDate);
+  }
+
   try {
     await ensureLegacyRunOwnedCaches(resolvedDate, { force: true });
   } catch (e) {
@@ -3043,7 +3051,8 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
 
     const originalName = String(req.file.originalname || '').trim();
     const xmlText = req.file.buffer.toString('utf8');
-    const imported = await importTcxContent(originalName, xmlText, req.body && req.body.date);
+    const adviceProvider = normalizeAdviceProvider(req.body && req.body.adviceProvider);
+    const imported = await importTcxContent(originalName, xmlText, req.body && req.body.date, { adviceProvider });
     res.json({
       success: true,
       data: imported

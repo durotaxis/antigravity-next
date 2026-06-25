@@ -562,6 +562,88 @@ async function persistComputedTcxSummary(dateString, computed) {
   };
 }
 
+function buildTcxMinuteTableMarkdown(rows = [], title = 'TCX Per Minute') {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if (safeRows.length === 0) return '';
+
+  const headers = ['Time', 'Distance (m)', 'Stride (cm)', 'Speed (km/h)', 'Heart Rate', 'Pitch', 'Altitude (m)'];
+  const bodyRows = safeRows
+    .map((row) => ([
+      String(row?.time || '').trim(),
+      Number(row?.distance || 0).toFixed(1),
+      Number(row?.stride) > 0 ? Number(row.stride).toFixed(1) : '-',
+      Number(row?.speed) > 0 ? Number(row.speed).toFixed(1) : '-',
+      Number(row?.heartRate) > 0 ? String(Math.round(Number(row.heartRate))) : '-',
+      Number(row?.pitch) > 0 ? String(Math.round(Number(row.pitch))) : '-',
+      Number.isFinite(Number(row?.altitude)) ? Number(row.altitude).toFixed(1) : '-'
+    ]))
+    .filter((cells) => cells.some((cell) => String(cell || '').trim()));
+
+  if (bodyRows.length === 0) return '';
+
+  return [
+    `## ${title}`,
+    `| ${headers.join(' | ')} |`,
+    `| ${headers.map(() => '---').join(' | ')} |`,
+    ...bodyRows.map((cells) => `| ${cells.join(' | ')} |`)
+  ].join('\n');
+}
+
+async function generateTcxRunMessage(dateString, runId, minuteRows) {
+  const runSummary = computeDailySummaryFromTcxRows(dateString, minuteRows, { source: 'tcx-run-message' });
+  if (!runSummary || !runSummary.summary) return '';
+
+  const summary = runSummary.summary;
+  const allRuns = await repo.getAllRuns();
+  const compareRunSummaries = Array.isArray(allRuns)
+    ? allRuns
+        .filter((run) => run && typeof run.date === 'string' && run.date < dateString)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-8)
+        .map((run) => ({
+          date: String(run.date || ''),
+          distanceKm: Number(run.total_distance_km || 0),
+          maxStride: Number(run.max_stride || 0),
+          avgStride: Number(run.avg_stride || 0),
+          avgSpeed: Number(run.avg_speed || 0),
+          avgPitch: Number(run.avg_cadence || 0),
+          avgHr: Number(run.hr_avg || 0),
+          maxHr: Number(run.hr_max || 0)
+        }))
+    : [];
+
+  const latestRunSummary = {
+    date: dateString,
+    runId: String(runId || '').trim(),
+    distanceKm: Number(summary.total_distance_km || 0),
+    maxStride: Number(summary.max_stride || 0),
+    avgStride: Number(summary.avg_stride || 0),
+    avgSpeed: Number(summary.avg_speed || 0),
+    avgPitch: Number(summary.avg_cadence || 0),
+    avgHr: Number(summary.hr_avg || 0),
+    maxHr: Number(summary.hr_max || 0)
+  };
+
+  return await geminiService.generateAdvice({
+    date: dateString,
+    step_count: Number(summary.step_count || 0),
+    total_distance_km: Number(summary.total_distance_km || 0),
+    total_time: summary.total_time || null,
+    avg_stride_cm: Number(summary.avg_stride || 0),
+    max_stride_cm: Number(summary.max_stride || 0),
+    avg_heart_rate: Number(summary.hr_avg || 0),
+    max_heart_rate: Number(summary.hr_max || 0),
+    avg_cadence: Number(summary.avg_cadence || 0),
+    max_cadence: Number(summary.max_cadence || 0),
+    avg_speed: Number(summary.avg_speed || 0),
+    max_speed: Number(summary.max_speed || 0)
+  }, [], {
+    minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
+    latestRunSummary,
+    compareRunSummaries
+  });
+}
+
 function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
   if (!Array.isArray(minuteRows) || minuteRows.length === 0) return null;
 
@@ -1998,6 +2080,14 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '') {
 
   const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
   const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
+  const runMessage = String(await generateTcxRunMessage(resolvedDate, resolvedRunId, minuteRows) || '').trim();
+  if (runMessage) {
+    await repo.saveRunMessage({
+      date: resolvedDate,
+      run_id: resolvedRunId,
+      message: runMessage
+    });
+  }
   const computed = await computeDailySummaryFromTcx(resolvedDate);
   const persisted = await persistComputedTcxSummary(resolvedDate, computed);
 
@@ -2023,6 +2113,7 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '') {
     splits_cache_path: splitsCachePath,
     pointCount: minuteRows.length,
     splitCount: lapRows.length,
+    run_message: runMessage || null,
     summary: persisted.summary || null
   };
 }

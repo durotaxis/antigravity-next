@@ -1582,6 +1582,7 @@ async function loadData(options = {}) {
 
         const canTriggerAdvice =
             triggerAdvice &&
+            !getSelectedAdviceRunId() &&
             shouldTriggerAdvice(date, dailySummary) &&
             hasRunningDataForAdvice(data);
 
@@ -2064,8 +2065,14 @@ async function getGeminiAdvice(date, maxStride, data) {
 }
 
 async function refreshTcxAdviceFromCurrentView() {
-    if (!currentAdviceRunDate || !Array.isArray(currentAdviceData) || currentAdviceData.length === 0) {
-        alert('No visible run data available. Run ANALYZER first.');
+    const selectedRun = getSelectedTcxRun();
+    const visibleText = String(document.getElementById('daily-message-text')?.textContent || '').trim();
+    if (!selectedRun || !selectedRun.runId || !currentAdviceRunDate) {
+        alert('No TCX run selected. Run ANALYZER on a TCX day first.');
+        return;
+    }
+    if (!visibleText) {
+        alert('No run comment is available for this TCX run yet.');
         return;
     }
     const btn = document.getElementById('refreshTcxAdviceBtn');
@@ -2075,7 +2082,16 @@ async function refreshTcxAdviceFromCurrentView() {
         btn.textContent = 'Applying...';
     }
     try {
-        await getGeminiAdvice(currentAdviceRunDate, 0, currentAdviceData);
+        const res = await fetch('/api/daily', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: currentAdviceRunDate,
+                message: visibleText
+            })
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
     } finally {
         if (btn) {
             btn.disabled = false;

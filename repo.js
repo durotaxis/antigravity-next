@@ -259,6 +259,7 @@ function deleteRunByDate(date, options = {}) {
 
         const assetRows = await all('SELECT asset_id FROM run_images WHERE run_id = ?', [runId]);
         await run('DELETE FROM run_images WHERE run_id = ?', [runId]);
+        await run('DELETE FROM run_messages WHERE date = ?', [runId]);
         const changes = await run('DELETE FROM daily_summary WHERE date = ?', [runId]);
 
         if (removeAssets) {
@@ -277,6 +278,59 @@ function deleteRunByDate(date, options = {}) {
 
         return changes;
     })();
+}
+
+function saveRunMessage(data) {
+    return new Promise((resolve, reject) => {
+        const date = toTextOrNull(data && data.date);
+        const runId = toTextOrNull(data && data.run_id);
+        const message = toTextOrNull(data && data.message);
+        const now = new Date().toISOString();
+
+        if (!date || !runId || !message) {
+            return reject(new Error('date, run_id, and message are required'));
+        }
+
+        const sql = `
+            INSERT INTO run_messages (
+                date,
+                run_id,
+                message,
+                created_at
+            )
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date, run_id) DO UPDATE SET
+                message = excluded.message,
+                created_at = excluded.created_at
+        `;
+
+        db.run(sql, [date, runId, message, now], function (err) {
+            if (err) {
+                console.error('Error in saveRunMessage:', err);
+                return reject(err);
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
+function getRunMessage(date, runId) {
+    return new Promise((resolve, reject) => {
+        const normalizedDate = toTextOrNull(date);
+        const normalizedRunId = toTextOrNull(runId);
+        if (!normalizedDate || !normalizedRunId) {
+            return resolve(null);
+        }
+
+        const sql = 'SELECT date, run_id, message, created_at FROM run_messages WHERE date = ? AND run_id = ?';
+        db.get(sql, [normalizedDate, normalizedRunId], (err, row) => {
+            if (err) {
+                console.error('Error in getRunMessage:', err);
+                return reject(err);
+            }
+            resolve(row || null);
+        });
+    });
 }
 
 function saveDailySummaryExact(data) {
@@ -374,6 +428,8 @@ function deleteRun(idOrDate, options = {}) {
 module.exports = {
     saveDailySummary,
     saveDailySummaryExact,
+    saveRunMessage,
+    getRunMessage,
     getDailySummary,
     getAllRuns,
     deleteRun

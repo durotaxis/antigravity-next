@@ -761,20 +761,15 @@ function hasRunningDataForAdvice(data) {
     return totalRunningSteps >= 400;
 }
 
-function renderSavedAdvice(summary) {
+async function renderSavedAdvice(summary) {
     const container = document.getElementById('daily-message-container');
     const textSpan = document.getElementById('daily-message-text');
     if (!container || !textSpan) return;
     const selectedRun = getSelectedTcxRun();
     if (selectedRun) {
-        const owner = getTcxMessageOwner(currentTcxRunPageDate);
-        if (
-            owner &&
-            owner.runId &&
-            owner.runId === String(selectedRun.runId || '').trim() &&
-            String(owner.message || '').trim()
-        ) {
-            textSpan.textContent = String(owner.message).trim();
+        const runMessage = await loadRunMessage(currentTcxRunPageDate, selectedRun.runId);
+        if (String(runMessage || '').trim()) {
+            textSpan.textContent = String(runMessage).trim();
             container.style.display = 'block';
             return;
         }
@@ -799,7 +794,6 @@ let currentTcxRunPageDate = '';
 let currentAdviceRunDate = '';
 let currentAdviceData = [];
 let currentAdviceUsesTcx = false;
-const TCX_MESSAGE_OWNER_STORAGE_KEY = 'tcxMessageOwnerByDate';
 
 function getSelectedTcxRun() {
     if (!Array.isArray(currentTcxRunPages) || currentTcxRunPages.length === 0) return null;
@@ -807,58 +801,25 @@ function getSelectedTcxRun() {
     return currentTcxRunPages[safeIndex] || null;
 }
 
-function readTcxMessageOwnerMap() {
-    try {
-        const raw = localStorage.getItem(TCX_MESSAGE_OWNER_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function getTcxMessageOwner(date) {
-    const normalizedDate = normalizeRunDate(date);
-    if (!normalizedDate) return null;
-    const map = readTcxMessageOwnerMap();
-    const row = map[normalizedDate];
-    if (!row || typeof row !== 'object') return null;
-    if (typeof row.message === 'string') {
-        return {
-            runId: String(row.runId || '').trim(),
-            message: typeof row.message === 'string' ? row.message : ''
-        };
-    }
+function getSelectedAdviceRunId() {
     const selectedRun = getSelectedTcxRun();
-    const selectedRunId = String(selectedRun?.runId || '').trim();
-    if (!selectedRunId) return null;
-    const perRunMessage = row[selectedRunId];
-    if (typeof perRunMessage !== 'string' || !perRunMessage.trim()) return null;
-    return {
-        runId: selectedRunId,
-        message: perRunMessage
-    };
+    const runId = String(selectedRun?.runId || '').trim();
+    return runId || '';
 }
 
-function setTcxMessageOwner(date, runId, message) {
+async function loadRunMessage(date, runId) {
     const normalizedDate = normalizeRunDate(date);
     const normalizedRunId = String(runId || '').trim();
-    const normalizedMessage = String(message || '').trim();
-    if (!normalizedDate || !normalizedRunId || !normalizedMessage) return;
-    const map = readTcxMessageOwnerMap();
-    const existingRow = map[normalizedDate];
-    if (existingRow && typeof existingRow === 'object' && typeof existingRow.message === 'string') {
-        const migrated = {};
-        const existingRunId = String(existingRow.runId || '').trim();
-        if (existingRunId && String(existingRow.message || '').trim()) {
-            migrated[existingRunId] = String(existingRow.message || '').trim();
-        }
-        map[normalizedDate] = migrated;
-    } else if (!existingRow || typeof existingRow !== 'object') {
-        map[normalizedDate] = {};
+    if (!normalizedDate || !normalizedRunId) return '';
+    try {
+        const res = await fetch(`/api/daily/${encodeURIComponent(normalizedDate)}/run-message/${encodeURIComponent(normalizedRunId)}`);
+        if (!res.ok) return '';
+        const row = await res.json();
+        return typeof row?.message === 'string' ? row.message.trim() : '';
+    } catch (err) {
+        console.error('Error fetching run message:', err);
+        return '';
     }
-    map[normalizedDate][normalizedRunId] = normalizedMessage;
-    localStorage.setItem(TCX_MESSAGE_OWNER_STORAGE_KEY, JSON.stringify(map));
 }
 
 function setLapExportState(payload) {
@@ -1632,13 +1593,13 @@ async function loadData(options = {}) {
                 } else if (isOpenAiEnabled()) {
                     await getOpenAiAdvice(date, peakMetrics.maxStride, data);
                 } else {
-                    renderSavedAdvice(dailySummary);
+                    await renderSavedAdvice(dailySummary);
                 }
             } catch (adviceError) {
                 console.error('Auto advice failed:', adviceError);
             }
         } else {
-            renderSavedAdvice(dailySummary);
+            await renderSavedAdvice(dailySummary);
         }
 
     } catch (error) {
@@ -2045,6 +2006,10 @@ async function getOpenAiAdvice(date, maxStride, data) {
 
     try {
         const payload = await buildAdvicePayload(date, maxStride, data);
+        const selectedRunId = getSelectedAdviceRunId();
+        if (selectedRunId) {
+            payload.runId = selectedRunId;
+        }
         const res = await fetch('/api/advice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2053,12 +2018,6 @@ async function getOpenAiAdvice(date, maxStride, data) {
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
-        if (currentAdviceUsesTcx) {
-            const selectedRun = getSelectedTcxRun();
-            if (selectedRun && selectedRun.runId) {
-                setTcxMessageOwner(date, selectedRun.runId, normalizedAdvice);
-            }
-        }
         textSpan.textContent = normalizedAdvice;
     } catch (e) {
         textSpan.textContent = `OpenAI Advice Failed: ${e.message}`;
@@ -2075,6 +2034,10 @@ async function getGeminiAdvice(date, maxStride, data) {
 
     try {
         const payload = await buildAdvicePayload(date, maxStride, data);
+        const selectedRunId = getSelectedAdviceRunId();
+        if (selectedRunId) {
+            payload.runId = selectedRunId;
+        }
         const chartCanvas = buildVisibleChartsCompositeCanvas();
         const minuteTableMarkdown = buildVisibleMinuteTablesMarkdown();
         if (chartCanvas) {
@@ -2094,12 +2057,6 @@ async function getGeminiAdvice(date, maxStride, data) {
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
-        if (currentAdviceUsesTcx) {
-            const selectedRun = getSelectedTcxRun();
-            if (selectedRun && selectedRun.runId) {
-                setTcxMessageOwner(date, selectedRun.runId, normalizedAdvice);
-            }
-        }
         textSpan.textContent = normalizedAdvice;
     } catch (e) {
         textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
@@ -3937,25 +3894,23 @@ async function loadDailyMessage(date) {
     const textSpan = document.getElementById('daily-message-text');
 
     try {
-        const res = await fetch(`/api/daily/${date}`);
-        if (!res.ok) {
-            // 404 is expected if no message exists yet
-            container.style.display = 'none';
-            return;
-        }
-
-        const data = await res.json();
         const selectedRun = getSelectedTcxRun();
         if (selectedRun) {
-            const owner = getTcxMessageOwner(date);
-            if (owner && owner.runId === String(selectedRun.runId || '').trim() && String(owner.message || '').trim()) {
-                textSpan.textContent = owner.message;
+            const runMessage = await loadRunMessage(date, selectedRun.runId);
+            if (runMessage) {
+                textSpan.textContent = runMessage;
                 container.style.display = 'block';
             } else {
                 container.style.display = 'none';
             }
             return;
         }
+        const res = await fetch(`/api/daily/${date}`);
+        if (!res.ok) {
+            container.style.display = 'none';
+            return;
+        }
+        const data = await res.json();
         if (data.message && data.message.trim().length > 0) {
             textSpan.textContent = data.message;
             container.style.display = 'block';

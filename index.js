@@ -1702,6 +1702,21 @@ app.delete('/api/debug/cache/:date', async (req, res) => {
 });
 
 // 2.5 Get Single Daily Title/Message
+app.get('/api/daily/:date/run-message/:runId', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.params && req.params.date);
+    const runId = String((req.params && req.params.runId) || '').trim();
+    if (!date || !runId) {
+      return res.status(400).json({ error: 'Valid date and runId are required' });
+    }
+    const row = await repo.getRunMessage(date, runId);
+    if (!row) return res.status(404).json({ error: 'No run message found' });
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/daily/:date', async (req, res) => {
   try {
     const { date } = req.params;
@@ -3397,7 +3412,7 @@ app.post('/api/analyze/batch/mock', async (req, res) => {
 // Advice API (OpenAI)
 app.post('/api/advice', async (req, res) => {
   try {
-    const { date, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
+    const { date, runId, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
     const dailySummary = await repo.getDailySummary(date);
@@ -3453,6 +3468,14 @@ app.post('/api/advice', async (req, res) => {
       message: advice
     });
 
+    if (String(runId || '').trim()) {
+      await repo.saveRunMessage({
+        date,
+        run_id: String(runId).trim(),
+        message: advice
+      });
+    }
+
     res.json({ advice, provider: 'openai-live' });
   } catch (err) {
     console.error(err);
@@ -3465,6 +3488,7 @@ app.post('/api/advice/gemini', async (req, res) => {
   try {
     const {
       date,
+      runId,
       stepCount,
       totalDistanceKm,
       totalTime,
@@ -3608,6 +3632,14 @@ app.post('/api/advice/gemini', async (req, res) => {
       max_speed: resolvedMaxSpeed,
       message: advice
     });
+
+    if (String(runId || '').trim()) {
+      await repo.saveRunMessage({
+        date,
+        run_id: String(runId).trim(),
+        message: advice
+      });
+    }
 
     return res.json({ advice, provider: 'gemini-live' });
   } catch (err) {

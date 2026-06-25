@@ -85,6 +85,16 @@ db.serialize(() => {
         if (err) console.error('Error creating table run_images:', err);
     });
 
+    db.run(`CREATE TABLE IF NOT EXISTS run_messages (
+        date TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (date, run_id)
+    )`, (err) => {
+        if (err) console.error('Error creating table run_messages:', err);
+    });
+
     // Lightweight migration for existing DBs.
     db.all(`PRAGMA table_info(image_assets)`, (err, rows) => {
         if (err) return console.error('Error reading image_assets schema:', err);

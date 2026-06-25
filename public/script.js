@@ -823,9 +823,20 @@ function getTcxMessageOwner(date) {
     const map = readTcxMessageOwnerMap();
     const row = map[normalizedDate];
     if (!row || typeof row !== 'object') return null;
+    if (typeof row.message === 'string') {
+        return {
+            runId: String(row.runId || '').trim(),
+            message: typeof row.message === 'string' ? row.message : ''
+        };
+    }
+    const selectedRun = getSelectedTcxRun();
+    const selectedRunId = String(selectedRun?.runId || '').trim();
+    if (!selectedRunId) return null;
+    const perRunMessage = row[selectedRunId];
+    if (typeof perRunMessage !== 'string' || !perRunMessage.trim()) return null;
     return {
-        runId: String(row.runId || '').trim(),
-        message: typeof row.message === 'string' ? row.message : ''
+        runId: selectedRunId,
+        message: perRunMessage
     };
 }
 
@@ -835,7 +846,18 @@ function setTcxMessageOwner(date, runId, message) {
     const normalizedMessage = String(message || '').trim();
     if (!normalizedDate || !normalizedRunId || !normalizedMessage) return;
     const map = readTcxMessageOwnerMap();
-    map[normalizedDate] = { runId: normalizedRunId, message: normalizedMessage };
+    const existingRow = map[normalizedDate];
+    if (existingRow && typeof existingRow === 'object' && typeof existingRow.message === 'string') {
+        const migrated = {};
+        const existingRunId = String(existingRow.runId || '').trim();
+        if (existingRunId && String(existingRow.message || '').trim()) {
+            migrated[existingRunId] = String(existingRow.message || '').trim();
+        }
+        map[normalizedDate] = migrated;
+    } else if (!existingRow || typeof existingRow !== 'object') {
+        map[normalizedDate] = {};
+    }
+    map[normalizedDate][normalizedRunId] = normalizedMessage;
     localStorage.setItem(TCX_MESSAGE_OWNER_STORAGE_KEY, JSON.stringify(map));
 }
 

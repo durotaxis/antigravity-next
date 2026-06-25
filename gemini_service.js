@@ -2,7 +2,35 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+
+const FALLBACK_MODELS = [
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite'
+];
+
+async function generateContentWithFallback(parts) {
+    let lastError = null;
+
+    for (const modelName of FALLBACK_MODELS) {
+        console.log(`[GeminiService] Attempting generateContent with model: ${modelName}`);
+        try {
+            const modelInstance = genAI.getGenerativeModel({ model: modelName });
+            const result = await modelInstance.generateContent(parts);
+            const response = await result.response;
+            const text = response.text().trim();
+            console.log(`[GeminiService] Success with model: ${modelName}`);
+            return text;
+        } catch (err) {
+            lastError = err;
+            const status = Number(err?.status || err?.statusCode || err?.response?.status);
+            console.warn(`[GeminiService] Model ${modelName} failed: status=${status}. error=${err.message}`);
+        }
+    }
+
+    throw lastError;
+}
+
 
 const fs = require('fs').promises;
 
@@ -199,9 +227,7 @@ LTHR補足:
             parts.push(chartImagePart);
         }
 
-        const result = await model.generateContent(parts);
-        const response = await result.response;
-        return response.text().trim();
+        return await generateContentWithFallback(parts);
     } catch (error) {
         console.error(`[GeminiError] status=${formatErrorStatusLabel(error)}`);
         if (isRateLimitError(error)) return TEMPORARY_UNAVAILABLE_MESSAGE;
@@ -273,9 +299,7 @@ async function generateTrendChartAdvice(extraContext = {}) {
 ${runSummariesText}
 `;
 
-        const result = await model.generateContent([prompt, chartImagePart]);
-        const response = await result.response;
-        return response.text().trim();
+        return await generateContentWithFallback([prompt, chartImagePart]);
     } catch (error) {
         console.error(`[GeminiError] status=${formatErrorStatusLabel(error)}`);
         if (isRateLimitError(error)) return TEMPORARY_UNAVAILABLE_MESSAGE;

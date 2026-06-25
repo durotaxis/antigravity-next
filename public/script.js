@@ -3283,6 +3283,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inboxModal').addEventListener('click', (e) => {
         if (e.target === document.getElementById('inboxModal')) closeModal();
     });
+    document.querySelectorAll('input[name="pickerMode"]').forEach((input) => {
+        input.addEventListener('change', async (e) => {
+            currentPickerMode = e.target && e.target.value === 'tcx' ? 'tcx' : 'image';
+            if (currentRunDate) {
+                await renderInboxModalContents();
+            }
+        });
+    });
     document.getElementById('closeClipboardModalBtn')?.addEventListener('click', closeClipboardModal);
     document.getElementById('clipboardModal')?.addEventListener('click', (e) => {
         if (e.target === document.getElementById('clipboardModal')) closeClipboardModal();
@@ -3456,25 +3464,31 @@ async function checkAndRenderImages(date) {
 // Modal State
 let currentRunDate = null;
 let selectedFiles = new Set();
+let currentPickerMode = 'image';
 
 async function openInboxModal(date) {
     currentRunDate = date;
     const modal = document.getElementById('inboxModal');
-    const grid = document.getElementById('inboxGrid');
     const importBtn = document.getElementById('importBtn');
 
     modal.style.display = 'flex';
-    grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Loading Mobile Devices...</div>';
     selectedFiles.clear();
     importBtn.disabled = true;
     importBtn.textContent = 'Import Selected';
+    currentPickerMode = document.querySelector('input[name="pickerMode"]:checked')?.value === 'tcx' ? 'tcx' : 'image';
+    await renderInboxModalContents();
+}
 
+async function loadImageInboxItems() {
+    const grid = document.getElementById('inboxGrid');
+    if (!grid) return;
+    grid.className = 'inbox-grid';
+    grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Loading Mobile Devices...</div>';
     try {
         const res = await fetch('/api/inbox/files');
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
         const files = await res.json();
-
         grid.innerHTML = '';
 
         if (!Array.isArray(files)) {
@@ -3491,7 +3505,6 @@ async function openInboxModal(date) {
         files.forEach(file => {
             const item = document.createElement('div');
             item.className = 'inbox-item';
-            // Added onError to handle broken images
             item.innerHTML = `
                 <img src="/api/inbox/preview/${encodeURIComponent(file)}" alt="${file}" loading="lazy" decoding="async">
                 <div class="image-filename">${file}</div>
@@ -3499,17 +3512,73 @@ async function openInboxModal(date) {
             item.onclick = () => toggleSelection(item, file);
             grid.appendChild(item);
         });
-
     } catch (err) {
         console.error(err);
         grid.innerHTML = '<div style="color:red; text-align:center;">Failed to load inbox</div>';
     }
 }
 
+async function loadTcxInboxItems() {
+    const grid = document.getElementById('inboxGrid');
+    if (!grid) return;
+    grid.className = '';
+    grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">Loading TCX files...</div>';
+    try {
+        const res = await fetch('/api/inbox/tcx-files');
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const files = await res.json();
+        const filteredFiles = Array.isArray(files)
+            ? files.filter((file) => String(file?.date || '').trim() === String(currentRunDate || '').trim())
+            : [];
+        grid.innerHTML = '';
+
+        if (filteredFiles.length === 0) {
+            grid.innerHTML = `<div style="color:#888; text-align:center; width:100%;">No TCX files found for ${currentRunDate || 'the selected date'}</div>`;
+            return;
+        }
+
+        filteredFiles.forEach(file => {
+            const filename = String(file?.filename || '').trim();
+            const fileDate = String(file?.date || '').trim();
+            const item = document.createElement('div');
+            item.className = 'glass-card';
+            item.style.cursor = 'pointer';
+            item.style.padding = '12px 14px';
+            item.style.marginBottom = '8px';
+            item.innerHTML = `
+                <div style="font-weight:600; color: var(--text-primary); word-break: break-all;">${filename}</div>
+                <div style="margin-top:6px; color: var(--text-secondary); font-size:0.85rem;">
+                    Date: ${fileDate || '-'}${file?.startTimeLabel ? ` / Start: ${String(file.startTimeLabel)}` : ''}
+                </div>
+            `;
+            item.onclick = () => toggleSelection(item, filename);
+            grid.appendChild(item);
+        });
+    } catch (err) {
+        console.error(err);
+        grid.innerHTML = '<div style="color:red; text-align:center;">Failed to load TCX files</div>';
+    }
+}
+
+async function renderInboxModalContents() {
+    const importBtn = document.getElementById('importBtn');
+    if (importBtn) {
+        importBtn.disabled = true;
+        importBtn.textContent = currentPickerMode === 'tcx' ? 'Import Selected TCX' : 'Import Selected';
+    }
+    selectedFiles.clear();
+    if (currentPickerMode === 'tcx') {
+        await loadTcxInboxItems();
+        return;
+    }
+    await loadImageInboxItems();
+}
+
 function closeModal() {
     document.getElementById('inboxModal').style.display = 'none';
     currentRunDate = null;
     selectedFiles.clear();
+    currentPickerMode = 'image';
 }
 
 function toggleSelection(element, filename) {
@@ -3523,7 +3592,11 @@ function toggleSelection(element, filename) {
 
     const btn = document.getElementById('importBtn');
     btn.disabled = selectedFiles.size === 0;
-    btn.textContent = selectedFiles.size > 0 ? `Import ${selectedFiles.size} Image(s)` : 'Import Selected';
+    if (currentPickerMode === 'tcx') {
+        btn.textContent = selectedFiles.size > 0 ? `Import ${selectedFiles.size} TCX file(s)` : 'Import Selected TCX';
+    } else {
+        btn.textContent = selectedFiles.size > 0 ? `Import ${selectedFiles.size} Image(s)` : 'Import Selected';
+    }
 }
 
 async function importSelectedImages() {
@@ -3531,6 +3604,39 @@ async function importSelectedImages() {
 
     const btn = document.getElementById('importBtn');
     const originalText = btn.textContent;
+    if (currentPickerMode === 'tcx') {
+        btn.textContent = 'Importing TCX...';
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/tcx/import-selected', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: currentRunDate,
+                    filenames: Array.from(selectedFiles)
+                })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload?.error ? String(payload.error) : 'TCX import failed');
+            }
+
+            const dateToRefresh = currentRunDate;
+            closeModal();
+            await loadData({ triggerAdvice: false });
+            await loadRunHistory();
+            checkAndRenderImages(dateToRefresh);
+            alert(`Imported ${Number(payload?.success_count || 0)} TCX file(s).`);
+        } catch (err) {
+            console.error(err);
+            alert(err instanceof Error ? err.message : 'TCX import failed');
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+        return;
+    }
+
     const selectedMode = document.querySelector('input[name="batchOcrMode"]:checked');
     const ocrMode = selectedMode ? String(selectedMode.value || 'python').trim() : 'python';
     btn.textContent = 'Importing...';

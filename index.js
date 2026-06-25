@@ -544,27 +544,11 @@ async function persistComputedTcxSummary(dateString, computed) {
   }
 
   const existing = await repo.getDailySummary(dateString);
-  const shouldRefreshMessage =
-    dailySummaryCoreDiffers(existing, computed.summary) ||
-    !(typeof existing?.message === 'string' && existing.message.trim());
 
   await repo.saveDailySummaryExact({
     ...computed.summary,
     message: existing ? existing.message : null
   });
-
-  if (shouldRefreshMessage) {
-    const refreshedMessage = await regenerateDailySummaryMessageFromStoredData(
-      dateString,
-      existing ? existing.message : null
-    );
-    if (refreshedMessage && String(refreshedMessage).trim()) {
-      await repo.saveDailySummaryExact({
-        ...computed.summary,
-        message: refreshedMessage
-      });
-    }
-  }
 
   const summary = await repo.getDailySummary(dateString);
   return {
@@ -1969,6 +1953,65 @@ async function loadLegacyRunOwnedCachesFromDisk(dateString) {
   };
 }
 
+async function importTcxContent(originalName, xmlText, fallbackDate = '') {
+  const normalizedOriginalName = String(originalName || '').trim();
+  if (!/\.tcx$/i.test(normalizedOriginalName)) {
+    throw new Error('TCX file required');
+  }
+
+  const trackpoints = parseTcxTrackpoints(xmlText);
+  if (!Array.isArray(trackpoints) || trackpoints.length === 0) {
+    throw new Error('No TCX trackpoints found');
+  }
+
+  const runStamp =
+    extractRunStampFromTcxFilename(normalizedOriginalName) ||
+    extractRunStampFromTcxXml(xmlText);
+  const resolvedDate =
+    runStamp?.dateString ||
+    normalizeRunDate(fallbackDate);
+  if (!resolvedDate) {
+    throw new Error('Run date could not be determined from TCX');
+  }
+  const resolvedRunId = runStamp?.runId || buildTcxRunId(resolvedDate, '000000');
+
+  const minuteRows = buildTcxMinuteChartData(trackpoints);
+  if (!Array.isArray(minuteRows) || minuteRows.length === 0) {
+    throw new Error('No minute data could be built from TCX');
+  }
+  const lapRows = parseTcxLaps(xmlText);
+
+  const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
+  const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
+  const computed = await computeDailySummaryFromTcx(resolvedDate);
+  const persisted = await persistComputedTcxSummary(resolvedDate, computed);
+
+  try {
+    await ensureLegacyRunOwnedCaches(resolvedDate, { force: true });
+  } catch (e) {
+    console.warn('[import-tcx] Failed to rebuild legacy run-owned caches:', e?.message || e);
+  }
+
+  try {
+    await googleFitService.getIntradayMetricsWithMeta(resolvedDate);
+  } catch (e) {
+    console.warn('[import-tcx] Failed to rebuild Google Fit intraday cache:', e?.message || e);
+  }
+
+  return {
+    imported: true,
+    source: 'tcx-upload',
+    date: resolvedDate,
+    run_id: resolvedRunId,
+    original_filename: normalizedOriginalName,
+    cache_path: cachePath,
+    splits_cache_path: splitsCachePath,
+    pointCount: minuteRows.length,
+    splitCount: lapRows.length,
+    summary: persisted.summary || null
+  };
+}
+
 function dedupeRunWindows(windows = []) {
   const out = [];
   const seen = new Set();
@@ -2568,6 +2611,32 @@ app.get('/api/inbox/files', async (req, res) => {
   }
 });
 
+app.get('/api/inbox/tcx-files', async (req, res) => {
+  try {
+    let names = [];
+    try {
+      names = await fs.readdir(TCX_DOWNLOAD_DIR);
+    } catch {
+      names = [];
+    }
+    const files = names
+      .filter((name) => /\.tcx$/i.test(String(name || '').trim()))
+      .map((name) => {
+        const runStamp = extractRunStampFromTcxFilename(name);
+        return {
+          filename: name,
+          date: runStamp?.dateString || '',
+          runId: runStamp?.runId || '',
+          startTimeLabel: runStamp?.startTimeLabel || ''
+        };
+      })
+      .sort((a, b) => String(b.filename).localeCompare(String(a.filename)));
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/inbox/preview/:filename', (req, res) => {
   const { filename } = req.params;
   if (filename.includes('..') || filename.includes('/')) return res.status(400).send('Invalid');
@@ -2593,6 +2662,84 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
       });
     }
     res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tcx/import-selected', async (req, res) => {
+  try {
+    const targetDate = normalizeRunDate(req.body && req.body.date);
+    const filenames = Array.isArray(req.body && req.body.filenames) ? req.body.filenames : [];
+    if (!targetDate) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
+    if (filenames.length === 0) return res.status(400).json({ error: 'filenames is required' });
+
+    const normalizedFilenames = filenames
+      .map((name) => String(name || '').trim())
+      .filter((name) => name.length > 0);
+    if (normalizedFilenames.length === 0) {
+      return res.status(400).json({ error: 'No valid filenames provided' });
+    }
+
+    const validation = normalizedFilenames.map((name) => ({
+      filename: name,
+      runStamp: extractRunStampFromTcxFilename(name)
+    }));
+    const unresolved = validation.filter((row) => !row.runStamp?.dateString);
+    if (unresolved.length > 0) {
+      return res.status(422).json({
+        error: 'TCX filename date could not be determined.',
+        code: 'TCX_FILENAME_DATE_REQUIRED',
+        filenames: unresolved.map((row) => row.filename)
+      });
+    }
+
+    const mismatched = validation.filter((row) => row.runStamp.dateString !== targetDate);
+    if (mismatched.length > 0) {
+      return res.status(422).json({
+        error: `Selected TCX files must match ${targetDate} by filename.`,
+        code: 'TCX_DATE_MISMATCH',
+        filenames: mismatched.map((row) => row.filename)
+      });
+    }
+
+    const results = [];
+    for (const name of normalizedFilenames) {
+      try {
+        if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+          throw new Error('Invalid filename');
+        }
+        const tcxPath = path.join(TCX_DOWNLOAD_DIR, name);
+        const xmlText = await fs.readFile(tcxPath, 'utf8');
+        const imported = await importTcxContent(name, xmlText, targetDate);
+        results.push({
+          filename: name,
+          status: 'success',
+          data: imported
+        });
+      } catch (err) {
+        results.push({
+          filename: name,
+          status: 'error',
+          error: err && err.message ? String(err.message) : 'TCX import failed'
+        });
+      }
+    }
+
+    const failed = results.filter((row) => row.status !== 'success');
+    if (failed.length > 0) {
+      return res.status(422).json({
+        error: 'Some selected TCX files failed to import.',
+        code: 'TCX_IMPORT_PARTIAL_FAILED',
+        results
+      });
+    }
+
+    res.json({
+      success_count: results.length,
+      failed_count: 0,
+      results
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2743,68 +2890,23 @@ app.post('/api/import-tcx', uploadMemory.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file' });
 
     const originalName = String(req.file.originalname || '').trim();
-    if (!/\.tcx$/i.test(originalName)) {
-      return res.status(400).json({ error: 'TCX file required' });
-    }
-
     const xmlText = req.file.buffer.toString('utf8');
-    const trackpoints = parseTcxTrackpoints(xmlText);
-    if (!Array.isArray(trackpoints) || trackpoints.length === 0) {
-      return res.status(422).json({ error: 'No TCX trackpoints found' });
-    }
-
-    const runStamp =
-      extractRunStampFromTcxFilename(originalName) ||
-      extractRunStampFromTcxXml(xmlText);
-    const resolvedDate =
-      runStamp?.dateString ||
-      normalizeRunDate(req.body && req.body.date);
-    if (!resolvedDate) {
-      return res.status(422).json({ error: 'Run date could not be determined from TCX' });
-    }
-    const resolvedRunId = runStamp?.runId || buildTcxRunId(resolvedDate, '000000');
-
-    const minuteRows = buildTcxMinuteChartData(trackpoints);
-    if (!Array.isArray(minuteRows) || minuteRows.length === 0) {
-      return res.status(422).json({ error: 'No minute data could be built from TCX' });
-    }
-    const lapRows = parseTcxLaps(xmlText);
-
-    const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
-    const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
-    const computed = await computeDailySummaryFromTcx(resolvedDate);
-    const persisted = await persistComputedTcxSummary(resolvedDate, computed);
-
-    try {
-      await ensureLegacyRunOwnedCaches(resolvedDate, { force: true });
-    } catch (e) {
-      console.warn('[import-tcx] Failed to rebuild legacy run-owned caches:', e?.message || e);
-    }
-
-    // --- Google Fit intradayキャッシュ再生成 ---
-    try {
-      await googleFitService.getIntradayMetricsWithMeta(resolvedDate);
-    } catch (e) {
-      console.warn('[import-tcx] Failed to rebuild Google Fit intraday cache:', e?.message || e);
-    }
-
+    const imported = await importTcxContent(originalName, xmlText, req.body && req.body.date);
     res.json({
       success: true,
-      data: {
-        imported: true,
-        source: 'tcx-upload',
-        date: resolvedDate,
-        run_id: resolvedRunId,
-        original_filename: originalName,
-        cache_path: cachePath,
-        splits_cache_path: splitsCachePath,
-        pointCount: minuteRows.length,
-        splitCount: lapRows.length,
-        summary: persisted.summary || null
-      }
+      data: imported
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const message = err && err.message ? String(err.message) : 'TCX import failed';
+    if (
+      message === 'TCX file required' ||
+      message === 'No TCX trackpoints found' ||
+      message === 'Run date could not be determined from TCX' ||
+      message === 'No minute data could be built from TCX'
+    ) {
+      return res.status(422).json({ error: message });
+    }
+    res.status(500).json({ error: message });
   }
 });
 

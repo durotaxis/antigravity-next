@@ -106,7 +106,7 @@
             </section>
 
             <div class="control-primary">
-                <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select Image from Mobile Devices</button>
+                <button id="openPickerBtn" class="btn-primary" type="button" disabled>+ Select from Mobile Devices / TCX</button>
             </div>
 
             <section id="lapSplitsWrapper" class="glass-card">
@@ -306,10 +306,20 @@
     <div id="inboxModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Select Image from Mobile Devices</h2>
+                <h2>Select from Mobile Devices / TCX</h2>
                 <button id="closeModalBtn" class="close-btn">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="control-options" style="margin-bottom: 12px;">
+                    <label class="batch-toggle">
+                        <input type="radio" name="pickerMode" id="pickerModeImage" value="image" checked>
+                        <span>Images</span>
+                    </label>
+                    <label class="batch-toggle">
+                        <input type="radio" name="pickerMode" id="pickerModeTcx" value="tcx">
+                        <span>TCX</span>
+                    </label>
+                </div>
                 <div id="inboxGrid" class="inbox-grid">
                     <!-- Thumbnails injected here -->
                 </div>

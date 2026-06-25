@@ -136,8 +136,10 @@ async function importFromInbox() {
 async function getInboxFiles() {
     try {
         const files = await fs.readdir(INBOX_DIR);
-        // Filter only image files if needed, for now just skip hidden
-        return files.filter(f => !f.startsWith('.'));
+        return files.filter((f) => {
+            if (String(f || '').startsWith('.')) return false;
+            return /\.(png|jpe?g|webp|bmp|gif)$/i.test(String(f || '').trim());
+        });
     } catch (err) {
         if (err.code === 'ENOENT') return [];
         throw err;

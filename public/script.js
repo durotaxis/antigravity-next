@@ -1350,9 +1350,11 @@ async function loadData(options = {}) {
             ? currentTcxRunPages[currentTcxRunPageIndex]
             : null;
         updateTcxRunPager(currentTcxRunPages, currentTcxRunPageIndex);
-        const tcxMinuteData = selectedTcxRun
-            ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => [])
-            : [];
+        const tcxMinutePayload = selectedTcxRun
+            ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => ({ chartData: [], altitudeDetail: [] }))
+            : { chartData: [], altitudeDetail: [] };
+        const tcxMinuteData = Array.isArray(tcxMinutePayload?.chartData) ? tcxMinutePayload.chartData : [];
+        const tcxAltitudeDetail = Array.isArray(tcxMinutePayload?.altitudeDetail) ? tcxMinutePayload.altitudeDetail : [];
         const tcxLapSplits = selectedTcxRun
             ? await fetchTcxSplits(date, selectedTcxRun.runId).catch(() => [])
             : [];
@@ -1384,7 +1386,7 @@ async function loadData(options = {}) {
         if (tcxLapTbody) {
             renderTcxLapTableRows(tcxLapTbody, tcxLapSplits);
         }
-        renderTcxMinuteCharts(tcxMinuteData);
+        renderTcxMinuteCharts(tcxMinuteData, tcxAltitudeDetail);
 
         let max = { stride: 0, time: '--:--' };
 
@@ -1433,7 +1435,7 @@ async function loadData(options = {}) {
             tcxSpeedPitchCtx.clearRect(0, 0, tcxSpeedPitchCtx.canvas.width, tcxSpeedPitchCtx.canvas.height);
 
             if (Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0) {
-                renderTcxMinuteCharts(tcxMinuteData);
+                renderTcxMinuteCharts(tcxMinuteData, tcxAltitudeDetail);
             }
 
             // Reset Daily Message (Rest Day)
@@ -2315,7 +2317,10 @@ async function fetchTcxMinuteSeries(date, runId = '') {
         throw new Error(errText || 'Failed to fetch TCX minute data');
     }
     const payload = await res.json();
-    return Array.isArray(payload?.chartData) ? payload.chartData : [];
+    return {
+        chartData: Array.isArray(payload?.chartData) ? payload.chartData : [],
+        altitudeDetail: Array.isArray(payload?.altitudeDetail) ? payload.altitudeDetail : []
+    };
 }
 
 async function fetchTcxSplits(date, runId = '') {
@@ -2355,6 +2360,15 @@ function filterDetailedSeriesByRange(series = [], range = null) {
         const ts = Number(point?.timestampMs);
         return Number.isFinite(ts) && ts >= startMs && ts <= endMs;
     });
+}
+
+function formatChartTimeLabel(timestampMs, withSeconds = false) {
+    const date = new Date(Number(timestampMs));
+    if (!Number.isFinite(date.getTime())) return '';
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return withSeconds ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
 }
 
 function renderTcxMinuteTableRows(tbody, rows) {
@@ -2460,28 +2474,36 @@ function clearTcxSpeedPitchChart() {
     }
 }
 
-function buildAltitudeBackgroundSeries(rows = []) {
-    const altitudes = (Array.isArray(rows) ? rows : []).map((row) => {
-        const altitude = Number(row?.altitude);
+function buildAltitudeBackgroundSeries(points = []) {
+    const safePoints = Array.isArray(points) ? points : [];
+    const altitudes = safePoints.map((point) => {
+        const altitude = Number(point?.altitude);
         return Number.isFinite(altitude) ? altitude : null;
     });
     const valid = altitudes.filter((value) => Number.isFinite(value));
     if (valid.length === 0) {
-        return altitudes.map(() => null);
+        return safePoints.map(() => null);
     }
     const min = Math.min(...valid);
     const max = Math.max(...valid);
     if (!(max > min)) {
-        return altitudes.map((value) => (Number.isFinite(value) ? 55 : null));
+        return safePoints.map((point, index) => {
+            const x = Number(point?.timestampMs);
+            return Number.isFinite(altitudes[index]) && Number.isFinite(x)
+                ? { x, y: 55 }
+                : null;
+        }).filter(Boolean);
     }
-    return altitudes.map((value) => {
-        if (!Number.isFinite(value)) return null;
+    return safePoints.map((point, index) => {
+        const value = altitudes[index];
+        const x = Number(point?.timestampMs);
+        if (!Number.isFinite(value) || !Number.isFinite(x)) return null;
         const normalized = (value - min) / (max - min);
-        return Number((15 + (normalized * 80)).toFixed(2));
-    });
+        return { x, y: Number((15 + (normalized * 80)).toFixed(2)) };
+    }).filter(Boolean);
 }
 
-function renderTcxMinuteCharts(rows = []) {
+function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
     const tcxStrideCtx = document.getElementById('tcxStrideChart').getContext('2d');
     const tcxSpeedPitchCtx = document.getElementById('tcxSpeedPitchChart').getContext('2d');
 
@@ -2489,17 +2511,37 @@ function renderTcxMinuteCharts(rows = []) {
     if (tcxSpeedPitchChartInstance) tcxSpeedPitchChartInstance.destroy();
 
     const chartData = Array.isArray(rows) ? rows.map((point) => ({ ...point })) : [];
-    const times = chartData.map((d) => d.time);
-    const strides = chartData.map((d) => Number(d.stride) > 0 ? Number(d.stride) : null);
-    const heartRates = chartData.map((d) => Number(d.heartRate) > 0 ? Number(d.heartRate) : null);
-    const speeds = chartData.map((d) => Number(d.speed) > 0 ? Number(d.speed) : null);
-    const pitches = chartData.map((d) => Number(d.pitch) > 0 ? Number(d.pitch) : null);
-    const altitudeBackground = buildAltitudeBackgroundSeries(chartData);
+    const stridePoints = chartData
+        .filter((d) => Number.isFinite(Number(d.bucketStartMs)))
+        .map((d) => ({ x: Number(d.bucketStartMs), y: Number(d.stride) > 0 ? Number(d.stride) : null }));
+    const heartRatePoints = chartData
+        .filter((d) => Number.isFinite(Number(d.bucketStartMs)))
+        .map((d) => ({ x: Number(d.bucketStartMs), y: Number(d.heartRate) > 0 ? Number(d.heartRate) : null }));
+    const speedPoints = chartData
+        .filter((d) => Number.isFinite(Number(d.bucketStartMs)))
+        .map((d) => ({ x: Number(d.bucketStartMs), y: Number(d.speed) > 0 ? Number(d.speed) : null }));
+    const pitchPoints = chartData
+        .filter((d) => Number.isFinite(Number(d.bucketStartMs)))
+        .map((d) => ({ x: Number(d.bucketStartMs), y: Number(d.pitch) > 0 ? Number(d.pitch) : null }));
+    const altitudeSource = Array.isArray(altitudeDetail) && altitudeDetail.length > 0
+        ? altitudeDetail
+        : chartData.map((point) => ({
+            timestampMs: Number(point?.bucketStartMs),
+            altitude: Number(point?.altitude)
+        }));
+    const altitudeBackground = buildAltitudeBackgroundSeries(altitudeSource);
+    const xMin = chartData.length > 0 ? Math.min(...chartData.map((d) => Number(d.bucketStartMs || 0))) : undefined;
+    const xMax = chartData.length > 0
+        ? Math.max(...chartData.map((d) => {
+            const start = Number(d.bucketStartMs || 0);
+            const coverageSeconds = Number(d.coverageSeconds) > 0 ? Number(d.coverageSeconds) : 60;
+            return start + (coverageSeconds * 1000);
+        }))
+        : undefined;
 
     tcxStrideChartInstance = new Chart(tcxStrideCtx, {
         type: 'line',
         data: {
-            labels: times,
             datasets: [
                 {
                     label: 'Altitude',
@@ -2514,7 +2556,7 @@ function renderTcxMinuteCharts(rows = []) {
                 },
                 {
                     label: 'Stride',
-                    data: strides,
+                    data: stridePoints,
                     borderColor: '#00f2ff',
                     backgroundColor: 'rgba(0, 242, 255, 0.05)',
                     borderWidth: 3,
@@ -2525,7 +2567,7 @@ function renderTcxMinuteCharts(rows = []) {
                 },
                 {
                     label: 'HR',
-                    data: heartRates,
+                    data: heartRatePoints,
                     borderColor: '#ff0055',
                     backgroundColor: 'transparent',
                     borderWidth: 3,
@@ -2542,8 +2584,14 @@ function renderTcxMinuteCharts(rows = []) {
             interaction: { mode: 'index', intersect: false },
             scales: {
                 x: {
+                    type: 'linear',
+                    min: Number.isFinite(xMin) ? xMin : undefined,
+                    max: Number.isFinite(xMax) ? xMax : undefined,
                     grid: { color: '#444' },
-                    ticks: { color: '#eee' }
+                    ticks: {
+                        color: '#eee',
+                        callback: (value) => formatChartTimeLabel(Number(value), false)
+                    }
                 },
                 'y-altitude-bg': {
                     type: 'linear',
@@ -2588,7 +2636,13 @@ function renderTcxMinuteCharts(rows = []) {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
-                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg'
+                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg',
+                    callbacks: {
+                        title: (items) => {
+                            const first = Array.isArray(items) ? items[0] : null;
+                            return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
+                        }
+                    }
                 }
             }
         }
@@ -2597,7 +2651,6 @@ function renderTcxMinuteCharts(rows = []) {
     tcxSpeedPitchChartInstance = new Chart(tcxSpeedPitchCtx, {
         type: 'line',
         data: {
-            labels: times,
             datasets: [
                 {
                     label: 'Altitude',
@@ -2612,7 +2665,7 @@ function renderTcxMinuteCharts(rows = []) {
                 },
                 {
                     label: 'Speed',
-                    data: speeds,
+                    data: speedPoints,
                     borderColor: '#7af0b8',
                     backgroundColor: 'rgba(122, 240, 184, 0.08)',
                     borderWidth: 3,
@@ -2623,7 +2676,7 @@ function renderTcxMinuteCharts(rows = []) {
                 },
                 {
                     label: 'Pitch',
-                    data: pitches,
+                    data: pitchPoints,
                     borderColor: '#ffd166',
                     backgroundColor: 'transparent',
                     borderWidth: 2,
@@ -2640,8 +2693,14 @@ function renderTcxMinuteCharts(rows = []) {
             interaction: { mode: 'index', intersect: false },
             scales: {
                 x: {
+                    type: 'linear',
+                    min: Number.isFinite(xMin) ? xMin : undefined,
+                    max: Number.isFinite(xMax) ? xMax : undefined,
                     grid: { color: '#444' },
-                    ticks: { color: '#eee' }
+                    ticks: {
+                        color: '#eee',
+                        callback: (value) => formatChartTimeLabel(Number(value), false)
+                    }
                 },
                 'y-altitude-bg': {
                     type: 'linear',
@@ -2686,7 +2745,13 @@ function renderTcxMinuteCharts(rows = []) {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
-                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg'
+                    filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg',
+                    callbacks: {
+                        title: (items) => {
+                            const first = Array.isArray(items) ? items[0] : null;
+                            return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
+                        }
+                    }
                 }
             }
         }

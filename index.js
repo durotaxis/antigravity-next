@@ -97,6 +97,12 @@ function floorToMinuteMs(timestampMs) {
   return date.getTime();
 }
 
+function floorToSecondMs(timestampMs) {
+  const date = new Date(Number(timestampMs));
+  date.setMilliseconds(0);
+  return date.getTime();
+}
+
 function parseTcxTrackpoints(xmlText) {
   const blocks = String(xmlText || '').match(/<Trackpoint>[\s\S]*?<\/Trackpoint>/g) || [];
   return blocks.map((block) => {
@@ -257,6 +263,33 @@ function buildTcxMinuteChartData(trackpoints) {
         altitude: bucket.altitudeCount > 0 ? Number((bucket.altitudeSum / bucket.altitudeCount).toFixed(1)) : null
       };
     });
+}
+
+function buildTcxAltitudeDetailSeries(trackpoints) {
+  const secondMap = new Map();
+  for (const point of Array.isArray(trackpoints) ? trackpoints : []) {
+    if (!Number.isFinite(point?.timestampMs) || !Number.isFinite(point?.altitudeMeters)) continue;
+    const secondStartMs = floorToSecondMs(point.timestampMs);
+    if (!secondMap.has(secondStartMs)) {
+      secondMap.set(secondStartMs, {
+        timestampMs: secondStartMs,
+        altitudeSum: 0,
+        altitudeCount: 0
+      });
+    }
+    const bucket = secondMap.get(secondStartMs);
+    bucket.altitudeSum += Number(point.altitudeMeters);
+    bucket.altitudeCount += 1;
+  }
+
+  return Array.from(secondMap.values())
+    .sort((a, b) => a.timestampMs - b.timestampMs)
+    .map((bucket) => ({
+      timestampMs: bucket.timestampMs,
+      time: formatLocalTimeLabel(bucket.timestampMs, true),
+      altitude: bucket.altitudeCount > 0 ? Number((bucket.altitudeSum / bucket.altitudeCount).toFixed(1)) : null
+    }))
+    .filter((point) => Number.isFinite(point.altitude));
 }
 
 function dailySummaryCoreDiffers(existing, nextSummary) {
@@ -500,6 +533,17 @@ async function loadTcxMinuteRowsForDescriptor(descriptor) {
     tcxPath: descriptor.tcxPath,
     cachePath
   };
+}
+
+async function loadTcxAltitudeDetailForDescriptor(descriptor) {
+  if (!descriptor || descriptor.legacy || !descriptor.tcxPath) return [];
+  try {
+    const xmlText = await fs.readFile(descriptor.tcxPath, 'utf8');
+    const trackpoints = parseTcxTrackpoints(xmlText);
+    return buildTcxAltitudeDetailSeries(trackpoints);
+  } catch {
+    return [];
+  }
 }
 
 async function loadTcxRunSplitsForDescriptor(descriptor) {
@@ -2539,6 +2583,7 @@ app.get('/api/tcx-minute', async (req, res) => {
 
     if (selectedDescriptor) {
       const loaded = await loadTcxMinuteRowsForDescriptor(selectedDescriptor);
+      const altitudeDetail = await loadTcxAltitudeDetailForDescriptor(selectedDescriptor);
       return res.json({
         date,
         runId: selectedDescriptor.runId,
@@ -2546,7 +2591,8 @@ app.get('/api/tcx-minute', async (req, res) => {
         tcxPath: loaded.tcxPath,
         cachePath: loaded.cachePath,
         pointCount: Array.isArray(loaded.rows) ? loaded.rows.length : 0,
-        chartData: Array.isArray(loaded.rows) ? loaded.rows : []
+        chartData: Array.isArray(loaded.rows) ? loaded.rows : [],
+        altitudeDetail: Array.isArray(altitudeDetail) ? altitudeDetail : []
       });
     }
 
@@ -2559,11 +2605,12 @@ app.get('/api/tcx-minute', async (req, res) => {
         tcxPath: null,
         cachePath: getLegacyTcxIntradayCachePath(date),
         pointCount: cachedRows.length,
-        chartData: cachedRows
+        chartData: cachedRows,
+        altitudeDetail: []
       });
     }
 
-    return res.json({ date, runId: requestedRunId || null, tcxPath: null, cachePath: null, pointCount: 0, chartData: [] });
+    return res.json({ date, runId: requestedRunId || null, tcxPath: null, cachePath: null, pointCount: 0, chartData: [], altitudeDetail: [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

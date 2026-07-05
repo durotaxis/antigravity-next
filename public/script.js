@@ -2474,6 +2474,70 @@ function clearTcxSpeedPitchChart() {
     }
 }
 
+function buildChartHoverInteraction(mode = 'index') {
+    return {
+        mode,
+        intersect: false,
+        axis: 'x'
+    };
+}
+
+function buildChartTooltipOptions(overrides = null, mode = 'index') {
+    const tooltip = {
+        mode,
+        intersect: false
+    };
+    if (overrides && typeof overrides === 'object') {
+        const callbackKeys = new Set([
+            'beforeTitle',
+            'title',
+            'afterTitle',
+            'beforeBody',
+            'beforeLabel',
+            'label',
+            'labelColor',
+            'labelTextColor',
+            'afterLabel',
+            'afterBody',
+            'beforeFooter',
+            'footer',
+            'afterFooter'
+        ]);
+        const callbacks = {};
+        for (const [key, value] of Object.entries(overrides)) {
+            if (callbackKeys.has(key) && typeof value === 'function') {
+                callbacks[key] = value;
+            } else {
+                tooltip[key] = value;
+            }
+        }
+        if (Object.keys(callbacks).length > 0) {
+            tooltip.callbacks = callbacks;
+        }
+    }
+    return tooltip;
+}
+
+function buildUniqueSeriesTooltipLabeler(valueFormatter = null) {
+    const seenLabels = new Set();
+    return {
+        reset() {
+            seenLabels.clear();
+        },
+        label(context) {
+            const label = String(context.dataset?.label || '').trim();
+            if (!label) return null;
+            if (seenLabels.has(label)) return null;
+            seenLabels.add(label);
+            const rawValue = context.parsed?.y ?? context.raw;
+            const value = typeof valueFormatter === 'function'
+                ? valueFormatter(rawValue, context)
+                : rawValue;
+            return `${label}: ${value}`;
+        }
+    };
+}
+
 function buildAltitudeBackgroundSeries(points = []) {
     const safePoints = Array.isArray(points) ? points : [];
     const altitudes = safePoints.map((point) => {
@@ -2538,6 +2602,8 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
             return start + (coverageSeconds * 1000);
         }))
         : undefined;
+    const strideHrTooltip = buildUniqueSeriesTooltipLabeler((value) => Number.isFinite(Number(value)) ? Number(value) : '-');
+    const speedPitchTooltip = buildUniqueSeriesTooltipLabeler((value) => Number.isFinite(Number(value)) ? Number(value) : '-');
 
     tcxStrideChartInstance = new Chart(tcxStrideCtx, {
         type: 'line',
@@ -2548,8 +2614,10 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     data: altitudeBackground,
                     borderColor: 'rgba(192, 132, 252, 0.35)',
                     backgroundColor: 'rgba(192, 132, 252, 0.10)',
-                    borderWidth: 1,
+                    borderWidth: 0,
                     pointRadius: 0,
+                    pointHitRadius: 0,
+                    pointHoverRadius: 0,
                     tension: 0.25,
                     fill: 'origin',
                     yAxisID: 'y-altitude-bg'
@@ -2561,6 +2629,8 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     backgroundColor: 'rgba(0, 242, 255, 0.05)',
                     borderWidth: 3,
                     pointRadius: 2,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: true,
                     yAxisID: 'y-stride'
@@ -2572,6 +2642,8 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     backgroundColor: 'transparent',
                     borderWidth: 3,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: false,
                     yAxisID: 'y-heartrate'
@@ -2581,7 +2653,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
+            interaction: buildChartHoverInteraction('x'),
             scales: {
                 x: {
                     type: 'linear',
@@ -2633,17 +2705,15 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                         filter: (item) => item.text !== 'Altitude'
                     }
                 },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
+                tooltip: buildChartTooltipOptions({
                     filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg',
-                    callbacks: {
-                        title: (items) => {
-                            const first = Array.isArray(items) ? items[0] : null;
-                            return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
-                        }
-                    }
-                }
+                    title: (items) => {
+                        strideHrTooltip.reset();
+                        const first = Array.isArray(items) ? items[0] : null;
+                        return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
+                    },
+                    label: (context) => strideHrTooltip.label(context)
+                }, 'x')
             }
         }
     });
@@ -2657,8 +2727,10 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     data: altitudeBackground,
                     borderColor: 'rgba(192, 132, 252, 0.35)',
                     backgroundColor: 'rgba(192, 132, 252, 0.10)',
-                    borderWidth: 1,
+                    borderWidth: 0,
                     pointRadius: 0,
+                    pointHitRadius: 0,
+                    pointHoverRadius: 0,
                     tension: 0.25,
                     fill: 'origin',
                     yAxisID: 'y-altitude-bg'
@@ -2670,6 +2742,8 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     backgroundColor: 'rgba(122, 240, 184, 0.08)',
                     borderWidth: 3,
                     pointRadius: 2,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: true,
                     yAxisID: 'y-speed'
@@ -2681,6 +2755,8 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     backgroundColor: 'transparent',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.35,
                     fill: false,
                     yAxisID: 'y-pitch'
@@ -2690,7 +2766,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
+            interaction: buildChartHoverInteraction('x'),
             scales: {
                 x: {
                     type: 'linear',
@@ -2742,17 +2818,15 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                         filter: (item) => item.text !== 'Altitude'
                     }
                 },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
+                tooltip: buildChartTooltipOptions({
                     filter: (ctx) => ctx.dataset?.yAxisID !== 'y-altitude-bg',
-                    callbacks: {
-                        title: (items) => {
-                            const first = Array.isArray(items) ? items[0] : null;
-                            return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
-                        }
-                    }
-                }
+                    title: (items) => {
+                        speedPitchTooltip.reset();
+                        const first = Array.isArray(items) ? items[0] : null;
+                        return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
+                    },
+                    label: (context) => speedPitchTooltip.label(context)
+                }, 'x')
             }
         }
     });
@@ -2831,6 +2905,8 @@ function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
                     backgroundColor: 'rgba(140, 180, 255, 0.12)',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0,
                     fill: true,
                     yAxisID: 'y-fit-speed'
@@ -2842,6 +2918,8 @@ function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
                     backgroundColor: 'transparent',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0,
                     fill: false,
                     yAxisID: 'y-fit-hr'
@@ -2851,21 +2929,7 @@ function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const label = context.dataset?.label || '';
-                            const value = context.raw;
-                            return `${label}: ${formatDetailedSeriesValue(value)}`;
-                        }
-                    }
-                }
-            },
+            interaction: buildChartHoverInteraction(),
             scales: {
                 x: {
                     grid: { color: '#444' },
@@ -2910,10 +2974,13 @@ function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
                 legend: {
                     labels: { color: '#eee' }
                 },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false
-                }
+                tooltip: buildChartTooltipOptions({
+                    label(context) {
+                        const label = context.dataset?.label || '';
+                        const value = context.raw;
+                        return `${label}: ${formatDetailedSeriesValue(value)}`;
+                    }
+                })
             }
         }
     });
@@ -2943,6 +3010,8 @@ function renderDetailedFitPitchChart(pitchSeries = []) {
                     backgroundColor: 'rgba(255, 209, 102, 0.10)',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     stepped: true,
                     tension: 0,
                     fill: true,
@@ -2953,23 +3022,18 @@ function renderDetailedFitPitchChart(pitchSeries = []) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: buildChartHoverInteraction(),
             plugins: {
                 legend: {
                     labels: { color: '#eee' }
                 },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const label = context.dataset?.label || '';
-                            const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
-                            return `${label}: ${value}`;
-                        }
+                tooltip: buildChartTooltipOptions({
+                    label(context) {
+                        const label = context.dataset?.label || '';
+                        const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
+                        return `${label}: ${value}`;
                     }
-                }
+                })
             },
             scales: {
                 x: {
@@ -3051,6 +3115,8 @@ function renderDetailedFitStrideChart(strideSeries = []) {
                     backgroundColor: 'rgba(0, 242, 255, 0.10)',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     stepped: true,
                     tension: 0,
                     fill: true,
@@ -3061,23 +3127,18 @@ function renderDetailedFitStrideChart(strideSeries = []) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: buildChartHoverInteraction(),
             plugins: {
                 legend: {
                     labels: { color: '#eee' }
                 },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const label = context.dataset?.label || '';
-                            const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
-                            return `${label}: ${value}`;
-                        }
+                tooltip: buildChartTooltipOptions({
+                    label(context) {
+                        const label = context.dataset?.label || '';
+                        const value = Number.isFinite(Number(context.raw)) ? String(context.raw) : '-';
+                        return `${label}: ${value}`;
                     }
-                }
+                })
             },
             scales: {
                 x: {
@@ -3170,6 +3231,8 @@ function renderChart(data) {
                     backgroundColor: 'rgba(0, 242, 255, 0.05)',
                     borderWidth: 3,
                     pointRadius: 2, // Slight radius for visibility
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: true,
                     yAxisID: 'y-stride',
@@ -3183,6 +3246,8 @@ function renderChart(data) {
                     backgroundColor: 'transparent',
                     borderWidth: 3,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: false,
                     yAxisID: 'y-heartrate',
@@ -3193,10 +3258,7 @@ function renderChart(data) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: buildChartHoverInteraction(),
             scales: {
                 x: {
                     grid: { color: '#444' },
@@ -3235,10 +3297,7 @@ function renderChart(data) {
                 legend: {
                     labels: { color: '#eee' }
                 },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false
-                }
+                tooltip: buildChartTooltipOptions()
             }
         }
     });
@@ -3255,6 +3314,8 @@ function renderChart(data) {
                     backgroundColor: 'rgba(122, 240, 184, 0.08)',
                     borderWidth: 3,
                     pointRadius: 2,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.4,
                     fill: true,
                     yAxisID: 'y-speed'
@@ -3266,6 +3327,8 @@ function renderChart(data) {
                     backgroundColor: 'transparent',
                     borderWidth: 2,
                     pointRadius: 0,
+                    pointHitRadius: 12,
+                    pointHoverRadius: 4,
                     tension: 0.35,
                     fill: false,
                     yAxisID: 'y-pitch'
@@ -3275,10 +3338,7 @@ function renderChart(data) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: buildChartHoverInteraction(),
             scales: {
                 x: {
                     grid: { color: '#444' },
@@ -3317,10 +3377,7 @@ function renderChart(data) {
                 legend: {
                     labels: { color: '#eee' }
                 },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false
-                }
+                tooltip: buildChartTooltipOptions()
             }
         }
     });

@@ -16,36 +16,94 @@ async function imagePathToDataUrl(filePath) {
   return `data:${mime};base64,${data.toString('base64')}`;
 }
 
-async function generateCoachMessage(maxStats, imagePaths = []) {
+function buildPromptText(maxStats, imagePaths = [], extraContext = {}) {
+  const minuteTableMarkdown = String(extraContext?.minuteTableMarkdown || '').trim();
+  const latestRunSummary = extraContext?.latestRunSummary && typeof extraContext.latestRunSummary === 'object'
+    ? extraContext.latestRunSummary
+    : null;
+  const lthrContext = extraContext?.lthrContext && typeof extraContext.lthrContext === 'object'
+    ? extraContext.lthrContext
+    : null;
+  const compareRunSummaries = Array.isArray(extraContext?.compareRunSummaries)
+    ? extraContext.compareRunSummaries.slice(-8)
+    : [];
+
+  const lthrValue = Number(lthrContext?.lthr);
+  const lthrExceededSeconds = Number(lthrContext?.exceededSeconds);
+  const lthrExceededRatio = Number(lthrContext?.exceededRatio);
+  const hasLthrContext = Number.isFinite(lthrValue) && lthrValue > 0;
+
+  const latestRunText = latestRunSummary
+    ? `最新ラン: ${String(latestRunSummary.date || '')} / 距離 ${Number(latestRunSummary.distanceKm || 0).toFixed(2)}km / Max Stride ${Number(latestRunSummary.maxStride || 0).toFixed(1)}cm / Avg Stride ${Number(latestRunSummary.avgStride || 0).toFixed(1)}cm / Avg Speed ${Number(latestRunSummary.avgSpeed || 0).toFixed(1)}km/h / Avg Pitch ${Math.round(Number(latestRunSummary.avgPitch || 0))}spm / Avg HR ${Math.round(Number(latestRunSummary.avgHr || 0))}bpm`
+    : '最新ラン: なし';
+
+  const compareRunsText = compareRunSummaries.length > 0
+    ? compareRunSummaries
+        .map((run) => `- ${String(run.date || '')}: ${Number(run.distanceKm || 0).toFixed(2)}km, MaxStride ${Number(run.maxStride || 0).toFixed(1)}cm, AvgStride ${Number(run.avgStride || 0).toFixed(1)}cm, AvgSpeed ${Number(run.avgSpeed || 0).toFixed(1)}km/h, AvgPitch ${Math.round(Number(run.avgPitch || 0))}spm, AvgHR ${Math.round(Number(run.avgHr || 0))}bpm`)
+        .join('\n')
+    : '- なし';
+
+  const basePrompt = [
+    'あなたはバイオメカニクス重視のランニング分析コーチです。以下のランニング数値と文脈を読み、日本語で実用的な分析コメントを書いてください。',
+    '方針:',
+    '1. 最大ストライド、平均ストライド、平均ピッチ、最大速度の関係から今回の走りの特徴を判断する',
+    '2. ストライドとピッチの組み合わせから、回転寄りかストライド寄りかを具体的に述べる',
+    '3. チャート画像や1分毎テーブルがある場合は、その数値や変化を分析文の中に自然に織り込む',
+    `4. 最大速度 ${maxStats.maxSpeed}km/h を踏まえて、実際のストライドとピッチでその速度がどう出ているかを説明する`,
+    '5. 心拍については、平均心拍・最大心拍・速度との関係から有酸素ベースで一言触れる',
+    '6. 高度の上下や坂の影響が読み取れる場合は、その影響を分析として一言触れる',
+    '7. 1分毎テーブル(MD)が渡された場合は、その内容から読み取れる気づきを必ず含める',
+    '8. 高度については、チャートや1分毎テーブルの Altitude (m) 以外の情報は使わない',
+    '9. 最新ランと比較ラン情報が与えられている場合は、前回ランまたは直近のある比較ラン1件をあなた自身で選び、比較を1文入れる',
+    '10. LTHR とその超過時間が与えられていて、超過時間が長い場合は、その点にも一言触れる',
+    '出力形式:',
+    '- 1段落構成: 分析コメント、チャート所見、比較所見を自然につなげる',
+    '- 2段落構成: 「1分毎テーブル所見: ...」で始める',
+    'ルール:',
+    '- 全文を120〜220文字程度の日本語に収める',
+    '- 1段落目は3〜5文で簡潔に書く',
+    '- 2段落目は1文だけにする',
+    '- 心拍については褒め言葉だけではなく、今回の数値とその連動などの分析として書く',
+    '- 高度については、上り下り・登坂・下り坂などの分析に絞って書き、一般論や推測は書かない',
+    '- 1分毎テーブル(MD)がある場合は、その内容から読み取れる1つの具体所見を「1分毎テーブル所見: ...」で必ず1文書く',
+    '- 1分毎テーブル(MD)がない場合は、「1分毎テーブル所見: ...」は書かない',
+    '- 最新ランと比較ランがある場合は、比較所見を最新ランの前後どちらかに自然に入れる',
+    '- LTHR超過時間が長い場合だけ、LTHRや超過時間の一文を最大1文だけ入れる',
+    '',
+    '与えられるデータ:',
+    `日付: ${maxStats.date || '-'}`,
+    `ストライド: 平均 ${maxStats.avgStride || '-'}cm / 最大 ${maxStats.maxStride || '-'}cm`,
+    `ピッチ: 平均 ${maxStats.avgCadence || '-'}spm / 最大 ${maxStats.maxCadence || '-'}spm`,
+    `心拍: 平均 ${maxStats.avgHR || '-'}bpm / 最大 ${maxStats.maxHR || '-'}bpm`,
+    `速度: 平均 ${maxStats.avgSpeed || '-'}km/h / 最大 ${maxStats.maxSpeed || '-'}km/h`,
+    '',
+    'コンテキスト判定:',
+    `画像: ${Array.isArray(imagePaths) && imagePaths.length > 0 ? 'あり' : 'なし'}`,
+    `1分毎テーブル(MD): ${minuteTableMarkdown ? 'あり' : 'なし'}`,
+    `比較情報: ${compareRunSummaries.length > 0 && latestRunSummary ? 'あり' : 'なし'}`,
+    `LTHR情報: ${hasLthrContext ? 'あり' : 'なし'}`,
+    '',
+    '比較情報:',
+    latestRunText,
+    '比較ラン一覧:',
+    compareRunsText,
+    'LTHR情報:',
+    `- LTHR: ${hasLthrContext ? `${Math.round(lthrValue)} bpm` : 'なし'}`,
+    `- 超過時間: ${Number.isFinite(lthrExceededSeconds) && lthrExceededSeconds > 0 ? `${Math.round(lthrExceededSeconds)}秒` : '0秒'}`,
+    `- 超過率: ${Number.isFinite(lthrExceededRatio) && lthrExceededRatio > 0 ? `${Math.round(lthrExceededRatio * 100)}%` : '0%'}`
+  ].join('\n');
+
+  if (!minuteTableMarkdown) return basePrompt;
+  return `${basePrompt}\n追加コンテキスト: 以下は旧画面の1分毎テーブルです。必要に応じて分析に使ってください。\n\n${minuteTableMarkdown}`;
+}
+
+async function generateCoachMessage(maxStats, imagePaths = [], extraContext = {}) {
   if (!OPENAI_API_KEY) return 'No API Key';
 
   const parts = [
     {
       type: 'text',
-      text: [
-        'You are a biomechanics-oriented running coach.',
-        'Use 榎本靖士 博士論文 as the evaluation basis.',
-        'Use only the provided metrics and image evidence. Do not add unknown facts.',
-        'Output MUST be Japanese, 120-180 characters, plain text only.',
-        'Output MUST include ALL of these elements:',
-        '1) Mention max speed, max stride, and max cadence with numbers.',
-        '2) Briefly judge SL-type vs pitch-type tendency.',
-        '3) Provide exactly one concrete next action for the next run.',
-        'Avoid generic praise-only advice.',
-        `Date: ${maxStats.date || '-'}`,
-        `Step Count: ${maxStats.stepCount || '-'}`,
-        `Total Distance(km): ${maxStats.totalDistanceKm || '-'}`,
-        `Total Time: ${maxStats.totalTime || '-'}`,
-        `Avg Stride(cm): ${maxStats.avgStride || '-'}`,
-        `Max Stride(cm): ${maxStats.maxStride || '-'}`,
-        `Avg HR(bpm): ${maxStats.avgHR || '-'}`,
-        `Max HR(bpm): ${maxStats.maxHR || '-'}`,
-        `Avg Cadence(spm): ${maxStats.avgCadence || '-'}`,
-        `Max Cadence(spm): ${maxStats.maxCadence || '-'}`,
-        `Avg Speed(km/h): ${maxStats.avgSpeed || '-'}`,
-        `Max Speed(km/h): ${maxStats.maxSpeed || '-'}`,
-        'If values are missing, explicitly say "データ不足".'
-      ].join('\n')
+      text: buildPromptText(maxStats, imagePaths, extraContext)
     }
   ];
 
@@ -65,7 +123,7 @@ async function generateCoachMessage(maxStats, imagePaths = []) {
   const body = {
     model: OPENAI_MODEL,
     temperature: 0.5,
-    max_tokens: 220,
+    max_tokens: 320,
     messages: [
       {
         role: 'user',

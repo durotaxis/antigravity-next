@@ -692,7 +692,11 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
       maxCadence: Number(summary.max_cadence || 0),
       avgSpeed: Number(summary.avg_speed || 0),
       maxSpeed: Number(summary.max_speed || 0)
-    }, []);
+    }, [], {
+      minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
+      latestRunSummary,
+      compareRunSummaries
+    });
   }
 
   return await geminiService.generateAdvice({
@@ -3594,7 +3598,25 @@ app.post('/api/analyze/batch/mock', async (req, res) => {
 // Advice API (OpenAI)
 app.post('/api/advice', async (req, res) => {
   try {
-    const { date, runId, stepCount, totalDistanceKm, totalTime, avgStride, maxStride, avgHR, maxHR, avgCadence, maxCadence, avgSpeed, maxSpeed } = req.body;
+    const {
+      date,
+      runId,
+      stepCount,
+      totalDistanceKm,
+      totalTime,
+      avgStride,
+      maxStride,
+      avgHR,
+      maxHR,
+      avgCadence,
+      maxCadence,
+      avgSpeed,
+      maxSpeed,
+      lthr,
+      lthrExceededSeconds,
+      lthrExceededRatio,
+      minuteTableMarkdown
+    } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
     const dailySummary = await repo.getDailySummary(date);
@@ -3617,6 +3639,34 @@ app.post('/api/advice', async (req, res) => {
     // Fetch images for this run to provide context to Gemini
     const images = await imageRepo.getImagesForRun(date);
     const imagePaths = images.map(img => path.join(process.cwd(), 'public/assets/store', img.stored_filename));
+    const allRuns = await repo.getAllRuns();
+    const compareRunSummaries = Array.isArray(allRuns)
+      ? allRuns
+          .filter((run) => run && typeof run.date === 'string' && run.date < date)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .slice(-8)
+          .map((run) => ({
+            date: String(run.date || ''),
+            distanceKm: Number(run.total_distance_km || 0),
+            maxStride: Number(run.max_stride || 0),
+            avgStride: Number(run.avg_stride || 0),
+            avgSpeed: Number(run.avg_speed || 0),
+            avgPitch: Number(run.avg_cadence || 0),
+            avgHr: Number(run.hr_avg || 0),
+            maxHr: Number(run.hr_max || 0)
+          }))
+      : [];
+    const latestRunSummary = {
+      date,
+      distanceKm: Number(resolvedTotalDistanceKm || 0),
+      maxStride: Number(resolvedMaxStride || 0),
+      avgStride: Number(resolvedAvgStride || 0),
+      avgSpeed: Number(resolvedAvgSpeed || 0),
+      avgPitch: Number(resolvedAvgCadence || 0),
+      avgHr: Number(resolvedAvgHr || 0),
+      maxHr: Number(resolvedMaxHr || 0)
+    };
+    const minuteTableText = typeof minuteTableMarkdown === 'string' ? minuteTableMarkdown : '';
 
     const advice = await openaiService.generateCoachMessage({
       date,
@@ -3631,7 +3681,16 @@ app.post('/api/advice', async (req, res) => {
       maxCadence: resolvedMaxCadence,
       avgSpeed: resolvedAvgSpeed,
       maxSpeed: resolvedMaxSpeed
-    }, imagePaths);
+    }, imagePaths, {
+      minuteTableMarkdown: minuteTableText,
+      latestRunSummary,
+      lthrContext: {
+        lthr: Number.isFinite(Number(lthr)) && Number(lthr) > 0 ? Number(lthr) : null,
+        exceededSeconds: Number.isFinite(Number(lthrExceededSeconds)) && Number(lthrExceededSeconds) > 0 ? Number(lthrExceededSeconds) : 0,
+        exceededRatio: Number.isFinite(Number(lthrExceededRatio)) && Number(lthrExceededRatio) > 0 ? Number(lthrExceededRatio) : 0
+      },
+      compareRunSummaries
+    });
 
     // Persist message + metrics, preferring cache/intraday source-of-truth.
     await repo.saveDailySummary({

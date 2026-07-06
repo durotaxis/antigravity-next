@@ -3733,17 +3733,15 @@ async function loadTcxInboxItems() {
         const res = await fetch('/api/inbox/tcx-files');
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
         const files = await res.json();
-        const filteredFiles = Array.isArray(files)
-            ? files.filter((file) => String(file?.date || '').trim() === String(currentRunDate || '').trim())
-            : [];
+        const tcxFiles = Array.isArray(files) ? files : [];
         grid.innerHTML = '';
 
-        if (filteredFiles.length === 0) {
-            grid.innerHTML = `<div style="color:#888; text-align:center; width:100%;">No TCX files found for ${currentRunDate || 'the selected date'}</div>`;
+        if (tcxFiles.length === 0) {
+            grid.innerHTML = '<div style="color:#888; text-align:center; width:100%;">No TCX files found in Mobile Devices</div>';
             return;
         }
 
-        filteredFiles.forEach(file => {
+        tcxFiles.forEach(file => {
             const filename = String(file?.filename || '').trim();
             const fileDate = String(file?.date || '').trim();
             const item = document.createElement('div');
@@ -3806,7 +3804,8 @@ function toggleSelection(element, filename) {
 }
 
 async function importSelectedImages() {
-    if (!currentRunDate || selectedFiles.size === 0) return;
+    if (selectedFiles.size === 0) return;
+    if (currentPickerMode !== 'tcx' && !currentRunDate) return;
 
     const btn = document.getElementById('importBtn');
     const originalText = btn.textContent;
@@ -3818,7 +3817,6 @@ async function importSelectedImages() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    date: currentRunDate,
                     filenames: Array.from(selectedFiles),
                     adviceProvider: getSelectedAdviceProvider()
                 })
@@ -3828,11 +3826,23 @@ async function importSelectedImages() {
                 throw new Error(payload?.error ? String(payload.error) : 'TCX import failed');
             }
 
-            const dateToRefresh = currentRunDate;
+            const importedDates = Array.isArray(payload?.results)
+                ? payload.results
+                    .map((row) => normalizeRunDate(row?.data?.date || ''))
+                    .filter((date, index, array) => date && array.indexOf(date) === index)
+                : [];
+            const dateToRefresh = importedDates[0] || currentRunDate || '';
+            if (dateToRefresh) {
+                const dateInput = document.getElementById('dateInput');
+                if (dateInput) dateInput.value = dateToRefresh;
+                persistRunDateInput();
+            }
             closeModal();
             await loadData({ triggerAdvice: false });
             await loadRunHistory();
-            checkAndRenderImages(dateToRefresh);
+            if (dateToRefresh) {
+                checkAndRenderImages(dateToRefresh);
+            }
             alert(`Imported ${Number(payload?.success_count || 0)} TCX file(s).`);
         } catch (err) {
             console.error(err);

@@ -15,7 +15,7 @@ const googleFitService = require('./google_fit_service');
 const app = express();
 const port = 3000;
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
-const TCX_DOWNLOAD_DIR = path.join(process.env.USERPROFILE || 'C:\\Users\\yuji_', 'CrossDevice', 'SO-54C', 'storage', 'Download');
+const TCX_SOURCE_DIR = imageService.INBOX_DIR;
 
 function getLegacyTcxIntradayCachePath(dateString) {
   return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${dateString}.json`);
@@ -425,7 +425,7 @@ async function listTcxRunDescriptorsForDate(dateString) {
   const cacheDir = path.join(__dirname, 'storage', 'cache');
   let names = [];
   try {
-    names = await fs.readdir(TCX_DOWNLOAD_DIR);
+    names = await fs.readdir(TCX_SOURCE_DIR);
   } catch {
     names = [];
   }
@@ -448,7 +448,7 @@ async function listTcxRunDescriptorsForDate(dateString) {
       startTimeMs: stamp.startTimeMs,
       startTimeLabel: formatLocalTimeLabel(stamp.startTimeMs),
       filename: name,
-      tcxPath: path.join(TCX_DOWNLOAD_DIR, name),
+      tcxPath: path.join(TCX_SOURCE_DIR, name),
       cachePath: getTcxRunCachePath(stamp.runId),
       legacy: false
     });
@@ -923,7 +923,7 @@ async function findTcxFileForDate(dateString) {
   if (!/^\d{8}$/.test(ymd)) return null;
   let names = [];
   try {
-    names = await fs.readdir(TCX_DOWNLOAD_DIR);
+    names = await fs.readdir(TCX_SOURCE_DIR);
   } catch {
     return null;
   }
@@ -931,7 +931,7 @@ async function findTcxFileForDate(dateString) {
     .filter((name) => /\.tcx$/i.test(name) && name.includes(ymd))
     .sort();
   if (candidates.length === 0) return null;
-  return path.join(TCX_DOWNLOAD_DIR, candidates[candidates.length - 1]);
+  return path.join(TCX_SOURCE_DIR, candidates[candidates.length - 1]);
 }
 
 async function computeDerivedFromIntradayCache(dateString) {
@@ -2821,7 +2821,7 @@ app.get('/api/inbox/tcx-files', async (req, res) => {
   try {
     let names = [];
     try {
-      names = await fs.readdir(TCX_DOWNLOAD_DIR);
+      names = await fs.readdir(TCX_SOURCE_DIR);
     } catch {
       names = [];
     }
@@ -2875,10 +2875,8 @@ app.post('/api/runs/:runId/import-selected', async (req, res) => {
 
 app.post('/api/tcx/import-selected', async (req, res) => {
   try {
-    const targetDate = normalizeRunDate(req.body && req.body.date);
     const adviceProvider = normalizeAdviceProvider(req.body && req.body.adviceProvider);
     const filenames = Array.isArray(req.body && req.body.filenames) ? req.body.filenames : [];
-    if (!targetDate) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
     if (filenames.length === 0) return res.status(400).json({ error: 'filenames is required' });
 
     const normalizedFilenames = filenames
@@ -2901,24 +2899,15 @@ app.post('/api/tcx/import-selected', async (req, res) => {
       });
     }
 
-    const mismatched = validation.filter((row) => row.runStamp.dateString !== targetDate);
-    if (mismatched.length > 0) {
-      return res.status(422).json({
-        error: `Selected TCX files must match ${targetDate} by filename.`,
-        code: 'TCX_DATE_MISMATCH',
-        filenames: mismatched.map((row) => row.filename)
-      });
-    }
-
     const results = [];
     for (const name of normalizedFilenames) {
       try {
         if (name.includes('..') || name.includes('/') || name.includes('\\')) {
           throw new Error('Invalid filename');
         }
-        const tcxPath = path.join(TCX_DOWNLOAD_DIR, name);
+        const tcxPath = path.join(TCX_SOURCE_DIR, name);
         const xmlText = await fs.readFile(tcxPath, 'utf8');
-        const imported = await importTcxContent(name, xmlText, targetDate, { adviceProvider });
+        const imported = await importTcxContent(name, xmlText, '', { adviceProvider });
         results.push({
           filename: name,
           status: 'success',

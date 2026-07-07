@@ -3212,7 +3212,7 @@ function renderChart(data) {
     const times = chartData.map(d => d.time);
     const strides = chartData.map(d => Number.isFinite(Number(d.stride)) ? d.stride : null);
     const smaStrides = strides;
-    const speeds = chartData.map(d => speedFromIntradayDistance(d));
+    const speeds = chartData.map((d) => Number(d?.speed) > 0 ? Number(d.speed) : null);
     const pitches = chartData.map(d => Number(d.pitch) > 0 ? Number(d.pitch) : (Number(d.steps) > 0 ? Number(d.steps) : null));
 
     const heartRatesRaw = chartData.map(d => d.heartRate || 0);
@@ -3670,7 +3670,7 @@ async function checkAndRenderImages(date) {
 // Modal State
 let currentRunDate = null;
 let selectedFiles = new Set();
-let currentPickerMode = 'image';
+let currentPickerMode = 'tcx';
 
 async function openInboxModal(date) {
     currentRunDate = date;
@@ -3782,7 +3782,7 @@ function closeModal() {
     document.getElementById('inboxModal').style.display = 'none';
     currentRunDate = null;
     selectedFiles.clear();
-    currentPickerMode = 'image';
+    currentPickerMode = 'tcx';
 }
 
 function toggleSelection(element, filename) {

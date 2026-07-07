@@ -180,6 +180,29 @@ Current TCX-driven legacy behavior:
   - `Stride (rough)`
 - when no TCX run exists for the selected date, the legacy screen falls back to the pre-existing non-TCX display
 
+Current TCX minute display adjustment behavior:
+
+- this rule applies to legacy-screen TCX minute presentation only
+- it affects:
+  - `TCX Per Minute`
+  - `TCX Stride + HR`
+  - `TCX Speed + Pitch`
+  - TCX minute Markdown export
+- for each TCX minute row, the screen compares:
+  - the recorded minute `Speed`
+  - the speed implied by minute `Dist (m)` and minute duration
+- when the deviation rate is greater than `39%`, that minute row is treated as adjusted
+- for adjusted rows:
+  - `Dist (m)` is replaced by the distance implied by recorded speed and minute duration
+  - `Speed (km/h)` is shown from that adjusted distance
+  - `Stride (cm)` is recomputed from adjusted distance and pitch
+- adjusted rows remain visible to the user:
+  - the main displayed values are the adjusted values
+  - the original raw distance and raw speed are still shown in `Adjusted (...)` notation in the TCX minute table and Markdown export
+- this behavior is intended to reduce obvious per-minute TCX spikes without changing the non-TCX minute table behavior
+- this is a display/export adjustment rule
+  - it is not defined here as a generic rewrite of all raw TCX source data
+
 In addition, when the chart API is called with legacy sync behavior enabled, the screen may fill missing day-summary fields from intraday data for an already-existing `daily_summary` row.
 
 ### 5.3 Data sources

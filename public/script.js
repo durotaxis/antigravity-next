@@ -984,12 +984,16 @@ function buildTcxMinuteExportPayload(dateString, rows = []) {
         rows: (Array.isArray(rows) ? rows : []).map((row) => ({
             time: row.time,
             distance_m: Number(row.distance || 0),
+            raw_distance_m: Number(row.rawDistance || row.distance || 0),
             stride_cm: Number(row.stride || 0),
             speed_kmh: Number(row.speed || 0),
+            raw_speed_kmh: Number(row.rawSpeed || row.speed || 0),
             heart_rate: Number(row.heartRate || 0),
             pitch: Number(row.pitch || 0),
             altitude_m: row.altitude === null || row.altitude === undefined ? null : Number(row.altitude),
-            coverage_seconds: Number(row.coverageSeconds || 0)
+            coverage_seconds: Number(row.coverageSeconds || 0),
+            adjusted: String(row.distanceSource || '') === 'speed-adjusted',
+            distance_deviation_rate: Number(row.distanceDeviationRate || 0)
         }))
     };
 }
@@ -1008,8 +1012,14 @@ function buildTcxMinuteMarkdown(payload) {
         '|---|---:|---:|---:|---:|---:|---:|'
     ];
     payload.rows.forEach((row) => {
+        const distanceText = row.adjusted
+            ? `${Number(row.distance_m || 0).toFixed(1)} Adjusted (${Number(row.raw_distance_m || 0).toFixed(1)})`
+            : `${Number(row.distance_m || 0).toFixed(1)}`;
+        const speedText = row.adjusted
+            ? `${Number(row.speed_kmh || 0).toFixed(1)} Adjusted (${Number(row.raw_speed_kmh || 0).toFixed(1)})`
+            : `${Number(row.speed_kmh || 0).toFixed(1)}`;
         lines.push(
-            `| ${row.time} | ${Number(row.distance_m || 0).toFixed(1)} | ${Number(row.stride_cm || 0).toFixed(1)} | ${Number(row.speed_kmh || 0).toFixed(1)} | ${row.heart_rate > 0 ? row.heart_rate : '-'} | ${row.pitch > 0 ? row.pitch : '-'} | ${row.altitude_m === null ? '-' : Number(row.altitude_m).toFixed(1)} |`
+            `| ${row.time} | ${distanceText} | ${Number(row.stride_cm || 0).toFixed(1)} | ${speedText} | ${row.heart_rate > 0 ? row.heart_rate : '-'} | ${row.pitch > 0 ? row.pitch : '-'} | ${row.altitude_m === null ? '-' : Number(row.altitude_m).toFixed(1)} |`
         );
     });
     return lines.join('\n');
@@ -1367,6 +1377,17 @@ async function loadData(options = {}) {
             : fitHeartRateSeriesRaw;
         const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
         const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
+        const chartDisplayData = hasTcxMinuteData
+            ? tcxMinuteData.map((row) => ({
+                time: String(row?.time || '--:--'),
+                steps: Number(row?.pitch || 0),
+                distance: Number(row?.distance || 0),
+                stride: Number(row?.stride || 0),
+                speed: Number(row?.speed || 0),
+                heartRate: Number(row?.heartRate || 0),
+                pitch: Number(row?.pitch || 0)
+            }))
+            : (Array.isArray(data) ? data : []);
         placeDailyMessageContainerInsidePager(hasTcxRunData);
         currentAdviceRunDate = date;
         currentAdviceUsesTcx = hasTcxMinuteData;
@@ -1390,7 +1411,7 @@ async function loadData(options = {}) {
 
         let max = { stride: 0, time: '--:--' };
 
-        if (data.length === 0) {
+        if (chartDisplayData.length === 0) {
             // Guard Clause: Handle No Data (Rest Day)
             if (strideChartInstance) {
                 strideChartInstance.destroy(); // Safety: Destroy existing chart
@@ -1461,7 +1482,7 @@ async function loadData(options = {}) {
         let maxStrideVal = 0;
         let maxIndex = 0;
 
-        data.forEach((d, i) => {
+        chartDisplayData.forEach((d, i) => {
             // Peak stride highlight should reflect the actual maximum stride in the run.
             const val = d.stride;
             if (val > maxStrideVal) {
@@ -1471,9 +1492,9 @@ async function loadData(options = {}) {
         });
 
         const intradayMaxStride = maxStrideVal;
-        const intradayMaxTime = data[maxIndex].time;
+        const intradayMaxTime = chartDisplayData[maxIndex].time;
 
-        data.forEach(d => {
+        chartDisplayData.forEach(d => {
             const velocityKmH = Number.isFinite(Number(d.speed)) && Number(d.speed) > 0
                 ? Number(d.speed)
                 : (d.distance / 1000) * 60;
@@ -1499,7 +1520,7 @@ async function loadData(options = {}) {
         let maxSpeed = 0;
         let sumSpeed = 0;
         let countSpeed = 0;
-        data.forEach(d => {
+        chartDisplayData.forEach(d => {
             if (d.heartRate > 0) {
                 if (d.heartRate > maxHR) maxHR = d.heartRate;
                 sumHR += d.heartRate;
@@ -1520,9 +1541,9 @@ async function loadData(options = {}) {
         const avgCadence = countCadence > 0 ? (sumCadence / countCadence) : 0;
         const avgSpeed = countSpeed > 0 ? (sumSpeed / countSpeed) : 0;
 
-        const totalSeconds = Math.max(0, data.length * 60);
-        const totalSteps = data.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
-        const totalDistanceMeters = data.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
+        const totalSeconds = Math.max(0, chartDisplayData.length * 60);
+        const totalSteps = chartDisplayData.reduce((acc, d) => acc + (Number(d.steps) || 0), 0);
+        const totalDistanceMeters = chartDisplayData.reduce((acc, d) => acc + (Number(d.distance) || 0), 0);
         const intradaySummaryMetrics = {
             maxStride: intradayMaxStride,
             maxTime: intradayMaxTime,
@@ -1562,7 +1583,7 @@ async function loadData(options = {}) {
         );
 
         // --- Render Chart ---
-        renderChart(data);
+        renderChart(chartDisplayData);
         if (Array.isArray(fitSpeedSeries) && fitSpeedSeries.length > 0) {
             renderDetailedFitSpeedChart(fitSpeedSeries, fitHeartRateSeries);
         } else {
@@ -2380,14 +2401,18 @@ function renderTcxMinuteTableRows(tbody, rows) {
     }
     rows.forEach((row) => {
         const tr = document.createElement('tr');
+        const adjusted = String(row?.distanceSource || '') === 'speed-adjusted';
+        const deviationText = Number(row?.distanceDeviationRate) > 0 ? ` (${Number(row.distanceDeviationRate).toFixed(1)}%)` : '';
+        const rawDistanceText = Number.isFinite(Number(row?.rawDistance)) ? Number(row.rawDistance).toFixed(1) : Number(row.distance || 0).toFixed(1);
+        const rawSpeedText = Number.isFinite(Number(row?.rawSpeed)) ? Number(row.rawSpeed).toFixed(1) : Number(row.speed || 0).toFixed(1);
         tr.innerHTML = `
             <td>${row.time}</td>
-            <td>${Number(row.distance || 0).toFixed(1)}</td>
+            <td>${Number(row.distance || 0).toFixed(1)}${adjusted ? ` <span style="color:#f59e0b; font-size:11px; font-weight:600;">Adjusted (${rawDistanceText})</span>` : ''}</td>
             <td>${Number(row.stride) > 0 ? Number(row.stride).toFixed(1) : '-'}</td>
-            <td style="color: #00f2ff; font-weight: bold;">${Number(row.speed) > 0 ? Number(row.speed).toFixed(1) : '-'}</td>
+            <td style="color: #00f2ff; font-weight: bold;">${Number(row.speed) > 0 ? Number(row.speed).toFixed(1) : '-'}${adjusted ? ` <span style="color:#f59e0b; font-size:11px; font-weight:600;">Adjusted (${rawSpeedText})</span>` : ''}</td>
             <td style="color: #ff4444;">${Number(row.heartRate) > 0 ? Math.round(Number(row.heartRate)) : '-'}</td>
             <td style="color: #ffd166;">${Number(row.pitch) > 0 ? Math.round(Number(row.pitch)) : '-'}</td>
-            <td>${Number.isFinite(Number(row.altitude)) ? Number(row.altitude).toFixed(1) : '-'}</td>
+            <td>${Number.isFinite(Number(row.altitude)) ? Number(row.altitude).toFixed(1) : '-'}${adjusted ? `<div style="color:#f59e0b; font-size:11px;">Adjusted${deviationText} rawDist=${rawDistanceText} rawSpeed=${rawSpeedText}</div>` : ''}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -2594,6 +2619,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
             altitude: Number(point?.altitude)
         }));
     const altitudeBackground = buildAltitudeBackgroundSeries(altitudeSource);
+    const chartRowByStartMs = new Map(chartData.map((row) => [Number(row?.bucketStartMs), row]));
     const xMin = chartData.length > 0 ? Math.min(...chartData.map((d) => Number(d.bucketStartMs || 0))) : undefined;
     const xMax = chartData.length > 0
         ? Math.max(...chartData.map((d) => {
@@ -2631,7 +2657,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     pointRadius: 2,
                     pointHitRadius: 12,
                     pointHoverRadius: 4,
-                    tension: 0.4,
+                    tension: 0,
                     fill: true,
                     yAxisID: 'y-stride'
                 },
@@ -2644,7 +2670,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     pointRadius: 0,
                     pointHitRadius: 12,
                     pointHoverRadius: 4,
-                    tension: 0.4,
+                    tension: 0,
                     fill: false,
                     yAxisID: 'y-heartrate'
                 }
@@ -2712,7 +2738,13 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                         const first = Array.isArray(items) ? items[0] : null;
                         return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
                     },
-                    label: (context) => strideHrTooltip.label(context)
+                    label: (context) => strideHrTooltip.label(context),
+                    afterBody: (items) => {
+                        const first = Array.isArray(items) ? items[0] : null;
+                        const row = first ? chartRowByStartMs.get(Number(first.parsed?.x)) : null;
+                        if (String(row?.distanceSource || '') !== 'speed-adjusted') return [];
+                        return [`Adjusted (${Number(row?.distanceDeviationRate || 0).toFixed(1)}%) rawDist=${Number(row?.rawDistance || row?.distance || 0).toFixed(1)}m rawSpeed=${Number(row?.rawSpeed || row?.speed || 0).toFixed(1)}`];
+                    }
                 }, 'x')
             }
         }
@@ -2744,7 +2776,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     pointRadius: 2,
                     pointHitRadius: 12,
                     pointHoverRadius: 4,
-                    tension: 0.4,
+                    tension: 0,
                     fill: true,
                     yAxisID: 'y-speed'
                 },
@@ -2757,7 +2789,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                     pointRadius: 0,
                     pointHitRadius: 12,
                     pointHoverRadius: 4,
-                    tension: 0.35,
+                    tension: 0,
                     fill: false,
                     yAxisID: 'y-pitch'
                 }
@@ -2825,7 +2857,13 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
                         const first = Array.isArray(items) ? items[0] : null;
                         return first ? formatChartTimeLabel(Number(first.parsed?.x), true) : '';
                     },
-                    label: (context) => speedPitchTooltip.label(context)
+                    label: (context) => speedPitchTooltip.label(context),
+                    afterBody: (items) => {
+                        const first = Array.isArray(items) ? items[0] : null;
+                        const row = first ? chartRowByStartMs.get(Number(first.parsed?.x)) : null;
+                        if (String(row?.distanceSource || '') !== 'speed-adjusted') return [];
+                        return [`Adjusted (${Number(row?.distanceDeviationRate || 0).toFixed(1)}%) rawDist=${Number(row?.rawDistance || row?.distance || 0).toFixed(1)}m rawSpeed=${Number(row?.rawSpeed || row?.speed || 0).toFixed(1)}`];
+                    }
                 }, 'x')
             }
         }

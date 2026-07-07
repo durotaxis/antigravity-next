@@ -192,6 +192,7 @@ function extractRunDateFromTcxXml(xmlText) {
 }
 
 function buildTcxMinuteChartData(trackpoints) {
+  const TCX_MINUTE_DISTANCE_DEVIATION_THRESHOLD = 0.39;
   const minuteMap = new Map();
   let previousDistanceMeters = null;
 
@@ -246,7 +247,25 @@ function buildTcxMinuteChartData(trackpoints) {
   return Array.from(minuteMap.values())
     .sort((a, b) => a.bucketStartMs - b.bucketStartMs)
     .map((bucket) => {
-      const distance = Number(bucket.distance.toFixed(1));
+      const rawSpeed = bucket.speedCount > 0 ? Number((bucket.speedSum / bucket.speedCount).toFixed(1)) : 0;
+      const rawDistance = Number(bucket.distance.toFixed(1));
+      const durationSeconds = Number(bucket.coverageSeconds) > 0 ? Number(bucket.coverageSeconds) : 60;
+      const distanceBasedSpeed = durationSeconds > 0
+        ? Number((((rawDistance / durationSeconds) * 3.6)).toFixed(1))
+        : 0;
+      const speedBasedDistance = rawSpeed > 0
+        ? Number(((rawSpeed * durationSeconds) / 3.6).toFixed(1))
+        : 0;
+      const distanceDeviationRate = rawSpeed > 0
+        ? Math.abs(distanceBasedSpeed - rawSpeed) / rawSpeed
+        : 0;
+      const adjusted = distanceDeviationRate > TCX_MINUTE_DISTANCE_DEVIATION_THRESHOLD;
+      const distance = adjusted
+        ? speedBasedDistance
+        : rawDistance;
+      const speed = adjusted && durationSeconds > 0
+        ? Number((((distance / durationSeconds) * 3.6)).toFixed(1))
+        : rawSpeed;
       const pitch = bucket.pitchCount > 0 ? Math.round(bucket.pitchSum / bucket.pitchCount) : 0;
       const stride = pitch > 0 && distance > 0
         ? Number(((distance / pitch) * 100).toFixed(1))
@@ -255,12 +274,18 @@ function buildTcxMinuteChartData(trackpoints) {
         time: bucket.time,
         bucketStartMs: bucket.bucketStartMs,
         coverageSeconds: bucket.coverageSeconds,
+        distancePointDurationSeconds: durationSeconds,
+        rawDistance,
+        rawSpeed,
         distance,
         stride,
-        speed: bucket.speedCount > 0 ? Number((bucket.speedSum / bucket.speedCount).toFixed(1)) : 0,
+        speed,
         heartRate: bucket.heartRateCount > 0 ? Math.round(bucket.heartRateSum / bucket.heartRateCount) : 0,
         pitch,
-        altitude: bucket.altitudeCount > 0 ? Number((bucket.altitudeSum / bucket.altitudeCount).toFixed(1)) : null
+        altitude: bucket.altitudeCount > 0 ? Number((bucket.altitudeSum / bucket.altitudeCount).toFixed(1)) : null,
+        distanceDeviationRate: Number((distanceDeviationRate * 100).toFixed(1)),
+        distanceSource: adjusted ? 'speed-adjusted' : 'raw',
+        speedSource: adjusted ? 'distance-adjusted' : 'raw'
       };
     });
 }

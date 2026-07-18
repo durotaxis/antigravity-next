@@ -42,6 +42,11 @@ function getTcxRunSplitsCachePath(runId) {
   return path.join(__dirname, 'storage', 'cache', `tcx_splits_${safeRunId}.json`);
 }
 
+function getTcxRunRouteCachePath(runId) {
+  const safeRunId = sanitizeTcxRunId(runId);
+  return path.join(__dirname, 'storage', 'cache', `tcx_route_${safeRunId}.json`);
+}
+
 function formatLocalTimeLabel(timestampMs, withSeconds = false) {
   if (!Number.isFinite(Number(timestampMs))) return '';
   const d = new Date(Number(timestampMs));
@@ -112,6 +117,8 @@ function parseTcxTrackpoints(xmlText) {
     const heartRate = (block.match(/<HeartRateBpm>\s*<Value>([^<]+)<\/Value>\s*<\/HeartRateBpm>/) || [])[1] || null;
     const cadence = (block.match(/<Cadence>([^<]+)<\/Cadence>/) || [])[1] || null;
     const speed = (block.match(/<Speed>([^<]+)<\/Speed>/) || [])[1] || null;
+    const latitude = (block.match(/<LatitudeDegrees>([^<]+)<\/LatitudeDegrees>/) || [])[1] || null;
+    const longitude = (block.match(/<LongitudeDegrees>([^<]+)<\/LongitudeDegrees>/) || [])[1] || null;
     const timestampMs = time ? Date.parse(time) : NaN;
     return {
       timestampMs,
@@ -119,9 +126,45 @@ function parseTcxTrackpoints(xmlText) {
       altitudeMeters: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
       heartRate: Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
       cadence: Number.isFinite(Number(cadence)) ? Number(cadence) : null,
-      speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null
+      speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null,
+      latitude: latitude !== null && Number.isFinite(Number(latitude)) ? Number(latitude) : null,
+      longitude: longitude !== null && Number.isFinite(Number(longitude)) ? Number(longitude) : null
     };
   }).filter((point) => Number.isFinite(point.timestampMs)).sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+function buildTcxRouteData(runId, trackpoints) {
+  const source = (Array.isArray(trackpoints) ? trackpoints : []).filter((point) => (
+    Number.isFinite(point.latitude) && Number.isFinite(point.longitude) &&
+    (Number(point.latitude) !== 0 || Number(point.longitude) !== 0)
+  ));
+  if (source.length === 0) return null;
+  const startTimeMs = Number(source[0].timestampMs);
+  const points = source.map((point) => ({
+    elapsedSeconds: Math.max(0, Math.round((Number(point.timestampMs) - startTimeMs) / 1000)),
+    timestampMs: Number(point.timestampMs),
+    latitude: Number(point.latitude),
+    longitude: Number(point.longitude),
+    distanceMeters: Number.isFinite(point.distanceMeters) ? Number(point.distanceMeters) : null,
+    speed: Number.isFinite(point.speedMps) ? Number(point.speedMps) : null,
+    heartRate: Number.isFinite(point.heartRate) ? Number(point.heartRate) : null,
+    pitch: Number.isFinite(point.cadence) ? Number(point.cadence) * 2 : null,
+    altitudeMeters: Number.isFinite(point.altitudeMeters) ? Number(point.altitudeMeters) : null
+  }));
+  return {
+    runId,
+    startTimeMs,
+    endTimeMs: Number(points[points.length - 1].timestampMs),
+    durationSeconds: Number(points[points.length - 1].elapsedSeconds),
+    points
+  };
+}
+
+async function writeTcxRouteCache(runId, routeData) {
+  if (!routeData || !Array.isArray(routeData.points) || routeData.points.length === 0) return null;
+  const cachePath = getTcxRunRouteCachePath(runId);
+  await fs.writeFile(cachePath, JSON.stringify(routeData), 'utf8');
+  return cachePath;
 }
 
 function parseTcxLaps(xmlText) {
@@ -599,6 +642,21 @@ async function loadTcxRunSplitsForDescriptor(descriptor) {
     tcxPath: descriptor.tcxPath,
     cachePath
   };
+}
+
+async function loadTcxRouteForDescriptor(descriptor) {
+  if (!descriptor || descriptor.legacy) return null;
+  const routeCachePath = getTcxRunRouteCachePath(descriptor.runId);
+  const cached = await readJsonIfExists(routeCachePath);
+  if (
+    cached && Array.isArray(cached.points) && cached.points.length > 0 &&
+    cached.points.every((point) => Number(point.latitude) !== 0 || Number(point.longitude) !== 0)
+  ) return cached;
+  if (!descriptor.tcxPath) return null;
+  const xmlText = await fs.readFile(descriptor.tcxPath, 'utf8');
+  const routeData = buildTcxRouteData(descriptor.runId, parseTcxTrackpoints(xmlText));
+  if (routeData) await writeTcxRouteCache(descriptor.runId, routeData);
+  return routeData;
 }
 
 async function persistComputedTcxSummary(dateString, computed) {
@@ -2177,6 +2235,8 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
     throw new Error('No minute data could be built from TCX');
   }
   const lapRows = parseTcxLaps(xmlText);
+  const routeData = buildTcxRouteData(resolvedRunId, trackpoints);
+  const routeCachePath = routeData ? await writeTcxRouteCache(resolvedRunId, routeData) : null;
 
   const cachePath = await writeTcxMinuteRunCache(resolvedRunId, minuteRows);
   const splitsCachePath = await writeTcxRunSplitsCache(resolvedRunId, lapRows);
@@ -2236,6 +2296,7 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
     original_filename: normalizedOriginalName,
     cache_path: cachePath,
     splits_cache_path: splitsCachePath,
+    route_cache_path: routeCachePath,
     advice_provider: adviceProvider,
     pointCount: minuteRows.length,
     splitCount: lapRows.length,
@@ -2831,6 +2892,38 @@ app.post('/api/daily/:date/sync-tcx', async (req, res) => {
     res.json(payload);
   } catch (err) {
     console.error('Daily TCX sync error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tcx-route/:date', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.params && req.params.date);
+    if (!date) return res.status(400).json({ error: 'Valid date is required (YYYY-MM-DD)' });
+    const requestedRunId = sanitizeTcxRunId(req.query && req.query.runId);
+    const descriptors = await listTcxRunDescriptorsForDate(date);
+    const selected = requestedRunId
+      ? descriptors.filter((descriptor) => descriptor.runId === requestedRunId)
+      : descriptors;
+    const runs = [];
+    for (const descriptor of selected) {
+      const route = await loadTcxRouteForDescriptor(descriptor);
+      if (!route) continue;
+      runs.push({
+        runId: descriptor.runId,
+        date: descriptor.date,
+        startTimeLabel: descriptor.startTimeLabel,
+        durationSeconds: route.durationSeconds,
+        pointCount: route.points.length,
+        points: route.points
+      });
+    }
+    if (runs.length === 0) {
+      return res.status(404).json({ error: 'No GPS route data found for this date' });
+    }
+    res.json({ date, runs });
+  } catch (err) {
+    console.error('TCX route error:', err);
     res.status(500).json({ error: err.message });
   }
 });

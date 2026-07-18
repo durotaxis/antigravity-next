@@ -196,6 +196,16 @@ Current `TCX` handling note:
 - `daily_summary` remains date-based
 - when `TCX` exists, the server updates `daily_summary` from `TCX`-derived values
 
+### 6.1 TCX route-video data
+
+The TCX ingest path also extracts GPS route points for the run-video feature.
+
+- route data is stored separately as `storage/cache/tcx_route_YYYY-MM-DD_HHMMSS.json`
+- route points retain timestamp, latitude, longitude, distance, speed, heart rate, pitch, and altitude when available
+- this cache is independent of the minute and split caches
+- creating or reading it does not change TCX minute adjustment, split, or `daily_summary` behavior
+- for an older run whose source TCX still exists, the route cache may be created lazily when the video route is first requested
+
 ## 7. Run Cards
 
 Each run card displays:
@@ -223,6 +233,21 @@ The card image section shows linked run images.
 Images are displayed through the shared image grid/lightbox behavior.
 
 Clicking an image opens the lightbox.
+
+## 8.1 Run Video
+
+Each run card provides a `RUN VIDEO` action.
+
+- the action requests run-owned GPS data for the card date
+- when multiple TCX runs exist on the date, the modal allows the user to select a run
+- the route is rendered on OpenStreetMap tiles with attribution
+- the replay shows the completed route, current position, elapsed time, distance, speed, heart rate, and pitch
+- metric text is drawn directly over the map with a dark outline and no opaque background panel so that the route remains visible
+- playback is compressed to approximately 45 seconds
+- the user can preview the replay or save it as a WebM video in supported browsers
+- a missing GPS route is reported without changing the run or its stored summary
+- invalid or temporarily unavailable GPS points are skipped, and drawing falls back to a valid route point instead of interrupting playback
+- MP4 generation is outside the current implementation because the local environment does not currently provide FFmpeg
 
 ## 9. Legacy Chart and Detail Access
 

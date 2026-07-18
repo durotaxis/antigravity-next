@@ -8,6 +8,7 @@ import RunUploader from './components/RunUploader';
 import Lightbox from './components/Lightbox';
 import LegacyStrideChart from './components/LegacyStrideChart';
 import LegacyMinuteDetail from './components/LegacyMinuteDetail';
+import RunVideoModal from './components/RunVideoModal';
 function getApiBase(): string {
   const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
   if (envBase) return envBase;
@@ -475,6 +476,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [legacyChartDate, setLegacyChartDate] = useState<string | null>(null);
   const [legacyDetailDate, setLegacyDetailDate] = useState<string | null>(null);
+  const [runVideoDate, setRunVideoDate] = useState<string | null>(null);
   const [chartStartDate, setChartStartDate] = useState<string | null>(getDefaultChartStartDate());
   const [chartAdvice, setChartAdvice] = useState<string | null>(null);
   const [chartAdviceLoading, setChartAdviceLoading] = useState(false);
@@ -664,6 +666,13 @@ export default function Home() {
           onClose={closeLegacyDetail}
         />
       )}
+      {runVideoDate && (
+        <RunVideoModal
+          date={runVideoDate}
+          apiBase={API_BASE}
+          onClose={() => setRunVideoDate(null)}
+        />
+      )}
 
       <header className="mb-8">
         <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight mb-6">
@@ -740,6 +749,13 @@ export default function Home() {
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-300">ID: {run.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRunVideoDate(run.date)}
+                    className="text-[11px] font-semibold px-2 py-1 rounded bg-orange-50 text-orange-700 hover:bg-orange-100"
+                  >
+                    RUN VIDEO
+                  </button>
                   <button
                     type="button"
                     onClick={() => copyRunCard(run)}
@@ -906,6 +922,5 @@ export default function Home() {
     </div>
   );
 }
-
 
 

@@ -198,6 +198,7 @@ Current `TCX` handling note:
 - TCX Run Comment generation receives only complete-rest time windows as additional second-level context
 - complete rest is recorded speed of at most `1.0 m/s` and cadence of `0` for at least `10 seconds`
 - each supplied window contains its start time, end time, duration, heart rate at the first valid sample, heart rate at the last valid sample, and their difference; near-LT and moving-recovery classifications are not supplied
+- prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances
 - when the run structure is clearly interval training, the comment may use Daniels, Canova, and Norwegian training principles as reference frameworks
 - the comment must not assert a named method when the run data does not establish it
 - the comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references

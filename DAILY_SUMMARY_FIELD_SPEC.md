@@ -313,6 +313,8 @@ If regeneration fails, the existing stored message is preserved.
 
 For a newly imported TCX run, run-message generation may also receive complete-rest time windows derived from second-level TCX motion data. Each window contains its start time, end time, duration, first valid heart-rate sample, last valid heart-rate sample, and heart-rate difference. No near-LT or moving-recovery classification is added to this prompt context. If the run is clearly interval training, the comment may use Daniels, Canova, and Norwegian principles as reference frameworks, but it must not assert a named method without sufficient evidence. This affects generated comment text only and does not alter the chart timeline or exact-overwrite summary fields.
 
+The prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances.
+
 The run comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references.
 
 The generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public.

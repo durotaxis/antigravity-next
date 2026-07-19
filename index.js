@@ -735,6 +735,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
   const completeRestWindows = trainingLoadService.extractCompleteRestWindows(
     Array.isArray(options.trackpoints) ? options.trackpoints : []
   );
+  const previousRunMessageRow = await repo.getPreviousRunMessage(dateString, String(runId || '').trim());
+  const previousRunComment = String(previousRunMessageRow?.message || '').trim();
   const allRuns = await repo.getAllRuns();
   const compareRunSummaries = Array.isArray(allRuns)
     ? allRuns
@@ -783,7 +785,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
       minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
       latestRunSummary,
       compareRunSummaries,
-      completeRestWindows
+      completeRestWindows,
+      previousRunComment
     });
   }
 
@@ -804,7 +807,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
     latestRunSummary,
     compareRunSummaries,
-    completeRestWindows
+    completeRestWindows,
+    previousRunComment
   });
 }
 

@@ -333,6 +333,29 @@ function getRunMessage(date, runId) {
     });
 }
 
+function getPreviousRunMessage(date, runId) {
+    return new Promise((resolve, reject) => {
+        const normalizedDate = toTextOrNull(date);
+        const normalizedRunId = toTextOrNull(runId);
+        if (!normalizedDate || !normalizedRunId) return resolve(null);
+
+        const sql = `
+            SELECT date, run_id, message, created_at
+            FROM run_messages
+            WHERE date < ? OR (date = ? AND run_id < ?)
+            ORDER BY date DESC, run_id DESC
+            LIMIT 1
+        `;
+        db.get(sql, [normalizedDate, normalizedDate, normalizedRunId], (err, row) => {
+            if (err) {
+                console.error('Error in getPreviousRunMessage:', err);
+                return reject(err);
+            }
+            resolve(row || null);
+        });
+    });
+}
+
 function saveDailySummaryExact(data) {
     return new Promise((resolve, reject) => {
         const { date, step_count, total_distance_km, total_time, calories_kcal, max_stride, avg_stride, hr_avg, hr_max, message, avg_cadence, max_cadence, avg_speed, max_speed } = data;
@@ -430,6 +453,7 @@ module.exports = {
     saveDailySummaryExact,
     saveRunMessage,
     getRunMessage,
+    getPreviousRunMessage,
     getDailySummary,
     getAllRuns,
     deleteRun

@@ -198,15 +198,12 @@ Current `TCX` handling note:
 - TCX Run Comment generation receives only complete-rest time windows as additional second-level context
 - complete rest is recorded speed of at most `1.0 m/s` and cadence of `0` for at least `10 seconds`
 - each supplied window contains its start time, end time, duration, heart rate at the first valid sample, heart rate at the last valid sample, and their difference; near-LT and moving-recovery classifications are not supplied
-- complete-rest heart-rate change may be used as observational context, but sensor lag means it must not be treated as proof of recovery ability or lactate clearance
 - when the run structure is clearly interval training, the comment may use Daniels, Canova, and Norwegian training principles as reference frameworks
-- the comment must not assert a named method when the run data does not establish it, and must not assert lactate control without lactate measurements
-- the comment proposes one next workout only when the run data supports useful training advice
-- stable heart rate and running motion during an easy jog may support suggesting a modest increase in load, such as intervals with active recovery
-- when an easy jog is stable, the comment may advise that a short R-pace effort before entering complete rest can provide a neuromuscular stimulus for maintaining fast movement; R pace is not described as an all-out sprint
-- fatigue, unstable heart rate, or form deterioration results in maintaining easy running or recommending recovery rather than increasing load
-- when a workout is proposed, its purpose, work duration, recovery duration, and repetition count are stated; no workout is forced when the data is insufficient
-- proposed recovery is active by default; complete rest is proposed only to preserve the quality of short all-out work, for safety, or when the current run data supplies a clear reason
+- the comment must not assert a named method when the run data does not establish it
+- the comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references
+- the generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public
+- the most recent saved RUN COMMENT before the current run is attached as comparison context, ordered by run date and `run_id`
+- evaluations, observations, and workout suggestions that are substantively the same as the previous RUN COMMENT are omitted; changing only numeric wording does not make a point new
 - complete-rest windows remain on the chart timeline and are not removed or compressed
 - this analysis does not rewrite TCX points, minute adjustment, splits, or `daily_summary` metrics
 

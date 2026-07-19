@@ -311,13 +311,13 @@ When `TCX` sync changes the core summary values, the server may regenerate the s
 
 If regeneration fails, the existing stored message is preserved.
 
-For a newly imported TCX run, run-message generation may also receive complete-rest time windows derived from second-level TCX motion data. Each window contains its start time, end time, duration, first valid heart-rate sample, last valid heart-rate sample, and heart-rate difference. No near-LT or moving-recovery classification is added to this prompt context. Complete-rest heart-rate change is observational context only: sensor lag means it must not be treated as proof of recovery ability or lactate clearance. If the run is clearly interval training, the comment may use Daniels, Canova, and Norwegian principles as reference frameworks, but it must not assert a named method without sufficient evidence or assert lactate control without lactate measurements. This affects generated comment text only and does not alter the chart timeline or exact-overwrite summary fields.
+For a newly imported TCX run, run-message generation may also receive complete-rest time windows derived from second-level TCX motion data. Each window contains its start time, end time, duration, first valid heart-rate sample, last valid heart-rate sample, and heart-rate difference. No near-LT or moving-recovery classification is added to this prompt context. If the run is clearly interval training, the comment may use Daniels, Canova, and Norwegian principles as reference frameworks, but it must not assert a named method without sufficient evidence. This affects generated comment text only and does not alter the chart timeline or exact-overwrite summary fields.
 
-The run comment requests one next workout only when the run data supports useful training advice. Stable heart rate and running motion during an easy jog may support a modest increase in load, such as intervals with active recovery. Fatigue, unstable heart rate, or form deterioration results in maintaining easy running or recommending recovery rather than increasing load. When a workout is proposed, its purpose, work duration, recovery duration, and repetition count are stated; no workout is forced when the data is insufficient.
+The run comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references.
 
-When an easy jog is stable, the comment may advise that a short R-pace effort before entering complete rest can provide a neuromuscular stimulus for maintaining fast movement. R pace is not described as an all-out sprint.
+The generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public.
 
-Proposed recovery is active by default. Complete rest is proposed only to preserve the quality of short all-out work, for safety, or when the current run data provides a clear reason.
+The most recent saved RUN COMMENT before the current run is attached as comparison context, ordered by run date and `run_id`. Evaluations, observations, and workout suggestions that are substantively the same as the previous comment are omitted; changing only numeric wording does not make a point new.
 
 ## 7. `POST /api/analyze`
 

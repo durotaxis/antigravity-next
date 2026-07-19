@@ -3,6 +3,52 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+function buildTrainingLoadPrompt(context) {
+    if (!context || typeof context !== 'object') return '';
+    return [
+        '',
+        '秒単位の運動負荷区間:',
+        `- LT近接 (${context.nearLtThreshold || '-'} bpm以上): 合計 ${Math.round(Number(context.nearLt?.totalSeconds || 0))}秒 / ${Math.round(Number(context.nearLt?.ratio || 0) * 100)}% / ${Number(context.nearLt?.count || 0)}区間 / 最長 ${Math.round(Number(context.nearLt?.longestSeconds || 0))}秒`,
+        `- 走行中リカバリ (${context.recoveredThreshold || '-'} bpm以下まで): ${Number(context.movingRecovery?.count || 0)}回 / 平均 ${Math.round(Number(context.movingRecovery?.averageSeconds || 0))}秒 / 平均心拍低下 ${Math.round(Number(context.movingRecovery?.averageHeartRateDrop || 0))} bpm`,
+        `- 完全休息: 合計 ${Math.round(Number(context.completeRest?.totalSeconds || 0))}秒 / ${Number(context.completeRest?.count || 0)}回 / 最長 ${Math.round(Number(context.completeRest?.longestSeconds || 0))}秒`,
+        'LT近接、走行中リカバリ、完全休息を区別して評価する。完全休息をペース失速や走力低下として扱わない。0の項目には無理に言及しない。'
+    ].join('\n');
+}
+
+function buildCompleteRestPrompt(windows) {
+    const restWindows = Array.isArray(windows) ? windows : [];
+    const time = (timestampMs) => new Date(Number(timestampMs)).toLocaleTimeString('ja-JP', {
+        timeZone: 'Asia/Tokyo', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    return [
+        '',
+        '完全休止時間帯:',
+        ...(restWindows.length > 0
+            ? restWindows.map((window) => {
+                const hasHeartRate = Number.isFinite(Number(window.startHeartRate)) && Number.isFinite(Number(window.endHeartRate));
+                const change = Number(window.heartRateChange);
+                const heartRateText = hasHeartRate
+                    ? ` / 心拍 ${Math.round(Number(window.startHeartRate))}→${Math.round(Number(window.endHeartRate))} bpm（${change > 0 ? '+' : ''}${Math.round(change)} bpm）`
+                    : ' / 心拍データなし';
+                return `- ${time(window.startTimestampMs)}–${time(window.endTimestampMs)}（${Math.round(Number(window.durationSeconds))}秒）${heartRateText}`;
+            })
+            : ['- 検出なし']),
+        '',
+        '走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。',
+        '評価の参考として、ダニエルズ、カノーバ、ノルウェー式のトレーニング原則を利用して構いません。',
+        'ただし、走行データから判別できない方式名を断定しないでください。',
+        '乳酸値がない場合は、乳酸コントロールを行ったとは断定しないでください。',
+        '完全休止中の心拍変化にはセンサー遅延が含まれるため、回復能力や乳酸除去を断定しないでください。',
+        '今回の走行データから、次回のトレーニングについて有用な助言ができる場合は、一つ提案してください。',
+        '軽いJOGで心拍と走行動作が安定している場合は、活動的回復を含むインターバルなど、少し負荷を加える選択肢を提案して構いません。',
+        '軽いJOGが安定している場合は、完全休止に入る前に短いRペース走を入れると、速い動作を維持する神経筋系への刺激になることを助言して構いません。Rペース走を全力スプリントとは表現しないでください。',
+        '疲労、心拍の不安定さ、フォームの低下が見られる場合は、負荷を増やさず、軽いJOGや回復を提案してください。',
+        '提案する場合は、目的、疾走時間、回復時間、反復回数を具体的に示してください。',
+        '回復は原則として活動的回復とし、完全休止は短い全力疾走の質、安全上の必要、または今回のデータ上の明確な理由がある場合に限ってください。',
+        'データから適切な助言ができない場合は、無理にトレーニングメニューを作らないでください。'
+    ].join('\n');
+}
+
 const FALLBACK_MODELS = [
     'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
@@ -151,7 +197,7 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
                 .join('\n')
             : '- なし';
 
-        const prompt = `
+        let prompt = `
 あなたはバイオメカニクス専門のランニング分析コーチです。
 以下の前提を踏まえて、日本語で実用的な分析コメントを書いてください。
 
@@ -207,6 +253,7 @@ LTHR補足:
 - 超過割合: ${Number.isFinite(lthrExceededRatio) && lthrExceededRatio > 0 ? `${Math.round(lthrExceededRatio * 100)}%` : '0%'}
 `;
 
+        prompt += buildCompleteRestPrompt(extraContext?.completeRestWindows);
         const parts = [
             minuteTableMarkdown
                 ? `${prompt}\n追加コンテキスト: 以下は旧画面の1分毎テーブルです。必要に応じて分析に使ってください。\n\n${minuteTableMarkdown}`

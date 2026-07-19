@@ -11,6 +11,7 @@ const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
+const trainingLoadService = require('./training_load_service');
 
 const app = express();
 const port = 3000;
@@ -124,9 +125,9 @@ function parseTcxTrackpoints(xmlText) {
       timestampMs,
       distanceMeters: Number.isFinite(Number(distance)) ? Number(distance) : null,
       altitudeMeters: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
-      heartRate: Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
-      cadence: Number.isFinite(Number(cadence)) ? Number(cadence) : null,
-      speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null,
+      heartRate: heartRate !== null && Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
+      cadence: cadence !== null && Number.isFinite(Number(cadence)) ? Number(cadence) : null,
+      speedMps: speed !== null && Number.isFinite(Number(speed)) ? Number(speed) : null,
       latitude: latitude !== null && Number.isFinite(Number(latitude)) ? Number(latitude) : null,
       longitude: longitude !== null && Number.isFinite(Number(longitude)) ? Number(longitude) : null
     };
@@ -725,12 +726,15 @@ function isTemporaryRunMessage(message) {
   return String(message || '').trim() === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE;
 }
 
-async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini') {
+async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini', options = {}) {
   const runSummary = computeDailySummaryFromTcxRows(dateString, minuteRows, { source: 'tcx-run-message' });
   if (!runSummary || !runSummary.summary) return '';
 
   const adviceProvider = normalizeAdviceProvider(provider);
   const summary = runSummary.summary;
+  const completeRestWindows = trainingLoadService.extractCompleteRestWindows(
+    Array.isArray(options.trackpoints) ? options.trackpoints : []
+  );
   const allRuns = await repo.getAllRuns();
   const compareRunSummaries = Array.isArray(allRuns)
     ? allRuns
@@ -778,7 +782,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     }, [], {
       minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
       latestRunSummary,
-      compareRunSummaries
+      compareRunSummaries,
+      completeRestWindows
     });
   }
 
@@ -798,7 +803,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
   }, [], {
     minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
     latestRunSummary,
-    compareRunSummaries
+    compareRunSummaries,
+    completeRestWindows
   });
 }
 
@@ -2247,7 +2253,13 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
   const shouldGenerateRunMessage = !existingRunMessage || isTemporaryRunMessage(existingRunMessage);
 
   if (shouldGenerateRunMessage) {
-    runMessage = String(await generateTcxRunMessage(resolvedDate, resolvedRunId, minuteRows, adviceProvider) || '').trim();
+    runMessage = String(await generateTcxRunMessage(
+      resolvedDate,
+      resolvedRunId,
+      minuteRows,
+      adviceProvider,
+      { trackpoints }
+    ) || '').trim();
   }
 
   const shouldPersistRunMessage =

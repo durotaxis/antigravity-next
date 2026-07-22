@@ -765,7 +765,7 @@ async function renderSavedAdvice(summary) {
     const container = document.getElementById('daily-message-container');
     const textSpan = document.getElementById('daily-message-text');
     if (!container || !textSpan) return;
-    const selectedRun = getSelectedTcxRun();
+    const selectedRun = getSelectedActiveRun();
     if (selectedRun) {
         const runMessage = await loadRunMessage(currentTcxRunPageDate, selectedRun.runId);
         if (String(runMessage || '').trim()) {
@@ -791,6 +791,13 @@ let currentTcxMinuteExport = null;
 let currentTcxRunPages = [];
 let currentTcxRunPageIndex = 0;
 let currentTcxRunPageDate = '';
+let currentCorosFitRuns = [];
+let currentCorosFitRunPageIndex = 0;
+let currentCorosFitRunPageDate = '';
+let currentHealthConnectRuns = [];
+let currentHealthConnectRunPageIndex = 0;
+let currentHealthConnectRunPageDate = '';
+let currentRunChartSource = 'tcx';
 let currentAdviceRunDate = '';
 let currentAdviceData = [];
 let currentAdviceUsesTcx = false;
@@ -801,8 +808,21 @@ function getSelectedTcxRun() {
     return currentTcxRunPages[safeIndex] || null;
 }
 
+function getSelectedCorosFitRun() {
+    if (!Array.isArray(currentCorosFitRuns) || currentCorosFitRuns.length === 0) return null;
+    const safeIndex = Math.min(Math.max(Number(currentCorosFitRunPageIndex) || 0, 0), currentCorosFitRuns.length - 1);
+    const run = currentCorosFitRuns[safeIndex] || null;
+    return run ? { ...run, runId: String(run.labelId || '') } : null;
+}
+
+function getSelectedActiveRun() {
+    if (currentRunChartSource === 'coros_fit') return getSelectedCorosFitRun();
+    if (currentRunChartSource === 'tcx') return getSelectedTcxRun();
+    return null;
+}
+
 function getSelectedAdviceRunId() {
-    const selectedRun = getSelectedTcxRun();
+    const selectedRun = getSelectedActiveRun();
     const runId = String(selectedRun?.runId || '').trim();
     return runId || '';
 }
@@ -854,6 +874,13 @@ function buildTcxRunLabel(run, index, total) {
     return time ? `TCX Run ${prefix} ${time}` : `TCX Run ${prefix}`;
 }
 
+function buildCorosFitRunLabel(run, index, total) {
+    const prefix = total > 1 ? `${index + 1}/${total}` : '1/1';
+    const startTime = String(run?.startTime || '').trim();
+    const time = startTime ? new Date(startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    return time ? `COROS FIT ${prefix} ${time}` : `COROS FIT ${prefix}`;
+}
+
 function updateTcxRunPager(runs = [], selectedIndex = 0) {
     const pager = document.getElementById('tcxRunPager');
     const label = document.getElementById('tcxRunPagerLabel');
@@ -876,14 +903,82 @@ function updateTcxRunPager(runs = [], selectedIndex = 0) {
     if (nextBtn) nextBtn.disabled = disablePaging || safeIndex >= runs.length - 1;
 }
 
+function updateActiveRunPager() {
+    if (currentRunChartSource === 'health_connect') {
+        const runs = Array.isArray(currentHealthConnectRuns) ? currentHealthConnectRuns : [];
+        const pager = document.getElementById('tcxRunPager');
+        const label = document.getElementById('tcxRunPagerLabel');
+        const prevBtn = document.getElementById('tcxRunPrevBtn');
+        const nextBtn = document.getElementById('tcxRunNextBtn');
+        const safeIndex = Math.min(Math.max(Number(currentHealthConnectRunPageIndex) || 0, 0), Math.max(runs.length - 1, 0));
+        const run = runs[safeIndex];
+        const time = run ? formatSessionRange(run) : '';
+        if (pager) pager.style.display = runs.length > 0 ? '' : 'none';
+        if (label) label.textContent = runs.length > 0 ? `Health Connect ${safeIndex + 1}/${runs.length}${time ? ` ${time}` : ''}` : 'Health Connect 1/1';
+        if (prevBtn) prevBtn.disabled = runs.length <= 1 || safeIndex <= 0;
+        if (nextBtn) nextBtn.disabled = runs.length <= 1 || safeIndex >= runs.length - 1;
+        return;
+    }
+    if (currentRunChartSource === 'coros_fit') {
+        const runs = Array.isArray(currentCorosFitRuns) ? currentCorosFitRuns : [];
+        const pager = document.getElementById('tcxRunPager');
+        const label = document.getElementById('tcxRunPagerLabel');
+        const prevBtn = document.getElementById('tcxRunPrevBtn');
+        const nextBtn = document.getElementById('tcxRunNextBtn');
+        const safeIndex = Math.min(Math.max(Number(currentCorosFitRunPageIndex) || 0, 0), Math.max(runs.length - 1, 0));
+        if (pager) pager.style.display = runs.length > 0 ? '' : 'none';
+        if (label) label.textContent = runs.length > 0 ? buildCorosFitRunLabel(runs[safeIndex], safeIndex, runs.length) : 'COROS FIT 1/1';
+        if (prevBtn) prevBtn.disabled = runs.length <= 1 || safeIndex <= 0;
+        if (nextBtn) nextBtn.disabled = runs.length <= 1 || safeIndex >= runs.length - 1;
+        return;
+    }
+    updateTcxRunPager(currentTcxRunPages, currentTcxRunPageIndex);
+}
+
 function changeTcxRunPage(delta) {
-    if (!Array.isArray(currentTcxRunPages) || currentTcxRunPages.length <= 1) return;
+    if (currentRunChartSource === 'health_connect') {
+        if (!Array.isArray(currentHealthConnectRuns) || currentHealthConnectRuns.length <= 1) return;
+        const nextIndex = Math.min(Math.max(currentHealthConnectRunPageIndex + Number(delta || 0), 0), currentHealthConnectRuns.length - 1);
+        if (nextIndex === currentHealthConnectRunPageIndex) return;
+        currentHealthConnectRunPageIndex = nextIndex;
+        loadData({ triggerAdvice: false });
+        return;
+    }
+    const isCorosFit = currentRunChartSource === 'coros_fit';
+    const runs = isCorosFit ? currentCorosFitRuns : currentTcxRunPages;
+    const currentIndex = isCorosFit ? currentCorosFitRunPageIndex : currentTcxRunPageIndex;
+    if (!Array.isArray(runs) || runs.length <= 1) return;
     const nextIndex = Math.min(
-        Math.max(currentTcxRunPageIndex + Number(delta || 0), 0),
-        currentTcxRunPages.length - 1
+        Math.max(currentIndex + Number(delta || 0), 0),
+        runs.length - 1
     );
-    if (nextIndex === currentTcxRunPageIndex) return;
-    currentTcxRunPageIndex = nextIndex;
+    if (nextIndex === currentIndex) return;
+    if (isCorosFit) currentCorosFitRunPageIndex = nextIndex;
+    else currentTcxRunPageIndex = nextIndex;
+    loadData({ triggerAdvice: false });
+}
+
+function updateRunSourceControls(hasCorosFit, hasTcx) {
+    const corosBtn = document.getElementById('corosFitSourceBtn');
+    const tcxBtn = document.getElementById('tcxSourceBtn');
+    const canSwitchSource = Boolean(hasCorosFit && hasTcx);
+    if (corosBtn) {
+        corosBtn.style.display = canSwitchSource ? '' : 'none';
+        corosBtn.disabled = currentRunChartSource === 'coros_fit';
+    }
+    if (tcxBtn) {
+        tcxBtn.style.display = canSwitchSource ? '' : 'none';
+        tcxBtn.disabled = currentRunChartSource === 'tcx';
+    }
+    const applyBtn = document.getElementById('refreshTcxAdviceBtn');
+    if (applyBtn) applyBtn.style.display = currentRunChartSource === 'tcx' ? '' : 'none';
+}
+
+function setRunChartSource(source) {
+    currentRunChartSource = source === 'coros_fit' ? 'coros_fit' : 'tcx';
+    const minuteTitle = document.getElementById('runPerMinuteTitle');
+    if (minuteTitle) minuteTitle.textContent = 'Per Minute';
+    updateActiveRunPager();
     loadData({ triggerAdvice: false });
 }
 
@@ -1332,13 +1427,14 @@ async function loadData(options = {}) {
     try {
         const qs = new URLSearchParams({ date: String(date || '').trim() });
         if (syncSummary) qs.set('sync', '1');
-        const [res, fitSpeedSeriesRaw, fitHeartRateSeriesRaw, fitPitchSeries, fitStrideSeries, tcxRuns] = await Promise.all([
+        const [res, fitSpeedSeriesRaw, fitHeartRateSeriesRaw, fitPitchSeries, fitStrideSeries, tcxRuns, corosFitRuns] = await Promise.all([
             fetch(`/api/stride?${qs.toString()}`),
             fetchDetailedFitSpeedSeries(date).catch(() => []),
             fetchDetailedFitHeartRateSeries(date).catch(() => []),
             fetchDetailedFitPitchSeries(date).catch(() => []),
             fetchDetailedFitStrideSeries(date).catch(() => []),
-            fetchTcxRuns(date).catch(() => [])
+            fetchTcxRuns(date).catch(() => []),
+            fetchCorosFitRuns(date).catch(() => [])
         ]);
         if (!res.ok) {
             const errText = await res.text();
@@ -1349,17 +1445,43 @@ async function loadData(options = {}) {
         const dailySummary = await fetchDailySummary(date);
         const sessions = await fetchDailySessions(date);
         currentTcxRunPages = Array.isArray(tcxRuns) ? tcxRuns : [];
+        currentCorosFitRuns = Array.isArray(corosFitRuns) ? corosFitRuns : [];
+        currentHealthConnectRuns = (Array.isArray(sessions) ? sessions : [])
+            .filter((session) => Number(session?.activityType) === 8)
+            .sort((a, b) => Number(a?.startTimeMillis || 0) - Number(b?.startTimeMillis || 0));
         if (currentTcxRunPageDate !== date) {
             currentTcxRunPageIndex = 0;
         }
+        if (currentCorosFitRunPageDate !== date) {
+            currentCorosFitRunPageIndex = 0;
+        }
+        if (currentHealthConnectRunPageDate !== date) {
+            currentHealthConnectRunPageIndex = 0;
+        }
         currentTcxRunPageDate = date;
+        currentCorosFitRunPageDate = date;
+        currentHealthConnectRunPageDate = date;
         if (currentTcxRunPageIndex >= currentTcxRunPages.length) {
             currentTcxRunPageIndex = Math.max(currentTcxRunPages.length - 1, 0);
+        }
+        if (currentCorosFitRunPageIndex >= currentCorosFitRuns.length) {
+            currentCorosFitRunPageIndex = Math.max(currentCorosFitRuns.length - 1, 0);
+        }
+        if (currentHealthConnectRunPageIndex >= currentHealthConnectRuns.length) {
+            currentHealthConnectRunPageIndex = Math.max(currentHealthConnectRuns.length - 1, 0);
         }
         const selectedTcxRun = currentTcxRunPages.length > 0
             ? currentTcxRunPages[currentTcxRunPageIndex]
             : null;
-        updateTcxRunPager(currentTcxRunPages, currentTcxRunPageIndex);
+        const hasTcxRunData = currentTcxRunPages.length > 0;
+        const hasCorosFitRunData = currentCorosFitRuns.length > 0;
+        const hasHealthConnectRunData = currentHealthConnectRuns.length > 0;
+        if (currentRunChartSource === 'coros_fit' && !hasCorosFitRunData) currentRunChartSource = hasTcxRunData ? 'tcx' : 'coros_fit';
+        if (currentRunChartSource === 'tcx' && !hasTcxRunData && hasCorosFitRunData) currentRunChartSource = 'coros_fit';
+        if (!hasTcxRunData && !hasCorosFitRunData && hasHealthConnectRunData) currentRunChartSource = 'health_connect';
+        if (currentRunChartSource === 'health_connect' && !hasHealthConnectRunData) currentRunChartSource = hasCorosFitRunData ? 'coros_fit' : 'tcx';
+        updateRunSourceControls(hasCorosFitRunData, hasTcxRunData);
+        updateActiveRunPager();
         const tcxMinutePayload = selectedTcxRun
             ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => ({ chartData: [], altitudeDetail: [] }))
             : { chartData: [], altitudeDetail: [] };
@@ -1368,17 +1490,36 @@ async function loadData(options = {}) {
         const tcxLapSplits = selectedTcxRun
             ? await fetchTcxSplits(date, selectedTcxRun.runId).catch(() => [])
             : [];
-        const selectedTcxRange = getTcxRowsTimeRange(tcxMinuteData);
-        const fitSpeedSeries = selectedTcxRange
-            ? filterDetailedSeriesByRange(fitSpeedSeriesRaw, selectedTcxRange)
+        const selectedCorosFitRun = getSelectedCorosFitRun();
+        const corosFitMinutePayload = currentRunChartSource === 'coros_fit' && selectedCorosFitRun
+            ? await fetchCorosFitMinuteSeries(date, selectedCorosFitRun.labelId).catch(() => ({ chartData: [] }))
+            : { chartData: [] };
+        const corosFitMinuteData = Array.isArray(corosFitMinutePayload?.chartData) ? corosFitMinutePayload.chartData : [];
+        const selectedHealthConnectRun = hasHealthConnectRunData ? currentHealthConnectRuns[currentHealthConnectRunPageIndex] : null;
+        const healthConnectMinuteData = selectedHealthConnectRun
+            ? (Array.isArray(data) ? data.filter((point) => pointBelongsToSession(point, selectedHealthConnectRun, date)) : [])
+            : (Array.isArray(data) ? data : []);
+        const activeMinuteData = currentRunChartSource === 'coros_fit'
+            ? corosFitMinuteData
+            : (currentRunChartSource === 'health_connect' ? healthConnectMinuteData : tcxMinuteData);
+        const activeAltitudeDetail = currentRunChartSource === 'coros_fit' || currentRunChartSource === 'health_connect'
+            ? activeMinuteData.filter((row) => Number.isFinite(Number(row?.altitude))).map((row) => ({ timestampMs: Number(row.bucketStartMs), time: row.time, altitude: Number(row.altitude) }))
+            : tcxAltitudeDetail;
+        const minuteTitle = document.getElementById('runPerMinuteTitle');
+        if (minuteTitle) minuteTitle.textContent = 'Per Minute';
+        const selectedActiveRange = currentRunChartSource === 'health_connect' && selectedHealthConnectRun
+            ? { startMs: Number(selectedHealthConnectRun.startTimeMillis), endMs: Number(selectedHealthConnectRun.endTimeMillis) }
+            : getTcxRowsTimeRange(activeMinuteData);
+        const fitSpeedSeries = selectedActiveRange
+            ? filterDetailedSeriesByRange(fitSpeedSeriesRaw, selectedActiveRange)
             : fitSpeedSeriesRaw;
-        const fitHeartRateSeries = selectedTcxRange
-            ? filterDetailedSeriesByRange(fitHeartRateSeriesRaw, selectedTcxRange)
+        const fitHeartRateSeries = selectedActiveRange
+            ? filterDetailedSeriesByRange(fitHeartRateSeriesRaw, selectedActiveRange)
             : fitHeartRateSeriesRaw;
-        const hasTcxMinuteData = Array.isArray(tcxMinuteData) && tcxMinuteData.length > 0;
-        const hasTcxRunData = Array.isArray(currentTcxRunPages) && currentTcxRunPages.length > 0;
-        const chartDisplayData = hasTcxMinuteData
-            ? tcxMinuteData.map((row) => ({
+        const hasActiveMinuteData = Array.isArray(activeMinuteData) && activeMinuteData.length > 0;
+        const hasRunData = hasTcxRunData || hasCorosFitRunData || hasHealthConnectRunData;
+        const chartDisplayData = hasActiveMinuteData
+            ? activeMinuteData.map((row) => ({
                 time: String(row?.time || '--:--'),
                 steps: Number(row?.pitch || 0),
                 distance: Number(row?.distance || 0),
@@ -1388,26 +1529,26 @@ async function loadData(options = {}) {
                 pitch: Number(row?.pitch || 0)
             }))
             : (Array.isArray(data) ? data : []);
-        placeDailyMessageContainerInsidePager(hasTcxRunData);
+        placeDailyMessageContainerInsidePager(hasRunData);
         currentAdviceRunDate = date;
-        currentAdviceUsesTcx = hasTcxMinuteData;
-        currentAdviceData = hasTcxMinuteData
+        currentAdviceUsesTcx = currentRunChartSource === 'tcx' && tcxMinuteData.length > 0;
+        currentAdviceData = currentAdviceUsesTcx
             ? (Array.isArray(tcxMinuteData) ? tcxMinuteData : [])
             : (Array.isArray(data) ? data : []);
-        setLegacyChartVisibility(hasTcxRunData);
+        setLegacyChartVisibility(currentRunChartSource === 'tcx' && hasTcxRunData);
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
-        setTcxExportState(buildTcxMinuteExportPayload(date, tcxMinuteData));
+        setTcxExportState(buildTcxMinuteExportPayload(date, activeMinuteData));
         if (lapTbody) {
             renderLapTableRows(lapTbody, buildPerKmSplits(data, sessions, date));
         }
         tbody.innerHTML = '';
         if (tcxTbody) {
-            renderTcxMinuteTableRows(tcxTbody, tcxMinuteData);
+            renderTcxMinuteTableRows(tcxTbody, activeMinuteData);
         }
         if (tcxLapTbody) {
-            renderTcxLapTableRows(tcxLapTbody, tcxLapSplits);
+            renderTcxLapTableRows(tcxLapTbody, currentRunChartSource === 'tcx' ? tcxLapSplits : []);
         }
-        renderTcxMinuteCharts(tcxMinuteData, tcxAltitudeDetail);
+        renderTcxMinuteCharts(activeMinuteData, activeAltitudeDetail);
 
         let max = { stride: 0, time: '--:--' };
 
@@ -1422,6 +1563,7 @@ async function loadData(options = {}) {
             clearFitSpeedChart();
             clearFitPitchChart();
             clearFitStrideChart();
+            setFitDetailChartAvailability({ speed: false, pitch: false, stride: false });
             clearTcxStrideChart();
             clearTcxSpeedPitchChart();
             if (lapTbody) {
@@ -1599,6 +1741,12 @@ async function loadData(options = {}) {
         } else {
             clearFitStrideChart();
         }
+        const tcxDetailMode = currentRunChartSource === 'tcx' && hasTcxRunData;
+        setFitDetailChartAvailability({
+            speed: Array.isArray(fitSpeedSeries) && fitSpeedSeries.length > 0,
+            pitch: !tcxDetailMode && Array.isArray(fitPitchSeries) && fitPitchSeries.length > 0,
+            stride: !tcxDetailMode && Array.isArray(fitStrideSeries) && fitStrideSeries.length > 0
+        });
 
         // --- Check & Render Images ---
         checkAndRenderImages(date);
@@ -1630,11 +1778,16 @@ async function loadData(options = {}) {
         console.error(error);
         currentTcxRunPages = [];
         currentTcxRunPageIndex = 0;
+        currentCorosFitRuns = [];
+        currentCorosFitRunPageIndex = 0;
+        currentHealthConnectRuns = [];
+        currentHealthConnectRunPageIndex = 0;
         currentAdviceRunDate = '';
         currentAdviceData = [];
         currentAdviceUsesTcx = false;
         updateTcxRunPager([], 0);
         setLegacyChartVisibility(false);
+        setFitDetailChartAvailability({ speed: false, pitch: false, stride: false });
         setLapExportState(null);
         setTcxExportState(null);
         if (sessionSummaryContainer) sessionSummaryContainer.innerHTML = '';
@@ -2088,7 +2241,7 @@ async function getGeminiAdvice(date, maxStride, data) {
 }
 
 async function refreshTcxAdviceFromCurrentView() {
-    const selectedRun = getSelectedTcxRun();
+    const selectedRun = getSelectedActiveRun();
     const visibleText = String(document.getElementById('daily-message-text')?.textContent || '').trim();
     if (!selectedRun || !selectedRun.runId || !currentAdviceRunDate) {
         alert('No TCX run selected. Run ANALYZER on a TCX day first.');
@@ -2327,6 +2480,20 @@ async function fetchTcxRuns(date) {
     }
     const payload = await res.json();
     return Array.isArray(payload?.runs) ? payload.runs : [];
+}
+
+async function fetchCorosFitRuns(date) {
+    const res = await fetch(`/api/coros-fit-runs?date=${encodeURIComponent(String(date || '').trim())}`);
+    if (!res.ok) throw new Error(await res.text() || 'Failed to fetch COROS FIT runs');
+    const payload = await res.json();
+    return Array.isArray(payload?.runs) ? payload.runs : [];
+}
+
+async function fetchCorosFitMinuteSeries(date, labelId) {
+    const params = new URLSearchParams({ date: String(date || '').trim(), labelId: String(labelId || '').trim() });
+    const res = await fetch(`/api/coros-fit-minute?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text() || 'Failed to fetch COROS FIT minute data');
+    return res.json();
 }
 
 async function fetchTcxMinuteSeries(date, runId = '') {
@@ -2902,8 +3069,18 @@ function setLegacyChartVisibility(hasTcxRunData) {
     display('fitStrideChartWrapper', true);
     display('tcxStrideChartWrapper', false);
     display('tcxSpeedPitchChartWrapper', false);
-    display('legacyPerMinuteWrapper', true);
+    display('legacyPerMinuteWrapper', false);
     display('tcxPerMinuteWrapper', true);
+}
+
+function setFitDetailChartAvailability(availability = {}) {
+    const display = (id, visible) => {
+        const element = document.getElementById(id);
+        if (element) element.style.display = visible ? '' : 'none';
+    };
+    display('fitSpeedChartWrapper', Boolean(availability.speed));
+    display('fitPitchChartWrapper', Boolean(availability.pitch));
+    display('fitStrideChartWrapper', Boolean(availability.stride));
 }
 
 function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
@@ -3487,6 +3664,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('tcxRunNextBtn')?.addEventListener('click', () => {
         changeTcxRunPage(1);
+    });
+    document.getElementById('corosFitSourceBtn')?.addEventListener('click', () => {
+        setRunChartSource('coros_fit');
+    });
+    document.getElementById('tcxSourceBtn')?.addEventListener('click', () => {
+        setRunChartSource('tcx');
     });
     document.getElementById('runBatchBtn')?.addEventListener('click', runBatchFromScreen);
     document.getElementById('batchLoadImagesBtn')?.addEventListener('click', handleBatchLoadImages);
@@ -4081,7 +4264,7 @@ async function loadDailyMessage(date) {
     const textSpan = document.getElementById('daily-message-text');
 
     try {
-        const selectedRun = getSelectedTcxRun();
+        const selectedRun = getSelectedActiveRun();
         if (selectedRun) {
             const runMessage = await loadRunMessage(date, selectedRun.runId);
             if (runMessage) {

@@ -1,6 +1,6 @@
 # Legacy Screen Specification
 
-Last updated: 2026-03-10
+Last updated: 2026-07-22
 
 ## 1. Scope
 
@@ -179,6 +179,20 @@ Current TCX-driven legacy behavior:
   - `Pitch (rough)`
   - `Stride (rough)`
 - when no TCX run exists for the selected date, the legacy screen falls back to the pre-existing non-TCX display
+
+Current COROS FIT legacy behavior:
+
+- run-based COROS FIT minute data is stored under `data/coros/intraday`
+- the local server scans COROS FIT and metadata at startup and every 30 seconds
+- only new FIT data, changed FIT SHA data, or missing local output is processed; existing historical FIT files are not blindly regenerated
+- when COROS FIT minute data exists, the existing run charts and `Per Minute` table can display those rows
+- the user can switch the chart source between `COROS FIT` and `TCX` when both exist
+- FIT and TCX use the same visible minute columns, but their values are not required to be identical
+- matching FIT minute data is used for detailed Run Comment generation instead of the COROS overview JSON
+- the generated comment is automatically written to `run_messages` and `daily_summary.message`
+- reprocessing the same `labelId` overwrites its Run Comment without creating a duplicate run
+- second-level FIT GPS records are stored separately under `data/coros/route/YYYY-MM-DD_<labelId>.json` for RUN VIDEO
+- route generation does not replace the one-minute chart rows or change `daily_summary` calculations
 
 Current TCX minute display adjustment behavior:
 

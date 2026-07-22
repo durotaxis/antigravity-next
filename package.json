@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@garmin/fitsdk": "^21.208.0",
     "@google-cloud/local-auth": "^3.0.1",
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.4",

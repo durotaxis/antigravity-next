@@ -86,19 +86,34 @@ async function replaceProcessedFile(sourcePath, filename) {
   return targetPath;
 }
 
-async function importOneFile(filename, repo) {
+async function importOneFile(filename, repo, options = {}) {
   const sourcePath = path.resolve(INBOX_DIR, filename);
   if (path.dirname(sourcePath) !== path.resolve(INBOX_DIR)) throw new Error('Invalid inbox filename');
   const payload = JSON.parse(await fs.readFile(sourcePath, 'utf8'));
   const normalized = validatePayload(payload, filename);
-  const previous = await repo.getRunMessage(normalized.date, normalized.activityId);
-  const generated = await geminiService.generateCorosRunComment(payload, previous?.message || '');
-  await repo.saveRunMessage({ date: normalized.date, run_id: normalized.activityId, message: generated.message });
-  await ensureDailySummary(payload, repo, generated.message);
+  const fitIntradayPath = path.join(__dirname, 'data', 'coros', 'intraday', `${normalized.date}_${normalized.activityId}.json`);
+  let hasFitIntraday = false;
+  try {
+    const fitPayload = JSON.parse(await fs.readFile(fitIntradayPath, 'utf8'));
+    hasFitIntraday = fitPayload?.source === 'coros_fit' && String(fitPayload?.labelId || '') === normalized.activityId && Array.isArray(fitPayload?.chartData) && fitPayload.chartData.length > 0;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+
+  let generated;
+  if (hasFitIntraday) {
+    if (typeof options.generateCorosFitRunMessage !== 'function') throw new Error('COROS FIT Run Comment generator is required');
+    generated = await options.generateCorosFitRunMessage(normalized.date, normalized.activityId, 'gemini');
+  } else {
+    const previous = await repo.getRunMessage(normalized.date, normalized.activityId);
+    generated = await geminiService.generateCorosRunComment(payload, previous?.message || '');
+    await repo.saveRunMessage({ date: normalized.date, run_id: normalized.activityId, message: generated.message });
+    await ensureDailySummary(payload, repo, generated.message);
+  }
   const enrichedPayload = {
     ...payload,
     message: generated.message,
-    generatedBy: 'local_gemini',
+    generatedBy: hasFitIntraday ? 'local_gemini_coros_fit' : 'local_gemini',
     model: generated.model,
     generatedAt: new Date().toISOString()
   };
@@ -109,7 +124,7 @@ async function importOneFile(filename, repo) {
   return { filename, date: normalized.date, activityId: normalized.activityId, model: generated.model, processedPath };
 }
 
-async function scanInboxInternal(repo) {
+async function scanInboxInternal(repo, options = {}) {
   if (!repo || typeof repo.saveRunMessage !== 'function' || typeof repo.getRunMessage !== 'function' || typeof repo.getDailySummary !== 'function' || typeof repo.saveDailySummary !== 'function') {
     throw new Error('Run Comment repository is required');
   }
@@ -119,7 +134,7 @@ async function scanInboxInternal(repo) {
   const failed = [];
   for (const name of names) {
     try {
-      imported.push(await importOneFile(name, repo));
+      imported.push(await importOneFile(name, repo, options));
     } catch (error) {
       failed.push({ filename: name, error: error?.message || String(error) });
     }
@@ -127,9 +142,9 @@ async function scanInboxInternal(repo) {
   return { imported, failed };
 }
 
-function scanInbox(repo) {
+function scanInbox(repo, options = {}) {
   if (scanPromise) return scanPromise;
-  scanPromise = scanInboxInternal(repo).finally(() => { scanPromise = null; });
+  scanPromise = scanInboxInternal(repo, options).finally(() => { scanPromise = null; });
   return scanPromise;
 }
 

@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-03-10
+Last updated: 2026-07-22
 
 ## 1. Scope
 
@@ -190,6 +190,10 @@ The `TCX` path performs:
 - run-based minute-cache creation
 - `daily_summary` regeneration/update from `TCX`
 
+COROS FIT is not uploaded through `RunUploader`. It is supplied by the separate COROS synchronization flow and processed by the local server. Its date-level metrics and generated Run Comment are written into the shared `daily_summary` and `run_messages` data used by the new screen. A COROS FIT run can therefore appear in the new-screen run cards without adding FIT selection to `RunUploader`.
+
+The local server checks the COROS FIT and metadata directories at startup and every 30 seconds. New or changed FIT data is converted into minute data, date-level summary data, Run Comment input, and route-video data. Reprocessing the same `labelId` overwrites its generated artifacts.
+
 Current `TCX` handling note:
 
 - `COROS` `TCX` is treated as run-based data
@@ -217,6 +221,20 @@ The TCX ingest path also extracts GPS route points for the run-video feature.
 - this cache is independent of the minute and split caches
 - creating or reading it does not change TCX minute adjustment, split, or `daily_summary` behavior
 - for an older run whose source TCX still exists, the route cache may be created lazily when the video route is first requested
+
+### 6.2 COROS FIT route-video data
+
+The COROS FIT ingest path also creates route data for the existing RUN VIDEO feature.
+
+- route points are extracted from second-level FIT `record` messages rather than the one-minute aggregates
+- FIT semicircle coordinates are converted to latitude/longitude degrees before persistence
+- route data is stored as `data/coros/route/YYYY-MM-DD_<labelId>.json`
+- `labelId` is exposed as the RUN VIDEO `runId`
+- each route point can retain timestamp, elapsed time, latitude, longitude, distance, speed, heart rate, pitch, and altitude when present
+- reprocessing the same `labelId` atomically overwrites its COROS route JSON
+- the existing `GET /api/tcx-route/:date` response includes both TCX and COROS FIT routes; the endpoint name remains unchanged for client compatibility
+- when both sources contain routes for the selected date, the existing RUN VIDEO run selector can switch between returned runs
+- adding a COROS route does not change TCX route-cache creation or TCX route values
 
 ## 7. Run Cards
 

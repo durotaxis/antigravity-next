@@ -201,7 +201,7 @@ Current `TCX` handling note:
 - prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances
 - when the run structure is clearly interval training, the comment may use Daniels, Canova, and Norwegian training principles as reference frameworks
 - the comment must not assert a named method when the run data does not establish it
-- the comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references
+- the comment appends next-training advice suited to the current run data, using the running theories of Daniels, Bakken, Canova, Lydiard, and Peter Coe as references
 - the generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public
 - the most recent saved RUN COMMENT before the current run is attached as comparison context, ordered by run date and `run_id`
 - evaluations, observations, and workout suggestions that are substantively the same as the previous RUN COMMENT are omitted; changing only numeric wording does not make a point new
@@ -321,6 +321,28 @@ The new screen is responsible for the ordinary user flow:
 - view saved runs
 
 The new screen is not intended to be the bulk sync/debug screen.
+
+## 12.1 COROS Run Comment Inbox
+
+The new screen can display a Run Comment imported independently of TCX.
+
+- Codex Scheduled Task writes UTF-8 JSON to `data/run-comment/inbox`
+- filenames use `run_<activityId>.json`
+- required fields are `date` and `activityId`; any incoming `message` is ignored
+- the local server generates the Run Comment from COROS activity data through `gemini_service`
+- Gemini model selection uses the configured fallback order and records the successful model in the processed JSON
+- the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
+- an existing `(date, run_id)` message is overwritten
+- after generation, the same latest message is always written to `daily_summary.message`; it is not left `null` while waiting for a separate Apply action
+- regenerating the same activity overwrites both `run_messages.message` and `daily_summary.message` with the newly generated message
+- after a successful database write, the JSON is moved to `data/run-comment/processed`
+- invalid or failed JSON remains in the inbox for correction or retry
+- the latest imported run message for a date and `daily_summary.message` represent the same latest generated Run Comment
+- this flow does not read or modify TCX caches
+- when the date has no `daily_summary`, the server creates the run card from available COROS summary fields
+- when the date already has `daily_summary`, existing metric fields are left unchanged
+- run-card creation occurs only while importing a new or updated JSON from `inbox`
+- files already in `processed` never recreate a deleted run card
 
 ## 13. Relation to Legacy Screen
 

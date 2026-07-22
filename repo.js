@@ -141,7 +141,16 @@ function getAllRuns() {
                 d.max_cadence,
                 d.avg_speed,
                 d.max_speed,
-                d.message,
+                COALESCE(
+                    (
+                        SELECT rm.message
+                        FROM run_messages rm
+                        WHERE rm.date = d.date
+                        ORDER BY rm.created_at DESC, rm.run_id DESC
+                        LIMIT 1
+                    ),
+                    d.message
+                ) AS message,
                 i.asset_id,
                 i.stored_filename,
                 i.original_filename

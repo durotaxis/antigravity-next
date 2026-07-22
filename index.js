@@ -12,6 +12,7 @@ const geminiService = require('./gemini_service');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
 const trainingLoadService = require('./training_load_service');
+const runCommentInboxService = require('./run_comment_inbox_service');
 
 const app = express();
 const port = 3000;
@@ -1962,6 +1963,15 @@ app.get('/api/daily/:date/run-message/:runId', async (req, res) => {
     const row = await repo.getRunMessage(date, runId);
     if (!row) return res.status(404).json({ error: 'No run message found' });
     res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/run-comment/import-inbox', async (req, res) => {
+  try {
+    const result = await runCommentInboxService.scanInbox(repo);
+    res.status(result.failed.length > 0 ? 207 : 200).json({ success: result.failed.length === 0, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4064,6 +4074,13 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 if (require.main === module) {
   // 繧ｹ繝槭・縺九ｉ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ (0.0.0.0)
   app.listen(port, '0.0.0.0', () => {
+    runCommentInboxService.scanInbox(repo).then((result) => {
+      if (result.failed.length > 0) console.warn('[run-comment-inbox] Initial import failures:', result.failed);
+    }).catch((error) => console.error('[run-comment-inbox] Initial scan failed:', error));
+    const timer = setInterval(() => {
+      runCommentInboxService.scanInbox(repo).catch((error) => console.error('[run-comment-inbox] Scan failed:', error));
+    }, 30000);
+    if (typeof timer.unref === 'function') timer.unref();
   });
 }
 

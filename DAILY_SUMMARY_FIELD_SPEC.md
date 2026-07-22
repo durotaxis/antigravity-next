@@ -315,7 +315,7 @@ For a newly imported TCX run, run-message generation may also receive complete-r
 
 The prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances.
 
-The run comment appends next-training advice suited to the current run data, using running theories such as Daniels, Bakken, and Canova as references.
+The run comment appends next-training advice suited to the current run data, using the running theories of Daniels, Bakken, Canova, Lydiard, and Peter Coe as references.
 
 The generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public.
 
@@ -631,6 +631,20 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 - Avg fields are overwrite-at-save fields, but many routes pre-merge them before calling `saveDailySummary`.
 
 ## 13. Known Areas Still Requiring Specification Alignment
+
+### 13.1 COROS Run Comment Inbox
+
+COROS Run Comment JSON import writes the generated Run Comment to both `run_messages.message` and `daily_summary.message`.
+
+- `activityId` is stored as `run_messages.run_id`
+- the incoming JSON message is not used; the local Gemini service generates `message`
+- the locally generated `message` is exact-overwrite upserted for the same `(date, activityId)`
+- the latest locally generated message is always saved to `daily_summary.message` as well; generation does not leave that field `null` pending a separate Apply action
+- regenerating the same activity overwrites both `run_messages.message` and `daily_summary.message` with the new latest message
+- when no same-date `daily_summary` exists, a new row is created from available COROS summary fields: distance, duration, calories, average heart rate, average cadence, average stride, derived steps, and derived average speed
+- when a same-date `daily_summary` already exists, this path updates `message` but does not update its metric fields
+- processed JSON is archival input and is not used to recreate a deleted `daily_summary`
+- TCX import, TCX cache naming, and TCX summary calculations are unchanged
 
 - How `CLEAR RUN` should restore or remove `daily_summary` by mode
 - Whether cache deletion should remain visible after immediate UI refresh

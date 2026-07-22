@@ -38,7 +38,7 @@ function buildCompleteRestPrompt(windows) {
         '走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。',
         '評価の参考として、ダニエルズ、カノーバ、ノルウェー式のトレーニング原則を利用して構いません。',
         'ただし、走行データから判別できない方式名を断定しないでください。',
-        'ダニエルズ、バッケン、カノーバなどのランニング理論を参考に、今回の走行データに応じた次回のトレーニングアドバイスを追記してください。',
+        'ダニエルズ、バッケン、カノーバ、リディアード、ピーター・コーのランニング理論を参考に、今回の走行データに応じた次回のトレーニングアドバイスを追記してください。',
         '回答では専門用語や理論名を使わず、一般の人に分かる言葉で説明してください。'
     ].join('\n');
 }
@@ -58,12 +58,13 @@ function buildPreviousRunCommentPrompt(comment) {
 }
 
 const FALLBACK_MODELS = [
+    'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite'
 ];
 
-async function generateContentWithFallback(parts) {
+async function generateContentWithFallback(parts, options = {}) {
     let lastError = null;
 
     for (const modelName of FALLBACK_MODELS) {
@@ -74,6 +75,7 @@ async function generateContentWithFallback(parts) {
             const response = await result.response;
             const text = response.text().trim();
             console.log(`[GeminiService] Success with model: ${modelName}`);
+            if (typeof options.onModelUsed === 'function') options.onModelUsed(modelName);
             return text;
         } catch (err) {
             lastError = err;
@@ -83,6 +85,42 @@ async function generateContentWithFallback(parts) {
     }
 
     throw lastError;
+}
+
+async function generateCorosRunComment(payload, previousRunComment = '') {
+    if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is required');
+    const details = payload?.activityDetails && typeof payload.activityDetails === 'object'
+        ? payload.activityDetails
+        : {};
+    const sourceData = {
+        date: payload?.date || null,
+        location: payload?.location || null,
+        durationSeconds: Number(payload?.durationSeconds || 0),
+        distanceKm: Number(payload?.distanceKm || details.distanceKm || 0),
+        averagePace: payload?.averagePace || details.averagePace || null,
+        averageHeartRate: Number(payload?.averageHeartRate || details.averageHeartRate || 0),
+        calories: Number(payload?.calories || details.calories || 0),
+        activityDetails: details
+    };
+    const previous = String(previousRunComment || '').trim();
+    const prompt = [
+        '以下のCOROSランニング活動データから、日本語のRUN COMMENTを作成してください。',
+        '120〜240文字程度の一段落にまとめ、走りの特徴、負荷の評価、次回への短い助言を含めてください。',
+        'データにない最大値、区間変化、地形、理論名を推測しないでください。専門用語はできるだけ避けてください。',
+        previous
+            ? '前回保存されたコメントと同じ言い回しや同じ観察の繰り返しを避け、今回のデータから確認できる別の重要点を優先してください。'
+            : '',
+        '',
+        'COROS活動データ:',
+        JSON.stringify(sourceData, null, 2),
+        previous ? `\n前回保存されたRUN COMMENT:\n${previous}` : ''
+    ].filter(Boolean).join('\n');
+    let model = '';
+    const message = await generateContentWithFallback([prompt], {
+        onModelUsed: (modelName) => { model = modelName; }
+    });
+    if (!String(message || '').trim()) throw new Error('Gemini returned an empty Run Comment');
+    return { message: String(message).trim(), model };
 }
 
 
@@ -364,4 +402,4 @@ ${runSummariesText}
     }
 }
 
-module.exports = { generateAdvice, generateCoachAdvice, generateTrendChartAdvice, TEMPORARY_UNAVAILABLE_MESSAGE };
+module.exports = { generateAdvice, generateCoachAdvice, generateTrendChartAdvice, generateCorosRunComment, TEMPORARY_UNAVAILABLE_MESSAGE };

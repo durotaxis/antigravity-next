@@ -1535,7 +1535,10 @@ async function loadData(options = {}) {
         currentAdviceData = currentAdviceUsesTcx
             ? (Array.isArray(tcxMinuteData) ? tcxMinuteData : [])
             : (Array.isArray(data) ? data : []);
-        setLegacyChartVisibility(currentRunChartSource === 'tcx' && hasTcxRunData);
+        setLegacyChartVisibility(
+            currentRunChartSource === 'tcx' && hasTcxRunData,
+            currentRunChartSource === 'coros_fit' && hasCorosFitRunData
+        );
         setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, activeMinuteData));
         if (lapTbody) {
@@ -3037,7 +3040,7 @@ function renderTcxMinuteCharts(rows = [], altitudeDetail = []) {
     });
 }
 
-function setLegacyChartVisibility(hasTcxRunData) {
+function setLegacyChartVisibility(hasTcxRunData, hasCorosFitRunData = false) {
     const display = (id, visible) => {
         const el = document.getElementById(id);
         if (el) {
@@ -3045,9 +3048,9 @@ function setLegacyChartVisibility(hasTcxRunData) {
         }
     };
 
-    if (hasTcxRunData) {
-        display('lapSplitsWrapper', false);
-        display('tcxLapSplitsWrapper', true);
+    if (hasTcxRunData || hasCorosFitRunData) {
+        display('lapSplitsWrapper', !hasTcxRunData);
+        display('tcxLapSplitsWrapper', hasTcxRunData);
         display('legacyStrideChartWrapper', false);
         display('legacySpeedChartWrapper', false);
         display('fitSpeedChartWrapper', true);
@@ -3065,8 +3068,8 @@ function setLegacyChartVisibility(hasTcxRunData) {
     display('legacyStrideChartWrapper', true);
     display('legacySpeedChartWrapper', true);
     display('fitSpeedChartWrapper', true);
-    display('fitPitchChartWrapper', true);
-    display('fitStrideChartWrapper', true);
+    display('fitPitchChartWrapper', false);
+    display('fitStrideChartWrapper', false);
     display('tcxStrideChartWrapper', false);
     display('tcxSpeedPitchChartWrapper', false);
     display('legacyPerMinuteWrapper', false);
@@ -3079,8 +3082,8 @@ function setFitDetailChartAvailability(availability = {}) {
         if (element) element.style.display = visible ? '' : 'none';
     };
     display('fitSpeedChartWrapper', Boolean(availability.speed));
-    display('fitPitchChartWrapper', Boolean(availability.pitch));
-    display('fitStrideChartWrapper', Boolean(availability.stride));
+    display('fitPitchChartWrapper', false);
+    display('fitStrideChartWrapper', false);
 }
 
 function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
@@ -3103,7 +3106,6 @@ function renderDetailedFitSpeedChart(speedSeries, heartRateSeries = []) {
         const ts = Number(point?.timestampMs);
         return Number.isFinite(ts) && hrMap.has(ts) ? hrMap.get(ts) : null;
     });
-
     function formatDetailedSeriesValue(value) {
         return Number.isFinite(Number(value)) ? String(value) : '-';
     }

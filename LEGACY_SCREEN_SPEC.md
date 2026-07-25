@@ -1,6 +1,6 @@
 # Legacy Screen Specification
 
-Last updated: 2026-07-22
+Last updated: 2026-07-25
 
 ## 1. Scope
 
@@ -103,11 +103,12 @@ The legacy run-analyzer result area currently shows:
 - Lower chart
   - `Speed` and `Pitch`
 - `Speed (accurate)` and `HR (accurate)`
-  - detailed Google Fit series
+  - detailed Health Connect / Google Fit series
+  - COROS FIT altitude is not mixed into this chart
 - `Pitch (rough)`
-  - run-session-limited coarse reconstructed pitch series
+  - always hidden
 - `Stride (rough)`
-  - run-session-limited coarse reconstructed stride series
+  - always hidden
 - `TCX Run` pager
   - available when one or more run-based TCX files exist for the selected date
 - `TCX Stride + HR`
@@ -178,14 +179,21 @@ Current TCX-driven legacy behavior:
   - legacy `Speed + Pitch`
   - `Pitch (rough)`
   - `Stride (rough)`
-- when no TCX run exists for the selected date, the legacy screen falls back to the pre-existing non-TCX display
+- when no TCX or COROS FIT run exists for the selected date, the legacy screen falls back to the pre-existing non-run-file display
 
 Current COROS FIT legacy behavior:
 
 - run-based COROS FIT minute data is stored under `data/coros/intraday`
 - the local server scans COROS FIT and metadata at startup and every 30 seconds
 - only new FIT data, changed FIT SHA data, or missing local output is processed; existing historical FIT files are not blindly regenerated
-- when COROS FIT minute data exists, the existing run charts and `Per Minute` table can display those rows
+- when COROS FIT minute data exists, the shared run-minute charts and `Per Minute` table display those rows
+- COROS FIT and TCX use the same `renderTcxMinuteCharts` chart-rendering path for:
+  - `Stride + HR`
+  - `Speed + Pitch`
+  - the normalized altitude background
+- COROS FIT altitude is shown only on these non-accurate minute charts; it is not added to the Health Connect / Google Fit `Speed (accurate) + HR (accurate)` chart
+- the TCX chart appearance and TCX minute adjustment rules remain unchanged when COROS FIT support is selected
+- `Pitch (rough)` and `Stride (rough)` remain hidden for COROS FIT, TCX, and Health Connect / Google Fit display
 - the user can switch the chart source between `COROS FIT` and `TCX` when both exist
 - FIT and TCX use the same visible minute columns, but their values are not required to be identical
 - matching FIT minute data is used for detailed Run Comment generation instead of the COROS overview JSON
@@ -227,6 +235,7 @@ The legacy screen combines:
 - `daily_summary`
 - linked images from `run_images`
 - optional run-based `TCX` minute and lap cache data
+- optional run-based COROS FIT minute and altitude data
 
 ### 5.4 Advice behavior
 

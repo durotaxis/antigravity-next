@@ -1,6 +1,13 @@
-const { aggregateRecordsByMinute, buildRouteData, normalizeRecord } = require('./coros_fit_importer');
+const { aggregateRecordsByMinute, buildRouteData, normalizeRecord, parseJsonText } = require('./coros_fit_importer');
 
 describe('COROS FIT minute aggregation', () => {
+  test('accepts metadata JSON with a UTF-8 BOM', () => {
+    expect(parseJsonText('\uFEFF{"source":"coros_fit","labelId":"479174757189713922"}')).toEqual({
+      source: 'coros_fit',
+      labelId: '479174757189713922'
+    });
+  });
+
   test('converts FIT units and semicircles', () => {
     const row = normalizeRecord({ timestamp: new Date('2026-07-21T09:00:00Z'), distance: 10, enhancedSpeed: 2, cadence: 80, enhancedAltitude: 12, positionLat: 2 ** 30, positionLong: -(2 ** 30) });
     expect(row.speedKmh).toBe(7.2);

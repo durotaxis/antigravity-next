@@ -194,6 +194,8 @@ COROS FIT is not uploaded through `RunUploader`. It is supplied by the separate 
 
 The local server checks the COROS FIT and metadata directories at startup and every 30 seconds. New or changed FIT data is converted into minute data, date-level summary data, Run Comment input, and route-video data. Reprocessing the same `labelId` overwrites its generated artifacts.
 
+COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
+
 Current `TCX` handling note:
 
 - `COROS` `TCX` is treated as run-based data

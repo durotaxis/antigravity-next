@@ -4,6 +4,10 @@ const path = require('path');
 const SEMICIRCLES_TO_DEGREES = 180 / (2 ** 31);
 const MINUTE_DISTANCE_DEVIATION_THRESHOLD = 0.39;
 
+function parseJsonText(text) {
+  return JSON.parse(String(text ?? '').replace(/^\uFEFF/, ''));
+}
+
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -173,7 +177,7 @@ async function decodeFitRecords(fitPath) {
 }
 
 async function importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPath }) {
-  const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+  const metadata = parseJsonText(await fs.readFile(metadataPath, 'utf8'));
   const records = await decodeFitRecords(fitPath);
   const aggregated = aggregateRecordsByMinute(records);
   const payload = {
@@ -200,4 +204,4 @@ async function importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPa
   return payload;
 }
 
-module.exports = { MINUTE_DISTANCE_DEVIATION_THRESHOLD, aggregateRecordsByMinute, buildRouteData, decodeFitRecords, importCorosFit, normalizeRecord };
+module.exports = { MINUTE_DISTANCE_DEVIATION_THRESHOLD, aggregateRecordsByMinute, buildRouteData, decodeFitRecords, importCorosFit, normalizeRecord, parseJsonText };

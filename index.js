@@ -915,7 +915,7 @@ async function scanCorosFitImportsInternal() {
     const labelId = match[2];
     try {
       const metadataPath = path.join(COROS_FIT_METADATA_DIR, name);
-      const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+      const metadata = corosFitImporter.parseJsonText(await fs.readFile(metadataPath, 'utf8'));
       if (metadata?.source !== 'coros_fit' || String(metadata?.labelId || '') !== labelId) continue;
       const fitPath = path.join(COROS_FIT_DIR, `${date}_${labelId}.fit`);
       await fs.access(fitPath);
@@ -2560,7 +2560,7 @@ async function loadCorosFitRunWindowsForDate(dateString) {
   for (const name of names.filter((value) => value.startsWith(prefix) && value.endsWith('.json'))) {
     const labelId = sanitizeCorosLabelId(name.slice(prefix.length, -5));
     if (!labelId) continue;
-    const metadata = JSON.parse(await fs.readFile(path.join(COROS_FIT_METADATA_DIR, name), 'utf8'));
+    const metadata = corosFitImporter.parseJsonText(await fs.readFile(path.join(COROS_FIT_METADATA_DIR, name), 'utf8'));
     let startMs = corosTimestampToMillis(metadata?.startTime);
     let endMs = corosTimestampToMillis(metadata?.endTime);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {

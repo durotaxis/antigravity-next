@@ -71,6 +71,14 @@ export default function RunVideoModal({ date, apiBase, onClose }: Props) {
   const run = runs[runIndex];
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
     fetch(`${apiBase}/api/tcx-route/${date}`)
       .then(async (res) => {
         const json = await res.json();
@@ -197,8 +205,8 @@ export default function RunVideoModal({ date, apiBase, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
-      <div className="w-full max-w-5xl rounded-xl bg-slate-950 p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/75 p-4" onClick={onClose}>
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-xl bg-slate-950 p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div><h2 className="text-lg font-bold">Run Video</h2><p className="text-xs text-slate-400">45-second route replay</p></div>
           <button type="button" onClick={onClose} className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700">CLOSE</button>

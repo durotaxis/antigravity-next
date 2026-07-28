@@ -971,7 +971,12 @@ function updateRunSourceControls(hasCorosFit, hasTcx) {
         tcxBtn.disabled = currentRunChartSource === 'tcx';
     }
     const applyBtn = document.getElementById('refreshTcxAdviceBtn');
-    if (applyBtn) applyBtn.style.display = currentRunChartSource === 'tcx' ? '' : 'none';
+    if (applyBtn) {
+        applyBtn.style.display =
+            currentRunChartSource === 'tcx' || currentRunChartSource === 'coros_fit'
+                ? ''
+                : 'none';
+    }
 }
 
 function setRunChartSource(source) {
@@ -2243,15 +2248,15 @@ async function getGeminiAdvice(date, maxStride, data) {
     }
 }
 
-async function refreshTcxAdviceFromCurrentView() {
+async function applySelectedRunAdviceFromCurrentView() {
     const selectedRun = getSelectedActiveRun();
     const visibleText = String(document.getElementById('daily-message-text')?.textContent || '').trim();
     if (!selectedRun || !selectedRun.runId || !currentAdviceRunDate) {
-        alert('No TCX run selected. Run ANALYZER on a TCX day first.');
+        alert('No TCX or COROS FIT run selected. Run ANALYZER on a run day first.');
         return;
     }
     if (!visibleText) {
-        alert('No run comment is available for this TCX run yet.');
+        alert('No run comment is available for this run yet.');
         return;
     }
     const btn = document.getElementById('refreshTcxAdviceBtn');
@@ -3656,9 +3661,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('refreshTcxAdviceBtn')?.addEventListener('click', async () => {
         try {
-            await refreshTcxAdviceFromCurrentView();
+            await applySelectedRunAdviceFromCurrentView();
         } catch (err) {
-            alert(`Failed to refresh advice: ${err.message}`);
+            alert(`Failed to apply run comment: ${err.message}`);
         }
     });
     document.getElementById('tcxRunPrevBtn')?.addEventListener('click', () => {

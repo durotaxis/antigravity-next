@@ -199,6 +199,9 @@ Current COROS FIT legacy behavior:
 - matching FIT minute data is used for detailed Run Comment generation instead of the COROS overview JSON
 - the generated comment is automatically written to `run_messages` and `daily_summary.message`
 - reprocessing the same `labelId` overwrites its Run Comment without creating a duplicate run
+- the `Apply` button is displayed for both `TCX` and `COROS FIT`
+- for either source, `Apply` copies the currently selected run's displayed Run Comment into `daily_summary.message` for the selected date
+- COROS FIT automatic application remains in place; its `Apply` button allows the selected per-run comment to be applied again manually
 - second-level FIT GPS records are stored separately under `data/coros/route/YYYY-MM-DD_<labelId>.json` for RUN VIDEO
 - route generation does not replace the one-minute chart rows or change `daily_summary` calculations
 

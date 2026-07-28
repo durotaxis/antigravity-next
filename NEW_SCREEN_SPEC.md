@@ -354,6 +354,8 @@ The new screen can display a Run Comment imported independently of TCX.
 - the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
 - an existing `(date, run_id)` message is overwritten
 - after generation, the same latest message is always written to `daily_summary.message`; it is not left `null` while waiting for a separate Apply action
+- on the legacy analyzer, the `Apply` button is available for both TCX and COROS FIT; it copies the currently selected run's displayed Run Comment into `daily_summary.message`
+- COROS FIT still applies its newly generated comment automatically; the button permits manual reapplication of a selected run comment and is not a prerequisite for initial persistence
 - regenerating the same activity overwrites both `run_messages.message` and `daily_summary.message` with the newly generated message
 - after a successful database write, the JSON is moved to `data/run-comment/processed`
 - invalid or failed JSON remains in the inbox for correction or retry

@@ -196,6 +196,31 @@ The local server checks the COROS FIT and metadata directories at startup and ev
 
 COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
 
+The new screen displays COROS synchronization status sourced from the Codex automation `memory.md`.
+
+- the status panel shows the latest automation processing time
+- it shows the latest successful FIT download time from COROS metadata
+- it shows the next expected execution time based on the configured 10-minute interval
+- the panel refreshes once per minute
+- when the automation memory has not been updated for more than 20 minutes, the panel displays a stopped-or-delayed warning
+- the automation memory text remains expandable in the panel for operational diagnosis
+
+The Codex COROS automation uses minimal differential synchronization.
+
+- it does not re-read a fixed seven-day window and revalidate every historical FIT on each 10-minute run
+- the normal query range starts on the calendar day before the last successful activity-list check and ends at the current time
+- the one-day overlap captures a previous-day run that becomes available from COROS after midnight without restoring a fixed multi-day revalidation window
+- no new COROS activity is a normal successful result
+- local FIT and metadata file existence is the primary completion check
+- when both files exist, the automation skips activity-detail retrieval, FIT download, signature validation, and SHA recalculation
+- when only FIT exists, metadata is reconstructed from the existing FIT plus COROS activity detail
+- when metadata or both files are missing, only that activity is downloaded
+- a COROS activity whose FIT is not available yet remains pending for the next run and is not treated as a connection failure
+- the activity cursor advances only after both FIT and metadata exist
+- a failed or pending activity prevents the cursor from advancing past that activity
+- the successful list-check time is updated even when no new activity exists, allowing a later recovery run to query the scheduler gap plus the one-day late-availability overlap instead of an arbitrary fixed window
+- `memory.md` is overwritten with the latest compact status instead of accumulating repetitive successful-run history
+
 Current `TCX` handling note:
 
 - `COROS` `TCX` is treated as run-based data

@@ -23,6 +23,12 @@ const COROS_FIT_INTRADAY_DIR = path.join(__dirname, 'data', 'coros', 'intraday')
 const COROS_FIT_DIR = path.join(__dirname, 'data', 'coros', 'fit');
 const COROS_FIT_METADATA_DIR = path.join(__dirname, 'data', 'coros', 'metadata');
 const COROS_FIT_ROUTE_DIR = path.join(__dirname, 'data', 'coros', 'route');
+const COROS_AUTOMATION_MEMORY_PATH = path.join(
+  process.env.CODEX_HOME || path.join(process.env.USERPROFILE || '', '.codex'),
+  'automations',
+  'coros-run-run-comment',
+  'memory.md'
+);
 let corosFitScanPromise = null;
 
 function sanitizeCorosLabelId(labelId) {
@@ -3016,6 +3022,52 @@ app.get('/api/coros-fit-runs', async (req, res) => {
     res.json({ date, count: runs.length, runs });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/coros-sync-status', async (req, res) => {
+  try {
+    const [memory, memoryStat] = await Promise.all([
+      fs.readFile(COROS_AUTOMATION_MEMORY_PATH, 'utf8'),
+      fs.stat(COROS_AUTOMATION_MEMORY_PATH)
+    ]);
+    const lastRunAt = memoryStat.mtime.toISOString();
+    const nextRunAt = new Date(memoryStat.mtimeMs + 10 * 60 * 1000).toISOString();
+    const delayed = Date.now() > memoryStat.mtimeMs + 20 * 60 * 1000;
+
+    let lastFitImportedAt = null;
+    try {
+      const names = await fs.readdir(COROS_FIT_METADATA_DIR);
+      for (const name of names.filter((value) => value.endsWith('.json'))) {
+        try {
+          const payload = corosFitImporter.parseJsonText(
+            await fs.readFile(path.join(COROS_FIT_METADATA_DIR, name), 'utf8')
+          );
+          const timestamp = Date.parse(String(payload?.downloadedAt || ''));
+          if (Number.isFinite(timestamp) && (!lastFitImportedAt || timestamp > Date.parse(lastFitImportedAt))) {
+            lastFitImportedAt = new Date(timestamp).toISOString();
+          }
+        } catch {
+          // One malformed historical metadata file must not hide sync status.
+        }
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+
+    return res.json({
+      memory: String(memory || '').trim(),
+      lastRunAt,
+      lastFitImportedAt,
+      nextRunAt,
+      intervalMinutes: 10,
+      delayed
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ error: 'COROS automation memory.md not found' });
+    }
+    return res.status(500).json({ error: error?.message || String(error) });
   }
 });
 

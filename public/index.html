@@ -60,6 +60,8 @@
                 class="glass-card"
                 style="display:none; width: 90%; margin: 20px auto; padding: 12px 16px;">
                 <div style="display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
+                    <button id="corosFitSourceBtn" class="btn-primary" type="button" style="display:none; padding: 6px 12px; min-width:auto;">COROS FIT</button>
+                    <button id="tcxSourceBtn" class="btn-primary" type="button" style="display:none; padding: 6px 12px; min-width:auto;">TCX</button>
                     <button id="tcxRunPrevBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">◀</button>
                     <div id="tcxRunPagerLabel" style="color: var(--text-primary); font-weight: 600;">TCX Run 1 / 1</div>
                     <button id="tcxRunNextBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">▶</button>
@@ -85,12 +87,12 @@
             </div>
 
             <div id="fitPitchChartWrapper"
-                style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+                style="display:none; width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="fitPitchChart"></canvas>
             </div>
 
             <div id="fitStrideChartWrapper"
-                style="width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
+                style="display:none; width: 90%; margin: 20px auto; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;">
                 <canvas id="fitStrideChart"></canvas>
             </div>
 
@@ -114,7 +116,7 @@
 
             <section id="lapSplitsWrapper" class="glass-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
-                    <h3
+                    <h3 id="runPerMinuteTitle"
                         style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
                         1km Splits</h3>
                     <div style="display:flex; gap:8px;">
@@ -141,7 +143,7 @@
                 </div>
             </section>
 
-            <section id="legacyPerMinuteWrapper" class="glass-card">
+            <section id="legacyPerMinuteWrapper" class="glass-card" style="display:none;">
                 <h3
                     style="margin-bottom: 15px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
                     Per Minute</h3>
@@ -168,7 +170,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px;">
                     <h3
                         style="margin:0; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
-                        TCX Per Minute</h3>
+                        Per Minute</h3>
                     <div style="display:flex; gap:8px;">
                         <button id="copyTcxJsonBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">JSON</button>
                         <button id="copyTcxMdBtn" class="btn-primary" type="button" style="padding: 6px 12px; font-size: 0.75rem; min-width: auto;">MD</button>
@@ -357,7 +359,7 @@
 
     <!-- Logic -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js?v=20260222-1"></script>
+    <script src="script.js?v=20260725-altitude-6"></script>
 </body>
 
 </html>

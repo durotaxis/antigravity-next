@@ -51,7 +51,31 @@ type ApiRun = Partial<Run> & {
   hr_max?: number;
 };
 
+type CorosSyncStatus = {
+  memory: string;
+  lastRunAt: string;
+  lastFitImportedAt: string | null;
+  nextRunAt: string;
+  intervalMinutes: number;
+  delayed: boolean;
+};
+
 const getDefaultChartStartDate = () => '2026-05-24';
+
+function formatStatusDate(value: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
 
 function formatSpeedValue(value: number | undefined) {
   if (value === undefined || value === null || value <= 0) return '-';
@@ -479,6 +503,7 @@ export default function Home() {
   const [runVideoDate, setRunVideoDate] = useState<string | null>(null);
   const [chartStartDate, setChartStartDate] = useState<string | null>(getDefaultChartStartDate());
   const [chartAdvice, setChartAdvice] = useState<string | null>(null);
+  const [corosSyncStatus, setCorosSyncStatus] = useState<CorosSyncStatus | null>(null);
   const [chartAdviceLoading, setChartAdviceLoading] = useState(false);
   const chartCaptureRef = useRef<HTMLDivElement | null>(null);
 
@@ -642,6 +667,30 @@ export default function Home() {
       });
   }, [API_BASE]);
 
+  useEffect(() => {
+    let active = true;
+    const loadStatus = () => {
+      fetch(`${API_BASE}/api/coros-sync-status`)
+        .then(async (res) => {
+          const contentType = res.headers.get('content-type') || '';
+          if (!res.ok || !contentType.includes('application/json')) {
+            throw new Error(`COROS sync status API returned ${res.status} ${contentType || 'without content type'}`);
+          }
+          return res.json();
+        })
+        .then((data: CorosSyncStatus & { error?: string }) => {
+          if (active && !data.error) setCorosSyncStatus(data as CorosSyncStatus);
+        })
+        .catch((error) => console.error('Failed to fetch COROS sync status:', error));
+    };
+    loadStatus();
+    const timer = window.setInterval(loadStatus, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [API_BASE]);
+
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
 
@@ -680,6 +729,21 @@ export default function Home() {
         </h1>
         {/* Upload Component */}
         <RunUploader />
+        {corosSyncStatus && (
+          <details className={`mt-4 rounded-lg border p-4 ${corosSyncStatus.delayed ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+            <summary className="cursor-pointer font-semibold text-gray-800">
+              COROS同期: {corosSyncStatus.delayed ? '停止または遅延' : '正常'}
+            </summary>
+            <div className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-3">
+              <div>最終処理: {formatStatusDate(corosSyncStatus.lastRunAt)}</div>
+              <div>最終FIT取込: {formatStatusDate(corosSyncStatus.lastFitImportedAt)}</div>
+              <div>次回実行予定: {formatStatusDate(corosSyncStatus.nextRunAt)}</div>
+            </div>
+            <pre className="mt-3 whitespace-pre-wrap rounded bg-white/70 p-3 text-xs text-gray-600">
+              {corosSyncStatus.memory}
+            </pre>
+          </details>
+        )}
       </header>
 
       {/* Chart Date Range Filter */}
@@ -922,5 +986,3 @@ export default function Home() {
     </div>
   );
 }
-
-

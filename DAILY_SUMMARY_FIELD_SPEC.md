@@ -1,6 +1,6 @@
 # Daily Summary Field Specification
 
-Last updated: 2026-03-10
+Last updated: 2026-07-22
 
 ## 1. Scope
 
@@ -311,6 +311,16 @@ When `TCX` sync changes the core summary values, the server may regenerate the s
 
 If regeneration fails, the existing stored message is preserved.
 
+For a newly imported TCX run, run-message generation may also receive complete-rest time windows derived from second-level TCX motion data. Each window contains its start time, end time, duration, first valid heart-rate sample, last valid heart-rate sample, and heart-rate difference. No near-LT or moving-recovery classification is added to this prompt context. If the run is clearly interval training, the comment may use Daniels, Canova, and Norwegian principles as reference frameworks, but it must not assert a named method without sufficient evidence. This affects generated comment text only and does not alter the chart timeline or exact-overwrite summary fields.
+
+The prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances.
+
+The run comment appends next-training advice suited to the current run data, using the running theories of Daniels, Bakken, Canova, Lydiard, and Peter Coe as references.
+
+The generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public.
+
+The most recent saved RUN COMMENT before the current run is attached as comparison context, ordered by run date and `run_id`. Evaluations, observations, and workout suggestions that are substantively the same as the previous comment are omitted; changing only numeric wording does not make a point new.
+
 ## 7. `POST /api/analyze`
 
 This is the new-screen single-image route.
@@ -584,6 +594,34 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 
 ## 11. Summary of Field Ownership by Route
 
+### 11.0 COROS FIT apply path
+
+`POST /api/import-coros-fit/apply-comment` and the matching Run Comment inbox flow read `data/coros/intraday/YYYY-MM-DD_<labelId>.json`.
+
+The local server initiates this processing by scanning FIT and metadata directories at startup and every 30 seconds. The scan processes new FIT files, FIT files whose metadata SHA differs from the saved intraday SHA, and required local output that is missing. It avoids blindly regenerating older unchanged FIT history.
+
+Before Gemini comment generation, the server combines every valid COROS FIT minute JSON owned by the target date, recalculates one date-level summary, and writes it with `saveDailySummaryExact`.
+
+The recalculated fields are:
+
+- `step_count`
+- `total_distance_km`
+- `total_time`
+- `max_stride`
+- `avg_stride`
+- `hr_avg`
+- `hr_max`
+- `avg_cadence`
+- `max_cadence`
+- `avg_speed`
+- `max_speed`
+
+COROS FIT minute data does not currently supply calories through this path. `calories_kcal` preserves the existing same-date value, or uses `0` when no row exists.
+
+This is an exact-recalculation path. Reprocessing the same `labelId` rebuilds the date summary from the current same-date COROS FIT files; it does not add the replacement FIT to previously saved totals.
+
+Metric persistence occurs before Gemini generation. If Gemini generation fails, the recalculated numeric fields remain saved. After successful generation, `run_messages` is overwritten for `(date, labelId)` and the message is automatically applied to `daily_summary.message`.
+
 ### 11.1 Cache-oriented route
 
 `/api/daily/:date/sync-cache`
@@ -612,6 +650,13 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 
 - Own finalized message plus resolved metrics back to the summary
 
+### 11.6 COROS FIT route
+
+- Owns exact date-level metrics recalculated from all same-date COROS FIT minute files
+- Preserves existing calories because they are unavailable in the minute data
+- Owns the generated per-run message identified by `labelId`
+- Automatically applies the latest generated message to `daily_summary.message`
+
 ## 12. Practical Notes
 
 - `step_count`, `total_distance_km`, and `total_time` are not globally immutable truths.
@@ -620,7 +665,22 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 - Max fields are generally monotonic at the DB level.
 - Avg fields are overwrite-at-save fields, but many routes pre-merge them before calling `saveDailySummary`.
 
-## 13. Known Areas Still Requiring Specification Alignment
+## 13. COROS Run Comment Inbox
+
+COROS Run Comment JSON import writes the generated Run Comment to both `run_messages.message` and `daily_summary.message`.
+
+- `activityId` is stored as `run_messages.run_id`
+- the incoming JSON message is not used; the local Gemini service generates `message`
+- the locally generated `message` is exact-overwrite upserted for the same `(date, activityId)`
+- the latest locally generated message is always saved to `daily_summary.message` as well; generation does not leave that field `null` pending a separate Apply action
+- regenerating the same activity overwrites both `run_messages.message` and `daily_summary.message` with the new latest message
+- when matching COROS FIT minute data exists, the overview JSON generator is not used; the detailed FIT minute path generates the comment
+- matching FIT data rebuilds the numeric fields from all same-date COROS FIT runs before comment generation
+- when matching FIT minute data does not exist, the existing overview-JSON behavior remains available
+- processed JSON is archival input and is not used to recreate a deleted `daily_summary`
+- TCX import, TCX cache naming, and TCX summary calculations are unchanged
+
+## 14. Known Areas Still Requiring Specification Alignment
 
 - How `CLEAR RUN` should restore or remove `daily_summary` by mode
 - Whether cache deletion should remain visible after immediate UI refresh

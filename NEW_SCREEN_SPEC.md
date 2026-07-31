@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-03-10
+Last updated: 2026-07-22
 
 ## 1. Scope
 
@@ -190,11 +190,54 @@ The `TCX` path performs:
 - run-based minute-cache creation
 - `daily_summary` regeneration/update from `TCX`
 
+COROS FIT is not uploaded through `RunUploader`. It is supplied by the separate COROS synchronization flow and processed by the local server. Its date-level metrics and generated Run Comment are written into the shared `daily_summary` and `run_messages` data used by the new screen. A COROS FIT run can therefore appear in the new-screen run cards without adding FIT selection to `RunUploader`.
+
+The local server checks the COROS FIT and metadata directories at startup and every 30 seconds. New or changed FIT data is converted into minute data, date-level summary data, Run Comment input, and route-video data. Reprocessing the same `labelId` overwrites its generated artifacts.
+
+COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
+
+The new screen displays COROS synchronization status sourced from the Codex automation `memory.md`.
+
+- the status panel shows the latest automation processing time
+- it shows the latest successful FIT download time from COROS metadata
+- it shows the next expected execution time based on the configured 10-minute interval
+- the panel refreshes once per minute
+- when the automation memory has not been updated for more than 20 minutes, the panel displays a stopped-or-delayed warning
+- the automation memory text remains expandable in the panel for operational diagnosis
+
+The Codex COROS automation uses minimal differential synchronization.
+
+- it does not re-read a fixed seven-day window and revalidate every historical FIT on each 10-minute run
+- the normal query range starts on the calendar day before the last successful activity-list check and ends at the current time
+- the one-day overlap captures a previous-day run that becomes available from COROS after midnight without restoring a fixed multi-day revalidation window
+- no new COROS activity is a normal successful result
+- local FIT and metadata file existence is the primary completion check
+- when both files exist, the automation skips activity-detail retrieval, FIT download, signature validation, and SHA recalculation
+- when only FIT exists, metadata is reconstructed from the existing FIT plus COROS activity detail
+- when metadata or both files are missing, only that activity is downloaded
+- a COROS activity whose FIT is not available yet remains pending for the next run and is not treated as a connection failure
+- the activity cursor advances only after both FIT and metadata exist
+- a failed or pending activity prevents the cursor from advancing past that activity
+- the successful list-check time is updated even when no new activity exists, allowing a later recovery run to query the scheduler gap plus the one-day late-availability overlap instead of an arbitrary fixed window
+- `memory.md` is overwritten with the latest compact status instead of accumulating repetitive successful-run history
+
 Current `TCX` handling note:
 
 - `COROS` `TCX` is treated as run-based data
 - `daily_summary` remains date-based
 - when `TCX` exists, the server updates `daily_summary` from `TCX`-derived values
+- TCX Run Comment generation receives only complete-rest time windows as additional second-level context
+- complete rest is recorded speed of at most `1.0 m/s` and cadence of `0` for at least `10 seconds`
+- each supplied window contains its start time, end time, duration, heart rate at the first valid sample, heart rate at the last valid sample, and their difference; near-LT and moving-recovery classifications are not supplied
+- prompt context notes that a single run may contain stops caused by traffic signals or similar circumstances
+- when the run structure is clearly interval training, the comment may use Daniels, Canova, and Norwegian training principles as reference frameworks
+- the comment must not assert a named method when the run data does not establish it
+- the comment appends next-training advice suited to the current run data, using the running theories of Daniels, Bakken, Canova, Lydiard, and Peter Coe as references
+- the generated comment does not use technical terminology or theory names and explains the advice in language understandable to the general public
+- the most recent saved RUN COMMENT before the current run is attached as comparison context, ordered by run date and `run_id`
+- evaluations, observations, and workout suggestions that are substantively the same as the previous RUN COMMENT are omitted; changing only numeric wording does not make a point new
+- complete-rest windows remain on the chart timeline and are not removed or compressed
+- this analysis does not rewrite TCX points, minute adjustment, splits, or `daily_summary` metrics
 
 ### 6.1 TCX route-video data
 
@@ -205,6 +248,20 @@ The TCX ingest path also extracts GPS route points for the run-video feature.
 - this cache is independent of the minute and split caches
 - creating or reading it does not change TCX minute adjustment, split, or `daily_summary` behavior
 - for an older run whose source TCX still exists, the route cache may be created lazily when the video route is first requested
+
+### 6.2 COROS FIT route-video data
+
+The COROS FIT ingest path also creates route data for the existing RUN VIDEO feature.
+
+- route points are extracted from second-level FIT `record` messages rather than the one-minute aggregates
+- FIT semicircle coordinates are converted to latitude/longitude degrees before persistence
+- route data is stored as `data/coros/route/YYYY-MM-DD_<labelId>.json`
+- `labelId` is exposed as the RUN VIDEO `runId`
+- each route point can retain timestamp, elapsed time, latitude, longitude, distance, speed, heart rate, pitch, and altitude when present
+- reprocessing the same `labelId` atomically overwrites its COROS route JSON
+- the existing `GET /api/tcx-route/:date` response includes both TCX and COROS FIT routes; the endpoint name remains unchanged for client compatibility
+- when both sources contain routes for the selected date, the existing RUN VIDEO run selector can switch between returned runs
+- adding a COROS route does not change TCX route-cache creation or TCX route values
 
 ## 7. Run Cards
 
@@ -309,6 +366,30 @@ The new screen is responsible for the ordinary user flow:
 - view saved runs
 
 The new screen is not intended to be the bulk sync/debug screen.
+
+## 12.1 COROS Run Comment Inbox
+
+The new screen can display a Run Comment imported independently of TCX.
+
+- Codex Scheduled Task writes UTF-8 JSON to `data/run-comment/inbox`
+- filenames use `run_<activityId>.json`
+- required fields are `date` and `activityId`; any incoming `message` is ignored
+- the local server generates the Run Comment from COROS activity data through `gemini_service`
+- Gemini model selection uses the configured fallback order and records the successful model in the processed JSON
+- the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
+- an existing `(date, run_id)` message is overwritten
+- after generation, the same latest message is always written to `daily_summary.message`; it is not left `null` while waiting for a separate Apply action
+- on the legacy analyzer, the `Apply` button is available for both TCX and COROS FIT; it copies the currently selected run's displayed Run Comment into `daily_summary.message`
+- COROS FIT still applies its newly generated comment automatically; the button permits manual reapplication of a selected run comment and is not a prerequisite for initial persistence
+- regenerating the same activity overwrites both `run_messages.message` and `daily_summary.message` with the newly generated message
+- after a successful database write, the JSON is moved to `data/run-comment/processed`
+- invalid or failed JSON remains in the inbox for correction or retry
+- the latest imported run message for a date and `daily_summary.message` represent the same latest generated Run Comment
+- this flow does not read or modify TCX caches
+- when the date has no `daily_summary`, the server creates the run card from available COROS summary fields
+- when the date already has `daily_summary`, existing metric fields are left unchanged
+- run-card creation occurs only while importing a new or updated JSON from `inbox`
+- files already in `processed` never recreate a deleted run card
 
 ## 13. Relation to Legacy Screen
 

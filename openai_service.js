@@ -8,6 +8,60 @@ const OPENAI_MODEL = String(process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MAX_IMAGES = Math.max(0, Math.min(3, Number(process.env.OPENAI_MAX_ADVICE_IMAGES || 2)));
 
+function buildTrainingLoadPrompt(context) {
+  if (!context || typeof context !== 'object') return '';
+  return [
+    '',
+    '秒単位の運動負荷区間:',
+    `- LT近接 (${context.nearLtThreshold || '-'} bpm以上): 合計 ${Math.round(Number(context.nearLt?.totalSeconds || 0))}秒 / ${Math.round(Number(context.nearLt?.ratio || 0) * 100)}% / ${Number(context.nearLt?.count || 0)}区間 / 最長 ${Math.round(Number(context.nearLt?.longestSeconds || 0))}秒`,
+    `- 走行中リカバリ (${context.recoveredThreshold || '-'} bpm以下まで): ${Number(context.movingRecovery?.count || 0)}回 / 平均 ${Math.round(Number(context.movingRecovery?.averageSeconds || 0))}秒 / 平均心拍低下 ${Math.round(Number(context.movingRecovery?.averageHeartRateDrop || 0))} bpm`,
+    `- 完全休息: 合計 ${Math.round(Number(context.completeRest?.totalSeconds || 0))}秒 / ${Number(context.completeRest?.count || 0)}回 / 最長 ${Math.round(Number(context.completeRest?.longestSeconds || 0))}秒`,
+    'LT近接、走行中リカバリ、完全休息を区別して評価する。完全休息をペース失速や走力低下として扱わない。0の項目には無理に言及しない。'
+  ].join('\n');
+}
+
+function buildCompleteRestPrompt(windows) {
+  const restWindows = Array.isArray(windows) ? windows : [];
+  const time = (timestampMs) => new Date(Number(timestampMs)).toLocaleTimeString('ja-JP', {
+    timeZone: 'Asia/Tokyo', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  return [
+    '',
+    '完全休止時間帯:',
+    ...(restWindows.length > 0
+      ? restWindows.map((window) => {
+          const hasHeartRate = Number.isFinite(Number(window.startHeartRate)) && Number.isFinite(Number(window.endHeartRate));
+          const change = Number(window.heartRateChange);
+          const heartRateText = hasHeartRate
+            ? ` / 心拍 ${Math.round(Number(window.startHeartRate))}→${Math.round(Number(window.endHeartRate))} bpm（${change > 0 ? '+' : ''}${Math.round(change)} bpm）`
+            : ' / 心拍データなし';
+          return `- ${time(window.startTimestampMs)}–${time(window.endTimestampMs)}（${Math.round(Number(window.durationSeconds))}秒）${heartRateText}`;
+        })
+      : ['- 検出なし']),
+    '',
+    '1走行中、信号待ちなどで停止していることがあります。',
+    '走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。',
+    '評価の参考として、ダニエルズ、カノーバ、ノルウェー式のトレーニング原則を利用して構いません。',
+    'ただし、走行データから判別できない方式名を断定しないでください。',
+    'ダニエルズ、バッケン、カノーバなどのランニング理論を参考に、今回の走行データに応じた次回のトレーニングアドバイスを追記してください。',
+    '回答では専門用語や理論名を使わず、一般の人に分かる言葉で説明してください。'
+  ].join('\n');
+}
+
+function buildPreviousRunCommentPrompt(comment) {
+  const previousComment = String(comment || '').trim();
+  if (!previousComment) return '';
+  return [
+    '',
+    '前回のRUN COMMENT:',
+    previousComment,
+    '',
+    '前回と実質的に同じ評価、所見、トレーニング提案は今回の回答から除外してください。',
+    '今回のデータで新しく確認できた変化、異なる所見、新しい助言だけを書いてください。',
+    '数値だけを言い換えて同じ内容を繰り返さないでください。'
+  ].join('\n');
+}
+
 async function imagePathToDataUrl(filePath) {
   const abs = path.resolve(filePath);
   const data = await fs.readFile(abs);
@@ -43,7 +97,7 @@ function buildPromptText(maxStats, imagePaths = [], extraContext = {}) {
         .join('\n')
     : '- なし';
 
-  const basePrompt = [
+  let basePrompt = [
     'あなたはバイオメカニクス重視のランニング分析コーチです。以下のランニング数値と文脈を読み、日本語で実用的な分析コメントを書いてください。',
     '方針:',
     '1. 最大ストライド、平均ストライド、平均ピッチ、最大速度の関係から今回の走りの特徴を判断する',
@@ -93,6 +147,8 @@ function buildPromptText(maxStats, imagePaths = [], extraContext = {}) {
     `- 超過率: ${Number.isFinite(lthrExceededRatio) && lthrExceededRatio > 0 ? `${Math.round(lthrExceededRatio * 100)}%` : '0%'}`
   ].join('\n');
 
+  basePrompt += buildCompleteRestPrompt(extraContext?.completeRestWindows);
+  basePrompt += buildPreviousRunCommentPrompt(extraContext?.previousRunComment);
   if (!minuteTableMarkdown) return basePrompt;
   return `${basePrompt}\n追加コンテキスト: 以下は旧画面の1分毎テーブルです。必要に応じて分析に使ってください。\n\n${minuteTableMarkdown}`;
 }

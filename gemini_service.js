@@ -3,13 +3,69 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+function buildTrainingLoadPrompt(context) {
+    if (!context || typeof context !== 'object') return '';
+    return [
+        '',
+        '秒単位の運動負荷区間:',
+        `- LT近接 (${context.nearLtThreshold || '-'} bpm以上): 合計 ${Math.round(Number(context.nearLt?.totalSeconds || 0))}秒 / ${Math.round(Number(context.nearLt?.ratio || 0) * 100)}% / ${Number(context.nearLt?.count || 0)}区間 / 最長 ${Math.round(Number(context.nearLt?.longestSeconds || 0))}秒`,
+        `- 走行中リカバリ (${context.recoveredThreshold || '-'} bpm以下まで): ${Number(context.movingRecovery?.count || 0)}回 / 平均 ${Math.round(Number(context.movingRecovery?.averageSeconds || 0))}秒 / 平均心拍低下 ${Math.round(Number(context.movingRecovery?.averageHeartRateDrop || 0))} bpm`,
+        `- 完全休息: 合計 ${Math.round(Number(context.completeRest?.totalSeconds || 0))}秒 / ${Number(context.completeRest?.count || 0)}回 / 最長 ${Math.round(Number(context.completeRest?.longestSeconds || 0))}秒`,
+        'LT近接、走行中リカバリ、完全休息を区別して評価する。完全休息をペース失速や走力低下として扱わない。0の項目には無理に言及しない。'
+    ].join('\n');
+}
+
+function buildCompleteRestPrompt(windows) {
+    const restWindows = Array.isArray(windows) ? windows : [];
+    const time = (timestampMs) => new Date(Number(timestampMs)).toLocaleTimeString('ja-JP', {
+        timeZone: 'Asia/Tokyo', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    return [
+        '',
+        '完全休止時間帯:',
+        ...(restWindows.length > 0
+            ? restWindows.map((window) => {
+                const hasHeartRate = Number.isFinite(Number(window.startHeartRate)) && Number.isFinite(Number(window.endHeartRate));
+                const change = Number(window.heartRateChange);
+                const heartRateText = hasHeartRate
+                    ? ` / 心拍 ${Math.round(Number(window.startHeartRate))}→${Math.round(Number(window.endHeartRate))} bpm（${change > 0 ? '+' : ''}${Math.round(change)} bpm）`
+                    : ' / 心拍データなし';
+                return `- ${time(window.startTimestampMs)}–${time(window.endTimestampMs)}（${Math.round(Number(window.durationSeconds))}秒）${heartRateText}`;
+            })
+            : ['- 検出なし']),
+        '',
+        '1走行中、信号待ちなどで停止していることがあります。',
+        '走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。',
+        '評価の参考として、ダニエルズ、カノーバ、ノルウェー式のトレーニング原則を利用して構いません。',
+        'ただし、走行データから判別できない方式名を断定しないでください。',
+        'ダニエルズ、バッケン、カノーバ、リディアード、ピーター・コーのランニング理論を参考に、今回の走行データに応じた次回のトレーニングアドバイスを追記してください。',
+        '回答では専門用語や理論名を使わず、一般の人に分かる言葉で説明してください。'
+    ].join('\n');
+}
+
+function buildPreviousRunCommentPrompt(comment) {
+    const previousComment = String(comment || '').trim();
+    if (!previousComment) return '';
+    return [
+        '',
+        '前回のRUN COMMENT:',
+        previousComment,
+        '',
+        '前回と実質的に同じ評価、所見、トレーニング提案は今回の回答から除外してください。',
+        '今回のデータで新しく確認できた変化、異なる所見、新しい助言だけを書いてください。',
+        '数値だけを言い換えて同じ内容を繰り返さないでください。'
+    ].join('\n');
+}
+
 const FALLBACK_MODELS = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite'
 ];
 
-async function generateContentWithFallback(parts) {
+async function generateContentWithFallback(parts, options = {}) {
     let lastError = null;
 
     for (const modelName of FALLBACK_MODELS) {
@@ -20,6 +76,7 @@ async function generateContentWithFallback(parts) {
             const response = await result.response;
             const text = response.text().trim();
             console.log(`[GeminiService] Success with model: ${modelName}`);
+            if (typeof options.onModelUsed === 'function') options.onModelUsed(modelName);
             return text;
         } catch (err) {
             lastError = err;
@@ -29,6 +86,42 @@ async function generateContentWithFallback(parts) {
     }
 
     throw lastError;
+}
+
+async function generateCorosRunComment(payload, previousRunComment = '') {
+    if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is required');
+    const details = payload?.activityDetails && typeof payload.activityDetails === 'object'
+        ? payload.activityDetails
+        : {};
+    const sourceData = {
+        date: payload?.date || null,
+        location: payload?.location || null,
+        durationSeconds: Number(payload?.durationSeconds || 0),
+        distanceKm: Number(payload?.distanceKm || details.distanceKm || 0),
+        averagePace: payload?.averagePace || details.averagePace || null,
+        averageHeartRate: Number(payload?.averageHeartRate || details.averageHeartRate || 0),
+        calories: Number(payload?.calories || details.calories || 0),
+        activityDetails: details
+    };
+    const previous = String(previousRunComment || '').trim();
+    const prompt = [
+        '以下のCOROSランニング活動データから、日本語のRUN COMMENTを作成してください。',
+        '120〜240文字程度の一段落にまとめ、走りの特徴、負荷の評価、次回への短い助言を含めてください。',
+        'データにない最大値、区間変化、地形、理論名を推測しないでください。専門用語はできるだけ避けてください。',
+        previous
+            ? '前回保存されたコメントと同じ言い回しや同じ観察の繰り返しを避け、今回のデータから確認できる別の重要点を優先してください。'
+            : '',
+        '',
+        'COROS活動データ:',
+        JSON.stringify(sourceData, null, 2),
+        previous ? `\n前回保存されたRUN COMMENT:\n${previous}` : ''
+    ].filter(Boolean).join('\n');
+    let model = '';
+    const message = await generateContentWithFallback([prompt], {
+        onModelUsed: (modelName) => { model = modelName; }
+    });
+    if (!String(message || '').trim()) throw new Error('Gemini returned an empty Run Comment');
+    return { message: String(message).trim(), model };
 }
 
 
@@ -151,7 +244,7 @@ async function generateCoachAdvice(stats, imagePaths = [], extraContext = {}) {
                 .join('\n')
             : '- なし';
 
-        const prompt = `
+        let prompt = `
 あなたはバイオメカニクス専門のランニング分析コーチです。
 以下の前提を踏まえて、日本語で実用的な分析コメントを書いてください。
 
@@ -207,6 +300,8 @@ LTHR補足:
 - 超過割合: ${Number.isFinite(lthrExceededRatio) && lthrExceededRatio > 0 ? `${Math.round(lthrExceededRatio * 100)}%` : '0%'}
 `;
 
+        prompt += buildCompleteRestPrompt(extraContext?.completeRestWindows);
+        prompt += buildPreviousRunCommentPrompt(extraContext?.previousRunComment);
         const parts = [
             minuteTableMarkdown
                 ? `${prompt}\n追加コンテキスト: 以下は旧画面の1分毎テーブルです。必要に応じて分析に使ってください。\n\n${minuteTableMarkdown}`
@@ -308,4 +403,4 @@ ${runSummariesText}
     }
 }
 
-module.exports = { generateAdvice, generateCoachAdvice, generateTrendChartAdvice, TEMPORARY_UNAVAILABLE_MESSAGE };
+module.exports = { generateAdvice, generateCoachAdvice, generateTrendChartAdvice, generateCorosRunComment, TEMPORARY_UNAVAILABLE_MESSAGE };

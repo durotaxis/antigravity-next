@@ -11,11 +11,43 @@ const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
+const trainingLoadService = require('./training_load_service');
+const runCommentInboxService = require('./run_comment_inbox_service');
+const corosFitImporter = require('./coros_fit_importer');
 
 const app = express();
 const port = 3000;
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 const TCX_SOURCE_DIR = imageService.INBOX_DIR;
+const COROS_FIT_INTRADAY_DIR = path.join(__dirname, 'data', 'coros', 'intraday');
+const COROS_FIT_DIR = path.join(__dirname, 'data', 'coros', 'fit');
+const COROS_FIT_METADATA_DIR = path.join(__dirname, 'data', 'coros', 'metadata');
+const COROS_FIT_ROUTE_DIR = path.join(__dirname, 'data', 'coros', 'route');
+const COROS_AUTOMATION_MEMORY_PATH = path.join(
+  process.env.CODEX_HOME || path.join(process.env.USERPROFILE || '', '.codex'),
+  'automations',
+  'coros-run-run-comment',
+  'memory.md'
+);
+let corosFitScanPromise = null;
+
+function sanitizeCorosLabelId(labelId) {
+  return /^\d+$/.test(String(labelId || '').trim()) ? String(labelId).trim() : '';
+}
+
+function getCorosFitIntradayPath(dateString, labelId) {
+  const date = String(dateString || '').trim();
+  const safeLabelId = sanitizeCorosLabelId(labelId);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !safeLabelId) return null;
+  return path.join(COROS_FIT_INTRADAY_DIR, `${date}_${safeLabelId}.json`);
+}
+
+function getCorosFitRoutePath(dateString, labelId) {
+  const date = String(dateString || '').trim();
+  const safeLabelId = sanitizeCorosLabelId(labelId);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !safeLabelId) return null;
+  return path.join(COROS_FIT_ROUTE_DIR, `${date}_${safeLabelId}.json`);
+}
 
 function getLegacyTcxIntradayCachePath(dateString) {
   return path.join(__dirname, 'storage', 'cache', `tcx_intraday_${dateString}.json`);
@@ -124,9 +156,9 @@ function parseTcxTrackpoints(xmlText) {
       timestampMs,
       distanceMeters: Number.isFinite(Number(distance)) ? Number(distance) : null,
       altitudeMeters: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
-      heartRate: Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
-      cadence: Number.isFinite(Number(cadence)) ? Number(cadence) : null,
-      speedMps: Number.isFinite(Number(speed)) ? Number(speed) : null,
+      heartRate: heartRate !== null && Number.isFinite(Number(heartRate)) ? Number(heartRate) : null,
+      cadence: cadence !== null && Number.isFinite(Number(cadence)) ? Number(cadence) : null,
+      speedMps: speed !== null && Number.isFinite(Number(speed)) ? Number(speed) : null,
       latitude: latitude !== null && Number.isFinite(Number(latitude)) ? Number(latitude) : null,
       longitude: longitude !== null && Number.isFinite(Number(longitude)) ? Number(longitude) : null
     };
@@ -725,12 +757,18 @@ function isTemporaryRunMessage(message) {
   return String(message || '').trim() === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE;
 }
 
-async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini') {
-  const runSummary = computeDailySummaryFromTcxRows(dateString, minuteRows, { source: 'tcx-run-message' });
+async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini', options = {}) {
+  const source = String(options.source || 'tcx').trim().toLowerCase() === 'coros_fit' ? 'coros_fit' : 'tcx';
+  const runSummary = computeDailySummaryFromTcxRows(dateString, minuteRows, { source: `${source}-run-message` });
   if (!runSummary || !runSummary.summary) return '';
 
   const adviceProvider = normalizeAdviceProvider(provider);
   const summary = runSummary.summary;
+  const completeRestWindows = trainingLoadService.extractCompleteRestWindows(
+    Array.isArray(options.trackpoints) ? options.trackpoints : []
+  );
+  const previousRunMessageRow = await repo.getPreviousRunMessage(dateString, String(runId || '').trim());
+  const previousRunComment = String(previousRunMessageRow?.message || '').trim();
   const allRuns = await repo.getAllRuns();
   const compareRunSummaries = Array.isArray(allRuns)
     ? allRuns
@@ -776,9 +814,11 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
       avgSpeed: Number(summary.avg_speed || 0),
       maxSpeed: Number(summary.max_speed || 0)
     }, [], {
-      minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
+      minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows, source === 'coros_fit' ? 'COROS FIT Per Minute' : 'TCX Per Minute'),
       latestRunSummary,
-      compareRunSummaries
+      compareRunSummaries,
+      completeRestWindows,
+      previousRunComment
     });
   }
 
@@ -796,10 +836,129 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     avg_speed: Number(summary.avg_speed || 0),
     max_speed: Number(summary.max_speed || 0)
   }, [], {
-    minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows),
+    minuteTableMarkdown: buildTcxMinuteTableMarkdown(minuteRows, source === 'coros_fit' ? 'COROS FIT Per Minute' : 'TCX Per Minute'),
     latestRunSummary,
-    compareRunSummaries
+    compareRunSummaries,
+    completeRestWindows,
+    previousRunComment
   });
+}
+
+async function generateAndPersistCorosFitRunMessage(dateString, labelId, provider = 'gemini') {
+  const intradayPath = getCorosFitIntradayPath(dateString, labelId);
+  if (!intradayPath) throw new Error('Valid date and labelId required');
+  const payload = JSON.parse(await fs.readFile(intradayPath, 'utf8'));
+  if (payload?.source !== 'coros_fit' || String(payload?.labelId || '') !== String(labelId)) {
+    throw new Error('COROS FIT metadata mismatch');
+  }
+  const minuteRows = Array.isArray(payload.chartData) ? payload.chartData : [];
+  if (minuteRows.length === 0) throw new Error('COROS FIT minute data is empty');
+
+  const computed = await computeDailySummaryFromCorosFit(dateString);
+  if (!computed?.summary) throw new Error('COROS FIT daily summary could not be calculated');
+  const existing = await repo.getDailySummary(dateString);
+  await repo.saveDailySummaryExact({
+    ...computed.summary,
+    calories_kcal: Number(existing?.calories_kcal || 0),
+    message: existing?.message || null
+  });
+
+  const message = String(await generateTcxRunMessage(
+    dateString,
+    labelId,
+    minuteRows,
+    provider,
+    { source: 'coros_fit' }
+  ) || '').trim();
+  if (!message) throw new Error('Run Comment generation returned an empty message');
+
+  await repo.saveRunMessage({ date: dateString, run_id: labelId, message });
+  await repo.saveDailySummary({ date: dateString, message });
+  const summary = await repo.getDailySummary(dateString);
+  return { message, model: normalizeAdviceProvider(provider), source: 'coros_fit', labelId, intradayPath, summary };
+}
+
+async function importAndApplyCorosFit(dateString, labelId, provider = 'gemini') {
+  const date = String(dateString || '').trim();
+  const safeLabelId = sanitizeCorosLabelId(labelId);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !safeLabelId) throw new Error('Valid date and labelId required');
+  const basename = `${date}_${safeLabelId}`;
+  const fitPath = path.join(COROS_FIT_DIR, `${basename}.fit`);
+  const metadataPath = path.join(COROS_FIT_METADATA_DIR, `${basename}.json`);
+  const outputPath = getCorosFitIntradayPath(date, safeLabelId);
+  const routeOutputPath = getCorosFitRoutePath(date, safeLabelId);
+  const payload = await corosFitImporter.importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPath });
+  const applied = await generateAndPersistCorosFitRunMessage(date, safeLabelId, provider);
+  return { date, labelId: safeLabelId, minuteCount: payload.chartData.length, routePointCount: payload.routePointCount, outputPath, routeOutputPath, applied };
+}
+
+async function scanCorosFitImportsInternal() {
+  let metadataNames = [];
+  try {
+    metadataNames = await fs.readdir(COROS_FIT_METADATA_DIR);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { imported: [], failed: [] };
+    throw error;
+  }
+
+  let latestIntradayMtimeMs = 0;
+  try {
+    const intradayNames = await fs.readdir(COROS_FIT_INTRADAY_DIR);
+    for (const name of intradayNames.filter((value) => value.endsWith('.json'))) {
+      const stat = await fs.stat(path.join(COROS_FIT_INTRADAY_DIR, name));
+      latestIntradayMtimeMs = Math.max(latestIntradayMtimeMs, stat.mtimeMs);
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  const imported = [];
+  const failed = [];
+  const candidates = metadataNames.filter((name) => /^\d{4}-\d{2}-\d{2}_\d+\.json$/.test(name)).sort();
+  for (const name of candidates) {
+    const match = name.match(/^(\d{4}-\d{2}-\d{2})_(\d+)\.json$/);
+    const date = match[1];
+    const labelId = match[2];
+    try {
+      const metadataPath = path.join(COROS_FIT_METADATA_DIR, name);
+      const metadata = corosFitImporter.parseJsonText(await fs.readFile(metadataPath, 'utf8'));
+      if (metadata?.source !== 'coros_fit' || String(metadata?.labelId || '') !== labelId) continue;
+      const fitPath = path.join(COROS_FIT_DIR, `${date}_${labelId}.fit`);
+      await fs.access(fitPath);
+      const intradayPath = getCorosFitIntradayPath(date, labelId);
+      const routeOutputPath = getCorosFitRoutePath(date, labelId);
+      let intraday = null;
+      try { intraday = JSON.parse(await fs.readFile(intradayPath, 'utf8')); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+      let hasRoute = false;
+      try {
+        const route = JSON.parse(await fs.readFile(routeOutputPath, 'utf8'));
+        hasRoute = route?.source === 'coros_fit' && String(route?.runId || '') === labelId && Array.isArray(route?.points) && route.points.length > 0;
+      } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+      const metadataSha = String(metadata.fitSha256 || '').trim().toLowerCase();
+      const intradaySha = String(intraday?.fitSha256 || '').trim().toLowerCase();
+      const metadataStat = await fs.stat(metadataPath);
+      const runMessage = await repo.getRunMessage(date, labelId);
+      const unchanged = Boolean(intraday && metadataSha && intradaySha === metadataSha);
+      const isHistoricalBootstrap = !intraday && latestIntradayMtimeMs > 0 && metadataStat.mtimeMs <= latestIntradayMtimeMs;
+      const hasUsableMessage = String(runMessage?.message || '').trim() && !isTemporaryRunMessage(runMessage.message);
+      if (unchanged && hasUsableMessage && !hasRoute) {
+        const payload = await corosFitImporter.importCorosFit({ fitPath, metadataPath, outputPath: intradayPath, routeOutputPath });
+        imported.push({ date, labelId, minuteCount: payload.chartData.length, routePointCount: payload.routePointCount, outputPath: intradayPath, routeOutputPath, applied: false });
+        continue;
+      }
+      if ((unchanged && hasUsableMessage && hasRoute) || isHistoricalBootstrap) continue;
+      imported.push(await importAndApplyCorosFit(date, labelId, 'gemini'));
+    } catch (error) {
+      failed.push({ file: name, error: error?.message || String(error) });
+    }
+  }
+  return { imported, failed };
+}
+
+function scanCorosFitImports() {
+  if (corosFitScanPromise) return corosFitScanPromise;
+  corosFitScanPromise = scanCorosFitImportsInternal().finally(() => { corosFitScanPromise = null; });
+  return corosFitScanPromise;
 }
 
 function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
@@ -873,6 +1032,37 @@ function computeDailySummaryFromTcxRows(dateString, minuteRows, meta = {}) {
       max_speed: Number(maxSpeed > 0 ? maxSpeed.toFixed(1) : '0')
     }
   };
+}
+
+async function computeDailySummaryFromCorosFit(dateString) {
+  const date = String(dateString || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  let names = [];
+  try {
+    names = await fs.readdir(COROS_FIT_INTRADAY_DIR);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+
+  const prefix = `${date}_`;
+  const combinedRows = [];
+  const labelIds = [];
+  for (const name of names.filter((value) => value.startsWith(prefix) && value.endsWith('.json')).sort()) {
+    const labelId = sanitizeCorosLabelId(name.slice(prefix.length, -5));
+    if (!labelId) continue;
+    const payload = JSON.parse(await fs.readFile(path.join(COROS_FIT_INTRADAY_DIR, name), 'utf8'));
+    if (payload?.source !== 'coros_fit' || String(payload?.labelId || '') !== labelId) continue;
+    const rows = Array.isArray(payload.chartData) ? payload.chartData : [];
+    if (rows.length === 0) continue;
+    combinedRows.push(...rows);
+    labelIds.push(labelId);
+  }
+  if (combinedRows.length === 0) return null;
+  combinedRows.sort((a, b) => Number(a?.bucketStartMs || 0) - Number(b?.bucketStartMs || 0));
+  const computed = computeDailySummaryFromTcxRows(date, combinedRows, { source: 'coros-fit-runs' });
+  if (computed) computed.labelIds = labelIds;
+  return computed;
 }
 
 function computeDailySummaryMetricsFromIntradayRows(rows, options = {}) {
@@ -1957,6 +2147,15 @@ app.get('/api/daily/:date/run-message/:runId', async (req, res) => {
   }
 });
 
+app.post('/api/run-comment/import-inbox', async (req, res) => {
+  try {
+    const result = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
+    res.status(result.failed.length > 0 ? 207 : 200).json({ success: result.failed.length === 0, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/daily/:date', async (req, res) => {
   try {
     const { date } = req.params;
@@ -2247,7 +2446,13 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
   const shouldGenerateRunMessage = !existingRunMessage || isTemporaryRunMessage(existingRunMessage);
 
   if (shouldGenerateRunMessage) {
-    runMessage = String(await generateTcxRunMessage(resolvedDate, resolvedRunId, minuteRows, adviceProvider) || '').trim();
+    runMessage = String(await generateTcxRunMessage(
+      resolvedDate,
+      resolvedRunId,
+      minuteRows,
+      adviceProvider,
+      { trackpoints }
+    ) || '').trim();
   }
 
   const shouldPersistRunMessage =
@@ -2344,6 +2549,36 @@ async function loadTcxRunWindowsForDate(dateString) {
   return dedupeRunWindows(windows);
 }
 
+function corosTimestampToMillis(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric < 100000000000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+async function loadCorosFitRunWindowsForDate(dateString) {
+  const date = normalizeRunDate(dateString);
+  if (!date) return [];
+  let names = [];
+  try { names = await fs.readdir(COROS_FIT_METADATA_DIR); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  const prefix = `${date}_`;
+  const windows = [];
+  for (const name of names.filter((value) => value.startsWith(prefix) && value.endsWith('.json'))) {
+    const labelId = sanitizeCorosLabelId(name.slice(prefix.length, -5));
+    if (!labelId) continue;
+    const metadata = corosFitImporter.parseJsonText(await fs.readFile(path.join(COROS_FIT_METADATA_DIR, name), 'utf8'));
+    let startMs = corosTimestampToMillis(metadata?.startTime);
+    let endMs = corosTimestampToMillis(metadata?.endTime);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      const route = await readJsonIfExists(getCorosFitRoutePath(date, labelId));
+      startMs = Number(route?.startTimeMs);
+      endMs = Number(route?.endTimeMs);
+    }
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) windows.push({ startMs, endMs });
+  }
+  return dedupeRunWindows(windows);
+}
+
 function buildIntradayCoverageWindows(rows = []) {
   const windows = [];
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -2394,9 +2629,13 @@ async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
     };
   }
 
-  const tcxRunWindows = await loadTcxRunWindowsForDate(date).catch(() => []);
+  const [tcxRunWindows, corosFitRunWindows] = await Promise.all([
+    loadTcxRunWindowsForDate(date).catch(() => []),
+    loadCorosFitRunWindowsForDate(date).catch(() => [])
+  ]);
+  const sourceRunWindows = dedupeRunWindows([...tcxRunWindows, ...corosFitRunWindows]);
   const existing = await loadLegacyRunOwnedCachesFromDisk(date);
-  const existingIsStale = legacyRunOwnedCacheIsStale(existing, tcxRunWindows);
+  const existingIsStale = legacyRunOwnedCacheIsStale(existing, sourceRunWindows);
 
   if (!force && existing && !existingIsStale) {
     return existing;
@@ -2416,7 +2655,7 @@ async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
         startMs: Number(session?.startTimeMillis),
         endMs: Number(session?.endTimeMillis)
       })),
-      ...tcxRunWindows
+      ...sourceRunWindows
     ]);
     if (ownedRunWindows.length === 0) {
       const empty = {
@@ -2765,6 +3004,113 @@ app.get('/api/tcx-runs', async (req, res) => {
   }
 });
 
+app.get('/api/coros-fit-runs', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Valid date required' });
+    let names = [];
+    try { names = await fs.readdir(COROS_FIT_INTRADAY_DIR); } catch { names = []; }
+    const prefix = `${date}_`;
+    const runs = [];
+    for (const name of names.filter((value) => value.startsWith(prefix) && value.endsWith('.json')).sort()) {
+      const labelId = sanitizeCorosLabelId(name.slice(prefix.length, -5));
+      if (!labelId) continue;
+      const payload = JSON.parse(await fs.readFile(path.join(COROS_FIT_INTRADAY_DIR, name), 'utf8'));
+      if (payload?.source !== 'coros_fit' || String(payload?.labelId || '') !== labelId) continue;
+      runs.push({ labelId, sportType: Number(payload.sportType || 0), startTime: payload.startTime || null, filename: name, pointCount: Array.isArray(payload.chartData) ? payload.chartData.length : 0 });
+    }
+    res.json({ date, count: runs.length, runs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/coros-sync-status', async (req, res) => {
+  try {
+    const [memory, memoryStat] = await Promise.all([
+      fs.readFile(COROS_AUTOMATION_MEMORY_PATH, 'utf8'),
+      fs.stat(COROS_AUTOMATION_MEMORY_PATH)
+    ]);
+    const lastRunAt = memoryStat.mtime.toISOString();
+    const nextRunAt = new Date(memoryStat.mtimeMs + 10 * 60 * 1000).toISOString();
+    const delayed = Date.now() > memoryStat.mtimeMs + 20 * 60 * 1000;
+
+    let lastFitImportedAt = null;
+    try {
+      const names = await fs.readdir(COROS_FIT_METADATA_DIR);
+      for (const name of names.filter((value) => value.endsWith('.json'))) {
+        try {
+          const payload = corosFitImporter.parseJsonText(
+            await fs.readFile(path.join(COROS_FIT_METADATA_DIR, name), 'utf8')
+          );
+          const timestamp = Date.parse(String(payload?.downloadedAt || ''));
+          if (Number.isFinite(timestamp) && (!lastFitImportedAt || timestamp > Date.parse(lastFitImportedAt))) {
+            lastFitImportedAt = new Date(timestamp).toISOString();
+          }
+        } catch {
+          // One malformed historical metadata file must not hide sync status.
+        }
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+
+    return res.json({
+      memory: String(memory || '').trim(),
+      lastRunAt,
+      lastFitImportedAt,
+      nextRunAt,
+      intervalMinutes: 10,
+      delayed
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ error: 'COROS automation memory.md not found' });
+    }
+    return res.status(500).json({ error: error?.message || String(error) });
+  }
+});
+
+app.get('/api/coros-fit-minute', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const labelId = sanitizeCorosLabelId(req.query.labelId);
+    const intradayPath = getCorosFitIntradayPath(date, labelId);
+    if (!intradayPath) return res.status(400).json({ error: 'Valid date and labelId required' });
+    const payload = JSON.parse(await fs.readFile(intradayPath, 'utf8'));
+    if (payload?.source !== 'coros_fit' || String(payload?.labelId || '') !== labelId) return res.status(422).json({ error: 'COROS FIT metadata mismatch' });
+    res.json(payload);
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT minute data not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/import-coros-fit/apply-comment', async (req, res) => {
+  try {
+    const date = String(req.body?.date || '').trim();
+    const labelId = sanitizeCorosLabelId(req.body?.labelId);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !labelId) return res.status(400).json({ error: 'Valid date and labelId required' });
+    const result = await generateAndPersistCorosFitRunMessage(date, labelId, req.body?.provider || 'gemini');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT minute data not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/import-coros-fit', async (req, res) => {
+  try {
+    const date = String(req.body?.date || '').trim();
+    const labelId = sanitizeCorosLabelId(req.body?.labelId);
+    const result = await importAndApplyCorosFit(date, labelId, req.body?.provider || 'gemini');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT or metadata file not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2.6 Get Intraday Stride Data (For Chart)
 app.get('/api/stride', async (req, res) => {
   try {
@@ -2914,6 +3260,24 @@ app.get('/api/tcx-route/:date', async (req, res) => {
         date: descriptor.date,
         startTimeLabel: descriptor.startTimeLabel,
         durationSeconds: route.durationSeconds,
+        pointCount: route.points.length,
+        points: route.points
+      });
+    }
+    let corosRouteNames = [];
+    try { corosRouteNames = await fs.readdir(COROS_FIT_ROUTE_DIR); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    const corosPrefix = `${date}_`;
+    for (const name of corosRouteNames.filter((value) => value.startsWith(corosPrefix) && value.endsWith('.json')).sort()) {
+      const labelId = sanitizeCorosLabelId(name.slice(corosPrefix.length, -5));
+      if (!labelId || (requestedRunId && requestedRunId !== labelId)) continue;
+      const route = JSON.parse(await fs.readFile(path.join(COROS_FIT_ROUTE_DIR, name), 'utf8'));
+      if (route?.source !== 'coros_fit' || String(route?.runId || '') !== labelId || !Array.isArray(route?.points) || route.points.length === 0) continue;
+      runs.push({
+        runId: labelId,
+        source: 'coros_fit',
+        date,
+        startTimeLabel: formatLocalTimeLabel(route.startTimeMs, true),
+        durationSeconds: Number(route.durationSeconds || 0),
         pointCount: route.points.length,
         points: route.points
       });
@@ -4048,6 +4412,22 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 if (require.main === module) {
   // 繧ｹ繝槭・縺九ｉ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ (0.0.0.0)
   app.listen(port, '0.0.0.0', () => {
+    scanCorosFitImports().then(async (result) => {
+      if (result.failed.length > 0) console.warn('[coros-fit-import] Initial import failures:', result.failed);
+      const inboxResult = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
+      if (inboxResult.failed.length > 0) console.warn('[run-comment-inbox] Initial import failures:', inboxResult.failed);
+    }).catch((error) => console.error('[coros-import] Initial scan failed:', error));
+    const timer = setInterval(async () => {
+      try {
+        const fitResult = await scanCorosFitImports();
+        if (fitResult.failed.length > 0) console.warn('[coros-fit-import] Scan failures:', fitResult.failed);
+        const inboxResult = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
+        if (inboxResult.failed.length > 0) console.warn('[run-comment-inbox] Scan failures:', inboxResult.failed);
+      } catch (error) {
+        console.error('[coros-import] Scan failed:', error);
+      }
+    }, 30000);
+    if (typeof timer.unref === 'function') timer.unref();
   });
 }
 

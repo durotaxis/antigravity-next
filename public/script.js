@@ -912,7 +912,7 @@ function updateActiveRunPager() {
         const nextBtn = document.getElementById('tcxRunNextBtn');
         const safeIndex = Math.min(Math.max(Number(currentHealthConnectRunPageIndex) || 0, 0), Math.max(runs.length - 1, 0));
         const run = runs[safeIndex];
-        const time = run ? formatSessionRange(run) : '';
+        const time = run ? formatSessionTimeRange(run) : '';
         if (pager) pager.style.display = runs.length > 0 ? '' : 'none';
         if (label) label.textContent = runs.length > 0 ? `Health Connect ${safeIndex + 1}/${runs.length}${time ? ` ${time}` : ''}` : 'Health Connect 1/1';
         if (prevBtn) prevBtn.disabled = runs.length <= 1 || safeIndex <= 0;

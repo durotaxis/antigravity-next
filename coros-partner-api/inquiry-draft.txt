@@ -1,0 +1,22 @@
+UNSENT DRAFT — replace bracketed fields with accurate information before sending.
+
+To: api@coros.com
+Subject: Eligibility inquiry for direct COROS Partner API access
+
+Hello COROS API team,
+
+I would like to evaluate direct COROS Partner API access for a running-data application. The initial test would read only my own authorized account's workout records, daily health data, and activity FIT files. I am specifically asking about the Partner API rather than the MCP interface.
+
+My current details are:
+- Name and technical contact email: [to be supplied]
+- Individual or registered-company status: [to be supplied]
+- Company / platform name and website, if applicable: [to be supplied]
+- Current user base: [to be supplied]
+- Intended OAuth redirect URI: [to be agreed; local testing is preferred if supported]
+
+Could you confirm whether my situation is eligible for Partner API access or a development/test credential? If eligible, please advise on the application process and provide the current API reference, including OAuth authorization/token endpoints, required parameters and scopes, supported redirect URIs, daily-data fields and historical limits, and any fees or sandbox availability.
+
+I understand that the published Partner API requirements include a registered company and an established platform. If my situation does not qualify, please confirm whether a direct API testing option exists for individual developers.
+
+Thank you,
+[name]

@@ -6,7 +6,8 @@
   "scripts": {
     "test": "cross-env NODE_ENV=test jest",
     "reauth:fit": "node tools/fit_auth/reauth_fit.js",
-    "audit:deprecated": "node tools/deprecations_audit.js"
+    "audit:deprecated": "node tools/deprecations_audit.js",
+    "mcp:coros": "node coros_mcp_server.js"
   },
   "keywords": [],
   "author": "",

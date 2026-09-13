@@ -192,7 +192,21 @@ The `TCX` path performs:
 
 COROS FIT is not uploaded through `RunUploader`. It is supplied by the separate COROS synchronization flow and processed by the local server. Its date-level metrics and generated Run Comment are written into the shared `daily_summary` and `run_messages` data used by the new screen. A COROS FIT run can therefore appear in the new-screen run cards without adding FIT selection to `RunUploader`.
 
-The local server checks the COROS FIT and metadata directories at startup and every 30 seconds. New or changed FIT data is converted into minute data, date-level summary data, Run Comment input, and route-video data. Reprocessing the same `labelId` overwrites its generated artifacts.
+While automatic reflection is ON, the local server checks the COROS FIT and metadata directories at startup and every 30 seconds. New or changed FIT data is converted into minute data, date-level summary data, Run Comment input, and route-video data. Reprocessing the same `labelId` overwrites its generated artifacts.
+
+The new screen includes a `FIT自動反映` ON/OFF switch for this local automatic processing.
+
+- `GET /api/coros-auto-import` returns the saved enabled state, running state, 30-second interval, and latest processing error
+- `PUT /api/coros-auto-import` accepts a boolean `enabled` and persists it in `data/coros/auto-import-settings.json`
+- the setting is shared by clients and survives server restarts; the initial setting is ON when no settings file exists
+- OFF disables subsequent automatic FIT import and the Run Comment inbox scan in the same processing pass, including at server startup
+- an already-running pass finishes without aborting its saves or comment generation
+- turning ON starts a check immediately and then every 30 seconds; an existing in-flight pass is reused without overlap
+- the screen distinguishes OFF from OFF with a pass still finishing and reports setting-save or processing errors
+- the browser refreshes this control's status every 10 seconds, including while automatic reflection is OFF
+- the separate five-minute COROS acquisition schedule continues independently
+- manual import/apply operations and FIT-to-summary calculations are unchanged
+- malformed settings are reported as an error and do not silently enable processing
 
 COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
 
@@ -205,20 +219,35 @@ The new screen displays COROS synchronization status sourced from the Codex auto
 - when the automation memory has not been updated for more than 20 minutes, the panel displays a stopped-or-delayed warning
 - the automation memory text remains expandable in the panel for operational diagnosis
 
+Windows also runs an external synchronization watchdog through Task Scheduler.
+
+- the watchdog runs independently of the Codex desktop process every 10 minutes
+- it reads `data/run-comment/state/coros-sync-state.json`
+- when `updatedAt` is more than 20 minutes old or cannot be read, it notifies the logged-in Windows user that COROS synchronization has stopped and the Windows Codex app must be restarted
+- it does not restart Codex automatically
+- it records its notification state in `data/run-comment/state/coros-sync-watchdog.json`
+- after one stopped-state notification, further notifications are suppressed until synchronization recovers
+- after recovery, a later stopped state produces a new notification
+
 The Codex COROS automation uses minimal differential synchronization.
 
 - it does not re-read a fixed seven-day window and revalidate every historical FIT on each 10-minute run
-- the normal query range starts on the calendar day before the last successful activity-list check and ends at the current time
-- the one-day overlap captures a previous-day run that becomes available from COROS after midnight without restoring a fixed multi-day revalidation window
+- the activity query boundary is the `startTimestamp` of `lastImportedActivity`
+- the automation queries RUN activities whose `startTimestamp` is greater than or equal to that boundary
+- the boundary is inclusive so that the last imported activity is rechecked by `labelId` and any same-timestamp activity or partially persisted retry remains discoverable
+- when the COROS API accepts only date-based query bounds, the automation queries from the Japanese calendar date containing the boundary and filters the returned activities locally by `startTimestamp >= lastImportedActivity.startTimestamp`
+- when no imported activity exists yet, the automation queries the current Japanese calendar date as its initial range
 - no new COROS activity is a normal successful result
 - local FIT and metadata file existence is the primary completion check
 - when both files exist, the automation skips activity-detail retrieval, FIT download, signature validation, and SHA recalculation
 - when only FIT exists, metadata is reconstructed from the existing FIT plus COROS activity detail
-- when metadata or both files are missing, only that activity is downloaded
-- a COROS activity whose FIT is not available yet remains pending for the next run and is not treated as a connection failure
+- when metadata or both files are missing, the automation gets that activity's FIT download URL through `queryActivityFitFileDownloadUrls` and downloads only that activity
+- `downloadActivityFitFiles` is not used because its binary response is not accepted by the current Codex client; the download-URL route is the primary FIT retrieval path
+- an activity returned by the COROS activity list is processed without a separate "FIT not available yet" pending state
 - the activity cursor advances only after both FIT and metadata exist
-- a failed or pending activity prevents the cursor from advancing past that activity
-- the successful list-check time is updated even when no new activity exists, allowing a later recovery run to query the scheduler gap plus the one-day late-availability overlap instead of an arbitrary fixed window
+- an MCP call, download-URL retrieval, FIT download, signature-validation, or local-persistence failure is recorded as an error and prevents the cursor from advancing past that activity; the activity is retried on the next scheduled run
+- `lastSuccessfulListCheckAt` may be updated for status reporting, but it is never used as the activity query boundary
+- an empty activity-list result does not advance `lastImportedActivity`; the next scheduled run queries again from the same inclusive imported-activity boundary
 - `memory.md` is overwritten with the latest compact status instead of accumulating repetitive successful-run history
 
 Current `TCX` handling note:

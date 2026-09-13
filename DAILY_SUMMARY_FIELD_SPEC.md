@@ -598,7 +598,9 @@ The advice routes prefer already-saved `daily_summary` first, then cache, then r
 
 `POST /api/import-coros-fit/apply-comment` and the matching Run Comment inbox flow read `data/coros/intraday/YYYY-MM-DD_<labelId>.json`.
 
-The local server initiates this processing by scanning FIT and metadata directories at startup and every 30 seconds. The scan processes new FIT files, FIT files whose metadata SHA differs from the saved intraday SHA, and required local output that is missing. It avoids blindly regenerating older unchanged FIT history.
+While `FIT自動反映` is ON, the local server initiates this processing by scanning FIT and metadata directories at startup and every 30 seconds. The scan processes new FIT files, FIT files whose metadata SHA differs from the saved intraday SHA, and required local output that is missing. It avoids blindly regenerating older unchanged FIT history.
+
+The new-screen switch saves its setting on the server. OFF prevents subsequent automatic FIT/inbox processing while allowing an active pass to finish; ON checks immediately and resumes the 30-second interval without overlapping a pass. The setting survives server restarts and defaults to ON when absent. This control does not change exact-recalculation fields, manual import/apply operations, or the separate COROS acquisition schedule.
 
 Before Gemini comment generation, the server combines every valid COROS FIT minute JSON owned by the target date, recalculates one date-level summary, and writes it with `saveDailySummaryExact`.
 

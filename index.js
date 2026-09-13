@@ -14,6 +14,7 @@ const googleFitService = require('./google_fit_service');
 const trainingLoadService = require('./training_load_service');
 const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
+const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
 
 const app = express();
 const port = 3000;
@@ -30,6 +31,19 @@ const COROS_AUTOMATION_MEMORY_PATH = path.join(
   'memory.md'
 );
 let corosFitScanPromise = null;
+const corosAutoImport = createCorosAutoImport({
+  settingsPath: path.join(__dirname, 'data', 'coros', 'auto-import-settings.json'),
+  scan: async () => {
+    const fitResult = await scanCorosFitImports();
+    const inboxResult = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
+    const failures = [...fitResult.failed, ...inboxResult.failed];
+    if (failures.length > 0) {
+      console.warn('[coros-import] Scan failures:', failures);
+      throw new Error(`FIT自動反映で${failures.length}件の処理に失敗しました。`);
+    }
+  },
+  onError: error => console.error('[coros-import] Automatic import failed:', error)
+});
 
 function sanitizeCorosLabelId(labelId) {
   return /^\d+$/.test(String(labelId || '').trim()) ? String(labelId).trim() : '';
@@ -2407,6 +2421,26 @@ async function loadLegacyRunOwnedCachesFromDisk(dateString) {
   };
 }
 
+async function loadLegacyDayChartFallback(dateString) {
+  const [sessions, intradayRows] = await Promise.all([
+    readJsonIfExists(path.join(__dirname, 'storage', 'cache', `sessions_${dateString}.json`)),
+    readJsonIfExists(path.join(__dirname, 'storage', 'cache', `intraday_${dateString}.json`))
+  ]);
+  const normalizedRows = googleFitService.normalizeIntradayCacheRows(dateString, intradayRows);
+  if (!Array.isArray(normalizedRows) || normalizedRows.length === 0) return null;
+
+  return {
+    date: dateString,
+    sourceDates: [dateString],
+    sessions: filterRunSessionsOwnedByDate(sessions, dateString),
+    intradayRows: normalizedRows,
+    speedSeries: { date: dateString, dataSourceId: null, pointCount: 0, points: [] },
+    hrSeries: { date: dateString, dataSourceId: null, pointCount: 0, points: [] },
+    pitchSeries: { date: dateString, dataSourceId: null, pointCount: 0, points: [] },
+    displayFallback: 'legacy-day-cache'
+  };
+}
+
 async function importTcxContent(originalName, xmlText, fallbackDate = '', options = {}) {
   const normalizedOriginalName = String(originalName || '').trim();
   if (!/\.tcx$/i.test(normalizedOriginalName)) {
@@ -2745,6 +2779,11 @@ async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
       console.warn(`[legacy-run-owned] Rebuild failed for ${date}. Falling back to existing run-owned cache: ${err?.message || err}`);
       return existing;
     }
+    const legacyDayFallback = await loadLegacyDayChartFallback(date);
+    if (legacyDayFallback) {
+      console.warn(`[legacy-run-owned] Rebuild failed for ${date}. Using legacy day cache for display only: ${err?.message || err}`);
+      return legacyDayFallback;
+    }
     throw err;
   } finally {
     legacyRunOwnedBuilds.delete(date);
@@ -3024,6 +3063,8 @@ app.get('/api/coros-fit-runs', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.use('/api/coros-auto-import', createCorosAutoImportRouter(corosAutoImport));
 
 app.get('/api/coros-sync-status', async (req, res) => {
   try {
@@ -4412,22 +4453,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 if (require.main === module) {
   // 繧ｹ繝槭・縺九ｉ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ (0.0.0.0)
   app.listen(port, '0.0.0.0', () => {
-    scanCorosFitImports().then(async (result) => {
-      if (result.failed.length > 0) console.warn('[coros-fit-import] Initial import failures:', result.failed);
-      const inboxResult = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
-      if (inboxResult.failed.length > 0) console.warn('[run-comment-inbox] Initial import failures:', inboxResult.failed);
-    }).catch((error) => console.error('[coros-import] Initial scan failed:', error));
-    const timer = setInterval(async () => {
-      try {
-        const fitResult = await scanCorosFitImports();
-        if (fitResult.failed.length > 0) console.warn('[coros-fit-import] Scan failures:', fitResult.failed);
-        const inboxResult = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });
-        if (inboxResult.failed.length > 0) console.warn('[run-comment-inbox] Scan failures:', inboxResult.failed);
-      } catch (error) {
-        console.error('[coros-import] Scan failed:', error);
-      }
-    }, 30000);
-    if (typeof timer.unref === 'function') timer.unref();
+    corosAutoImport.start().catch(error => console.error('[coros-import] Could not start automatic import:', error));
   });
 }
 

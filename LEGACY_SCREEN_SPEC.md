@@ -130,6 +130,9 @@ Current run-owned cache behavior:
 - the selected date is the run ownership date
 - when a run starts on the selected date and its `end` is on the next day, the next-day portion is still included in the same start-date-owned run cache
 - therefore the legacy screen can treat one cross-midnight run as one run owned by its start date
+- if run-owned cache reconstruction fails and no previously built run-owned cache exists, the screen may use the saved day-based `intraday_YYYY-MM-DD.json` as a display-only fallback
+- this fallback normalizes timestamps for rendering, does not create run-owned cache files, and does not update `daily_summary`
+- detailed Google Fit series unavailable from the saved day cache remain empty; the minute chart and table can still be displayed
 
 The legacy summary card currently displays:
 
@@ -184,7 +187,10 @@ Current TCX-driven legacy behavior:
 Current COROS FIT legacy behavior:
 
 - run-based COROS FIT minute data is stored under `data/coros/intraday`
-- the local server scans COROS FIT and metadata at startup and every 30 seconds
+- while `FIT自動反映` is ON, the local server scans COROS FIT and metadata at startup and every 30 seconds
+- the new-screen `FIT自動反映` switch controls this automatic processing and its associated Run Comment inbox scan; its server-saved setting persists across restarts and defaults to ON when absent
+- OFF lets an active pass finish and prevents subsequent passes; ON checks immediately and resumes the 30-second interval without overlapping an active pass
+- manual import/apply operations and the separate five-minute COROS acquisition schedule remain available independently
 - only new FIT data, changed FIT SHA data, or missing local output is processed; existing historical FIT files are not blindly regenerated
 - when COROS FIT minute data exists, the shared run-minute charts and `Per Minute` table display those rows
 - COROS FIT and TCX use the same `renderTcxMinuteCharts` chart-rendering path for:

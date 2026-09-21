@@ -208,6 +208,21 @@ The new screen includes a `FIT自動反映` ON/OFF switch for this local automat
 - manual import/apply operations and FIT-to-summary calculations are unchanged
 - malformed settings are reported as an error and do not silently enable processing
 
+The `取込完了の携帯通知` control enables browser system notifications on the current device while the screen remains open.
+
+- the user explicitly enables notifications with a button; HTTPS, browser notification permission, and Service Worker support are required
+- notifications use `ServiceWorkerRegistration.showNotification()` for Android compatibility; no Push API subscription or background polling is added
+- completion means that the imported RUN metrics and generated comment have been saved successfully, not merely that the FIT was downloaded
+- the automatic scan returns each successfully applied RUN with its source revision; route-only repair, unchanged data, empty scans, failed RUNs, and temporary service-unavailable comments do not generate completion events
+- successful RUNs in a partially failed pass still produce their own completion events; failed RUNs remain errors
+- the server atomically persists completion revisions and the latest 100 events in `data/coros/import-completions.json`, retaining duplicate suppression across restarts
+- the existing `GET /api/coros-auto-import` response additionally returns `completionSequence` and `completions`; the existing 10-second screen status check detects them
+- notification preferences and the last displayed event sequence are saved per browser and API base; enabling starts from the current sequence without announcing old imports
+- the notification cursor advances after successful display; a failed display retries on a subsequent status check, and Web Locks coordinate open tabs where supported
+- receiving a new completion also refreshes the RUN list without reloading the page; tapping a notification focuses the app or opens it
+- COROS acquisition and local FIT scan intervals are unchanged; mobile background suspension can delay detection until the page runs again
+- for mobile HTTPS use, both the page and its API must be reachable securely; configure `NEXT_PUBLIC_API_URL` for the existing HTTPS API or reverse proxy when needed
+
 COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
 
 The new screen displays COROS synchronization status sourced from the Codex automation `memory.md`.

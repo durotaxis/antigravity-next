@@ -15,6 +15,7 @@ const trainingLoadService = require('./training_load_service');
 const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
+const { fitRevision, completedImports } = require('./coros_import_completions');
 
 const app = express();
 const port = 3000;
@@ -39,8 +40,11 @@ const corosAutoImport = createCorosAutoImport({
     const failures = [...fitResult.failed, ...inboxResult.failed];
     if (failures.length > 0) {
       console.warn('[coros-import] Scan failures:', failures);
-      throw new Error(`FIT自動反映で${failures.length}件の処理に失敗しました。`);
     }
+    return {
+      completed: completedImports(fitResult, inboxResult),
+      failed: failures
+    };
   },
   onError: error => console.error('[coros-import] Automatic import failed:', error)
 });
@@ -889,7 +893,7 @@ async function generateAndPersistCorosFitRunMessage(dateString, labelId, provide
   await repo.saveRunMessage({ date: dateString, run_id: labelId, message });
   await repo.saveDailySummary({ date: dateString, message });
   const summary = await repo.getDailySummary(dateString);
-  return { message, model: normalizeAdviceProvider(provider), source: 'coros_fit', labelId, intradayPath, summary };
+  return { message, notificationReady: !isTemporaryRunMessage(message), model: normalizeAdviceProvider(provider), source: 'coros_fit', labelId, intradayPath, summary };
 }
 
 async function importAndApplyCorosFit(dateString, labelId, provider = 'gemini') {
@@ -903,7 +907,7 @@ async function importAndApplyCorosFit(dateString, labelId, provider = 'gemini') 
   const routeOutputPath = getCorosFitRoutePath(date, safeLabelId);
   const payload = await corosFitImporter.importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPath });
   const applied = await generateAndPersistCorosFitRunMessage(date, safeLabelId, provider);
-  return { date, labelId: safeLabelId, minuteCount: payload.chartData.length, routePointCount: payload.routePointCount, outputPath, routeOutputPath, applied };
+  return { date, labelId: safeLabelId, revision: fitRevision(payload), minuteCount: payload.chartData.length, routePointCount: payload.routePointCount, outputPath, routeOutputPath, applied };
 }
 
 async function scanCorosFitImportsInternal() {

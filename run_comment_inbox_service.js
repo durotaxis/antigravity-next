@@ -1,4 +1,6 @@
 const fs = require('fs').promises;
+const crypto = require('crypto');
+const { fitRevision } = require('./coros_import_completions');
 const path = require('path');
 const geminiService = require('./gemini_service');
 
@@ -93,9 +95,11 @@ async function importOneFile(filename, repo, options = {}) {
   const normalized = validatePayload(payload, filename);
   const fitIntradayPath = path.join(__dirname, 'data', 'coros', 'intraday', `${normalized.date}_${normalized.activityId}.json`);
   let hasFitIntraday = false;
+  let revision;
   try {
     const fitPayload = JSON.parse(await fs.readFile(fitIntradayPath, 'utf8'));
     hasFitIntraday = fitPayload?.source === 'coros_fit' && String(fitPayload?.labelId || '') === normalized.activityId && Array.isArray(fitPayload?.chartData) && fitPayload.chartData.length > 0;
+    if (hasFitIntraday) revision = fitRevision(fitPayload);
   } catch (error) {
     if (!error || error.code !== 'ENOENT') throw error;
   }
@@ -105,6 +109,9 @@ async function importOneFile(filename, repo, options = {}) {
     if (typeof options.generateCorosFitRunMessage !== 'function') throw new Error('COROS FIT Run Comment generator is required');
     generated = await options.generateCorosFitRunMessage(normalized.date, normalized.activityId, 'gemini');
   } else {
+    const sourcePayload = { ...payload };
+    for (const field of ['message', 'generatedAt', 'generatedBy', 'model']) delete sourcePayload[field];
+    revision = `overview:${crypto.createHash('sha256').update(JSON.stringify(sourcePayload)).digest('hex')}`;
     const previous = await repo.getRunMessage(normalized.date, normalized.activityId);
     generated = await geminiService.generateCorosRunComment(payload, previous?.message || '');
     await repo.saveRunMessage({ date: normalized.date, run_id: normalized.activityId, message: generated.message });
@@ -121,7 +128,10 @@ async function importOneFile(filename, repo, options = {}) {
   await fs.writeFile(temporaryPath, JSON.stringify(enrichedPayload, null, 2), 'utf8');
   await fs.rename(temporaryPath, sourcePath);
   const processedPath = await replaceProcessedFile(sourcePath, filename);
-  return { filename, date: normalized.date, activityId: normalized.activityId, model: generated.model, processedPath };
+  const message = String(generated.message || '').trim();
+  const notificationReady = Boolean(message) && generated.notificationReady !== false &&
+    message !== (geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || '現在利用が制限されています。しばらくお待ちください。');
+  return { filename, date: normalized.date, activityId: normalized.activityId, revision, notificationReady, model: generated.model, processedPath };
 }
 
 async function scanInboxInternal(repo, options = {}) {

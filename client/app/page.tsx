@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import EfficiencyChart from './EfficiencyChart';
 // 菴懈・縺励◆繧ｳ繝ｳ繝昴・繝阪Φ繝医ｒ繧､繝ｳ繝昴・繝・
 import ImageGrid from './components/ImageGrid';
@@ -609,28 +609,27 @@ export default function Home() {
     }
   };
 
-  const isToday = (dateStr: string) => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return dateStr === `${y}-${m}-${day}`;
-  };
+  const loadRuns = useCallback(() => {
+    const isToday = (dateStr: string) => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return dateStr === `${y}-${m}-${day}`;
+    };
 
-  const isEmptyRunCard = (run: Run) => {
-    const hasDistance = Number(run.distance || 0) > 0;
-    const hasSteps = Number(run.steps || 0) > 0;
-    const hasStride = Number(run.avg_stride || 0) > 0 || Number(run.max_stride || 0) > 0;
-    const hasHr = Number(run.avg_heart_rate || 0) > 0 || Number(run.max_heart_rate || 0) > 0;
-    const hasSpeed = Number(run.avg_speed || 0) > 0 || Number(run.max_speed || 0) > 0;
-    const hasCadence = Number(run.avg_cadence || 0) > 0 || Number(run.max_cadence || 0) > 0;
-    const hasMessage = typeof run.message === 'string' && run.message.trim().length > 0;
-    return !(hasDistance || hasSteps || hasStride || hasHr || hasSpeed || hasCadence || hasMessage);
-  };
+    const isEmptyRunCard = (run: Run) => {
+      const hasDistance = Number(run.distance || 0) > 0;
+      const hasSteps = Number(run.steps || 0) > 0;
+      const hasStride = Number(run.avg_stride || 0) > 0 || Number(run.max_stride || 0) > 0;
+      const hasHr = Number(run.avg_heart_rate || 0) > 0 || Number(run.max_heart_rate || 0) > 0;
+      const hasSpeed = Number(run.avg_speed || 0) > 0 || Number(run.max_speed || 0) > 0;
+      const hasCadence = Number(run.avg_cadence || 0) > 0 || Number(run.max_cadence || 0) > 0;
+      const hasMessage = typeof run.message === 'string' && run.message.trim().length > 0;
+      return !(hasDistance || hasSteps || hasStride || hasHr || hasSpeed || hasCadence || hasMessage);
+    };
 
-  // Express (Port 3000) 縺九ｉ繝・・繧ｿ繧貞叙蠕・
-  useEffect(() => {
-    fetch(`${API_BASE}/api/runs?includeDerived=1`)
+    return fetch(`${API_BASE}/api/runs?includeDerived=1`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -667,6 +666,8 @@ export default function Home() {
         setError('Failed to fetch data');
       });
   }, [API_BASE]);
+
+  useEffect(() => { void loadRuns(); }, [loadRuns]);
 
   useEffect(() => {
     let active = true;
@@ -730,7 +731,7 @@ export default function Home() {
         </h1>
         {/* Upload Component */}
         <RunUploader />
-        <CorosAutoImportControl apiBase={API_BASE} />
+        <CorosAutoImportControl apiBase={API_BASE} onImported={loadRuns} />
         {corosSyncStatus && (
           <details className={`mt-4 rounded-lg border p-4 ${corosSyncStatus.delayed ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
             <summary className="cursor-pointer font-semibold text-gray-800">

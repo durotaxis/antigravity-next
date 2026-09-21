@@ -2,8 +2,10 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const { createCorosImportCompletions } = require('./coros_import_completions');
 
 function createCorosAutoImport({ settingsPath, scan, intervalMs = 30000, onError = console.error }) {
+  const completions = createCorosImportCompletions(path.join(path.dirname(settingsPath), 'import-completions.json'));
   let enabled;
   let initialized;
   let started = false;
@@ -28,7 +30,11 @@ function createCorosAutoImport({ settingsPath, scan, intervalMs = 30000, onError
   const status = () => ({ enabled, running: Boolean(running), intervalSeconds: intervalMs / 1000, lastError });
   const run = () => {
     if (!started || !enabled || running) return;
-    running = Promise.resolve().then(scan).then(() => { lastError = null; }).catch(error => {
+    running = Promise.resolve().then(scan).then(async result => {
+      await completions.record(result?.completed || []);
+      if (result?.failed?.length) throw new Error(`FIT自動反映で${result.failed.length}件の処理に失敗しました。`);
+      lastError = null;
+    }).catch(error => {
       lastError = error?.message || String(error);
       onError(error);
     }).finally(() => { running = null; });
@@ -49,7 +55,7 @@ function createCorosAutoImport({ settingsPath, scan, intervalMs = 30000, onError
       started = true;
       schedule();
     },
-    async getStatus() { await initialize(); return status(); },
+    async getStatus() { await initialize(); return { ...status(), ...await completions.getSnapshot() }; },
     setEnabled(value) {
       if (typeof value !== 'boolean') return Promise.reject(new TypeError('enabled must be a boolean'));
       const update = updates.then(async () => {
@@ -63,7 +69,7 @@ function createCorosAutoImport({ settingsPath, scan, intervalMs = 30000, onError
         const changed = enabled !== value;
         enabled = value;
         if (changed) schedule();
-        return status();
+        return { ...status(), ...await completions.getSnapshot() };
       });
       updates = update.catch(() => {});
       return update;

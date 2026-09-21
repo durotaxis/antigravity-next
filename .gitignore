@@ -58,3 +58,4 @@ storage/cache/
 data/run-comment/inbox/*.json
 data/run-comment/processed/*.json
 data/run-comment/state/*.json
+data/coros/import-completions.json*

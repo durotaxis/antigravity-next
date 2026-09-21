@@ -1,14 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import CorosImportNotifications from './CorosImportNotifications';
+import type { ImportCompletionSnapshot } from '../../lib/corosImportNotifications';
 
-type ImportStatus = { enabled: boolean; running: boolean; intervalSeconds: number; lastError: string | null };
+type ImportStatus = ImportCompletionSnapshot & { enabled: boolean; running: boolean; intervalSeconds: number; lastError: string | null };
 
-export default function CorosAutoImportControl({ apiBase }: { apiBase: string }) {
+export default function CorosAutoImportControl({ apiBase, onImported }: { apiBase: string; onImported?: () => void }) {
   const [status, setStatus] = useState<ImportStatus | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revision = useRef(0);
+  const completionSequence = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!status || !Number.isSafeInteger(status.completionSequence)) return;
+    const previous = completionSequence.current;
+    completionSequence.current = status.completionSequence;
+    if (previous !== null && status.completionSequence > previous) onImported?.();
+  }, [status, onImported]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -69,6 +79,7 @@ export default function CorosAutoImportControl({ apiBase }: { apiBase: string })
       <p className="mt-1 text-xs text-gray-500">COROSからの新規RUN取得は、5分間隔で継続します。</p>
       {status?.lastError && <p className="mt-2 text-sm text-amber-700" role="status">{status.lastError}</p>}
       {error && <p className="mt-2 text-sm text-red-700" role="alert">{error}</p>}
+      <CorosImportNotifications apiBase={apiBase} snapshot={status} />
     </section>
   );
 }

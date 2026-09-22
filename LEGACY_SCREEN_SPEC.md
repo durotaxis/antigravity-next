@@ -1,6 +1,6 @@
 # Legacy Screen Specification
 
-Last updated: 2026-07-25
+Last updated: 2026-09-19
 
 ## 1. Scope
 
@@ -36,6 +36,15 @@ The legacy screen contains these major areas:
 - Modal/lightbox area
   - Phone Link image picker modal
   - Image lightbox
+
+### 2.1 Collapsible areas
+
+- `1km Splits`, `TCX 1km Splits`, and `DEBUG` start collapsed on page load.
+- Each area's heading toggles it open or closed by click, tap, or keyboard (Enter/Space).
+- Split copy buttons and debug controls are available when their area is expanded.
+- Opening or closing an area only changes its display; it does not trigger data loading, synchronization, or deletion.
+- The existing run-source rules still determine which split area is available.
+- Charts, summary values, minute tables, setup controls, and run history retain their existing display behavior.
 
 ## 3. Shared Data Model Used by Legacy Screen
 

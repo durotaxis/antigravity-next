@@ -142,6 +142,28 @@ h1 {
     flex-wrap: wrap;
 }
 
+details.controls {
+    display: block;
+}
+
+.collapsible-summary {
+    cursor: pointer;
+    padding: 4px 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.collapsible-summary:focus-visible {
+    outline: 2px solid var(--text-secondary);
+    outline-offset: 4px;
+}
+
+.collapsible-card > .control-primary {
+    margin-top: 16px;
+}
+
 .control-options {
     display: flex;
     align-items: center;

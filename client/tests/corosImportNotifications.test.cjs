@@ -10,7 +10,7 @@ const source = fs.readFileSync(path.join(__dirname, '../lib/corosImportNotificat
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
 const exportsObject = {};
 vm.runInNewContext(compiled.outputText, { exports: exportsObject });
-const { deliverImportNotifications, readNotificationPreferences, setImportNotifications } = exportsObject;
+const { deliverImportNotifications, deliverTestImportNotification, readNotificationPreferences, setImportNotifications } = exportsObject;
 const event = sequence => ({ sequence, date: '2026-09-21', runId: String(sequence), completedAt: '2026-09-21T10:00:00Z' });
 function setup() {
   const data = new Map();
@@ -54,4 +54,14 @@ test('server journal reset establishes a fresh baseline', async () => {
   setImportNotifications(options.storage, options.key, true, 50);
   assert.equal(await deliverImportNotifications({ ...options, snapshot: { completionSequence: 1, completions: [event(1)] } }), 0);
   assert.equal(readNotificationPreferences(options.storage, options.key).cursor, 1);
+});
+
+test('test notification does not change the import cursor', async () => {
+  const options = setup();
+  setImportNotifications(options.storage, options.key, true, 2);
+  await deliverTestImportNotification(options);
+  assert.equal(options.shown.length, 1);
+  assert.equal(options.shown[0].title, 'AntiGravity 通知テスト');
+  assert.match(options.shown[0].options.tag, /^coros-import-test-/);
+  assert.equal(readNotificationPreferences(options.storage, options.key).cursor, 2);
 });

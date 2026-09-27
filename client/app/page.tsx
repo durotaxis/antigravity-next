@@ -15,7 +15,8 @@ function getApiBase(): string {
   if (envBase) return envBase;
   if (typeof window !== 'undefined') {
     const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:3000`;
+    if (protocol === 'https:') return window.location.origin;
+    return `http://${hostname}:3000`;
   }
   return 'http://localhost:3000';
 }

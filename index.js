@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
+const fsSync = require('fs');
 const repo = require('./repo');
 const imageRepo = require('./image_repo');
 const imageService = require('./image_service');
@@ -16,9 +18,11 @@ const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
 const { fitRevision, completedImports } = require('./coros_import_completions');
+const { createHttpsFrontendHandler, attachNewScreenUpgradeProxy } = require('./new_screen_proxy');
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT || 3000);
+const httpsPort = Number(process.env.HTTPS_PORT || 3443);
 const GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE = geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || "現在利用が制限されています。しばらくお待ちください。";
 const TCX_SOURCE_DIR = imageService.INBOX_DIR;
 const COROS_FIT_INTRADAY_DIR = path.join(__dirname, 'data', 'coros', 'intraday');
@@ -4454,11 +4458,54 @@ app.post('/api/advice/gemini/chart', async (req, res) => {
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 // --- Server Start ---
+function loadHttpsOptions() {
+  const pfxPath = String(process.env.HTTPS_PFX_PATH || '').trim();
+  const keyPath = String(process.env.HTTPS_KEY_PATH || '').trim();
+  const certPath = String(process.env.HTTPS_CERT_PATH || '').trim();
+  const passphrase = process.env.HTTPS_PASSPHRASE;
+
+  if (pfxPath) {
+    return {
+      pfx: fsSync.readFileSync(path.resolve(pfxPath)),
+      ...(passphrase ? { passphrase } : {})
+    };
+  }
+
+  if (keyPath || certPath) {
+    if (!keyPath || !certPath) {
+      throw new Error('HTTPS_KEY_PATH and HTTPS_CERT_PATH must be configured together.');
+    }
+    return {
+      key: fsSync.readFileSync(path.resolve(keyPath)),
+      cert: fsSync.readFileSync(path.resolve(certPath)),
+      ...(passphrase ? { passphrase } : {})
+    };
+  }
+
+  return null;
+}
+
 if (require.main === module) {
-  // 繧ｹ繝槭・縺九ｉ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ (0.0.0.0)
   app.listen(port, '0.0.0.0', () => {
+    console.log(`HTTP server listening on http://0.0.0.0:${port}`);
     corosAutoImport.start().catch(error => console.error('[coros-import] Could not start automatic import:', error));
   });
+
+  try {
+    const httpsOptions = loadHttpsOptions();
+    if (httpsOptions) {
+      const httpsServer = https.createServer(httpsOptions, createHttpsFrontendHandler(app));
+      attachNewScreenUpgradeProxy(httpsServer);
+      httpsServer.listen(httpsPort, '0.0.0.0', () => {
+        console.log(`HTTPS server listening on https://0.0.0.0:${httpsPort}`);
+      });
+    } else {
+      console.log('HTTPS server disabled: configure HTTPS_PFX_PATH or HTTPS_KEY_PATH + HTTPS_CERT_PATH.');
+    }
+  } catch (error) {
+    console.error(`HTTPS server could not start: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
 
 module.exports = app;

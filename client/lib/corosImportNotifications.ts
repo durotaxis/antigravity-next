@@ -19,6 +19,17 @@ export function setImportNotifications(storage: StorageAccess, key: string, enab
   storage.setItem(key, JSON.stringify({ enabled, cursor }));
 }
 
+export async function deliverTestImportNotification({ show, url }: {
+  show: (title: string, options: NotificationOptions) => Promise<void>;
+  url: string;
+}) {
+  await show('AntiGravity 通知テスト', {
+    body: '携帯通知を表示できる状態です。',
+    tag: `coros-import-test-${Date.now()}`,
+    data: { url },
+  });
+}
+
 // Call under a Web Lock when available so tabs share one notification cursor.
 export async function deliverImportNotifications({ snapshot, storage, key, show, url }: {
   snapshot: ImportCompletionSnapshot;

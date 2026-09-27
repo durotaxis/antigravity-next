@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-07-22
+Last updated: 2026-09-26
 
 ## 1. Scope
 
@@ -212,6 +212,8 @@ The `取込完了の携帯通知` control enables browser system notifications o
 
 - the user explicitly enables notifications with a button; HTTPS, browser notification permission, and Service Worker support are required
 - notifications use `ServiceWorkerRegistration.showNotification()` for Android compatibility; no Push API subscription or background polling is added
+- while notifications are enabled, the control provides a test-notification action plus visible browser-permission, Service Worker, server-sequence, and device-cursor diagnostics
+- a test notification does not advance or otherwise change the imported-RUN completion cursor
 - completion means that the imported RUN metrics and generated comment have been saved successfully, not merely that the FIT was downloaded
 - the automatic scan returns each successfully applied RUN with its source revision; route-only repair, unchanged data, empty scans, failed RUNs, and temporary service-unavailable comments do not generate completion events
 - successful RUNs in a partially failed pass still produce their own completion events; failed RUNs remain errors
@@ -221,7 +223,15 @@ The `取込完了の携帯通知` control enables browser system notifications o
 - the notification cursor advances after successful display; a failed display retries on a subsequent status check, and Web Locks coordinate open tabs where supported
 - receiving a new completion also refreshes the RUN list without reloading the page; tapping a notification focuses the app or opens it
 - COROS acquisition and local FIT scan intervals are unchanged; mobile background suspension can delay detection until the page runs again
-- for mobile HTTPS use, both the page and its API must be reachable securely; configure `NEXT_PUBLIC_API_URL` for the existing HTTPS API or reverse proxy when needed
+- for mobile HTTPS use, both the page and its API must be reachable securely
+- HTTP on `PORT` (default `3000`) continues to serve the legacy screen and API
+- HTTPS on `HTTPS_PORT` (default `3443`) is the secure new-screen entry point when either `HTTPS_PFX_PATH`, or both `HTTPS_KEY_PATH` and `HTTPS_CERT_PATH`, are configured
+- on the HTTPS listener, `/api/*` and `/assets/store/*` continue to be handled by the local API application; other paths, including `/`, Next.js assets, and the notification Service Worker, are forwarded to the new-screen server at `CLIENT_URL` (default `http://localhost:3001`)
+- when `CLIENT_URL` uses a loopback hostname but the Next.js server is bound to a local network address, the HTTPS entry point may connect through that matching local interface address
+- opening `https://<page-host>:3443/` therefore displays the new screen; the legacy screen remains available through HTTP on port `3000`
+- `HTTPS_PASSPHRASE` supplies the optional private-key or PFX passphrase
+- `NEXT_PUBLIC_API_URL` remains the authoritative explicit API URL; when it is absent, an HTTPS page uses its own origin (normally `https://<page-host>:3443`) and an HTTP page uses `http://<page-host>:3000`
+- the certificate must be trusted by the phone or browser and must contain the hostname or IP address used to open the app
 
 COROS metadata JSON is read as UTF-8. Both UTF-8 with BOM and UTF-8 without BOM are accepted; a leading BOM does not cause FIT ingest to fail. This input compatibility does not change FIT parsing, TCX behavior, or `daily_summary` calculation rules.
 

@@ -17,6 +17,7 @@ const trainingLoadService = require('./training_load_service');
 const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
+const { createCorosDirectMcp, createCorosDirectRouter } = require('./coros_direct_mcp');
 const { fitRevision, completedImports } = require('./coros_import_completions');
 const { createHttpsFrontendHandler, attachNewScreenUpgradeProxy } = require('./new_screen_proxy');
 
@@ -3073,6 +3074,23 @@ app.get('/api/coros-fit-runs', async (req, res) => {
 });
 
 app.use('/api/coros-auto-import', createCorosAutoImportRouter(corosAutoImport));
+app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
+  applyFit: async (date, labelId) => {
+    // Share the existing local scan lock; manual retrieval adds no timer.
+    while (corosFitScanPromise) await corosFitScanPromise;
+    const pass = importAndApplyCorosFit(date, labelId).then(result => ({ imported: [result], failed: [] }));
+    corosFitScanPromise = pass;
+    try {
+      const result = (await pass).imported[0];
+      if (!result.applied?.notificationReady) throw new Error('FITは保存済みですが、コメント生成を完了できませんでした。再受信で再試行します。');
+      return result;
+    } finally { if (corosFitScanPromise === pass) corosFitScanPromise = null; }
+  },
+  isApplied: async (date, labelId) => {
+    const row = await repo.getRunMessage(date, labelId);
+    return Boolean(row?.message && !isTemporaryRunMessage(row.message));
+  }
+})));
 
 app.get('/api/coros-sync-status', async (req, res) => {
   try {

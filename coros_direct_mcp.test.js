@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 const express = require('express');
 const request = require('supertest');
-const { CorosOAuthProvider, createCorosDirectMcp, createCorosDirectRouter, toolArguments, fitUrl, parseActivity, validDate } = require('./coros_direct_mcp');
+const { CorosOAuthProvider, createCorosDirectMcp, createCorosDirectRouter, toolData, listActivities, toolArguments, fitUrl, parseActivity, validDate } = require('./coros_direct_mcp');
 const { importCorosFit } = require('./coros_fit_importer');
 
 const records = [
@@ -87,6 +87,60 @@ test('empty day is a normal no-op; unknown response is not', async () => {
   expect(fetchFn).not.toHaveBeenCalled();
   const unknown = await setup({ list: { unexpected: [] } });
   await expect(unknown.controller.receive('2026-09-08')).rejects.toThrow('未対応');
+});
+
+const liveReport = 'Sport Records — 2026-10-03 to 2026-10-03 (1 records)\n========================\n\n1. Outdoor Run — 2026-10-03\n   Location: 東京 ラン\n   Start Coordinates: 35.702999, 139.783997\n   Time Window: startTimestamp=1791008057 | endTimestamp=1791012470\n   Duration: 1:13:32 | Distance: 7.54 km\n   Average Pace: 9:45 /km | Avg HR: 125 bpm | Calories: 452 kcal\n   LabelId: 480771254784131273 | SportType: 100';
+
+test.each([liveReport, JSON.stringify(liveReport)])('live report text decodes and preserves the full activity ID', text => {
+  const result = toolData({ content: [{ type: 'text', text }] }, true);
+  expect(listActivities(result, '2026-10-03')).toEqual([{ labelId: '480771254784131273', sportType: 100, startTimestamp: 1791008057, endTimestamp: 1791012470 }]);
+});
+
+test('text report accepts only explicit zero records and rejects incomplete or unknown reports', () => {
+  expect(listActivities('No sport records found from 2020-01-01 to 2020-01-01.', '2020-01-01')).toEqual([]);
+  expect(() => listActivities('No sport records found from 2020-01-01 to 2020-01-01.', '2026-10-03')).toThrow('一致');
+  expect(listActivities('Sport Records — 2026-10-03 to 2026-10-03 (0 records)\n========================', '2026-10-03')).toEqual([]);
+  expect(() => listActivities('No activities found')).toThrow('未対応');
+  expect(() => listActivities(liveReport.replace('(1 records)', '(2 records)'))).toThrow('途中');
+  expect(() => listActivities(liveReport.replace('   Time Window:', '   Missing:'))).toThrow('必須');
+  expect(() => listActivities(liveReport, '2026-10-02')).toThrow('一致');
+  expect(() => toolData({ content: [{ type: 'text', text: liveReport }] })).toThrow('構造化JSON');
+});
+
+test.each([[false, '1:13:32'], [true, '1:13:32'], [false, '39:49'], [true, '39:49']])('receive handles the complete text response flow (JSON encoded: %s, workout time: %s)', async (encoded, workoutTime) => {
+  const { controller, client, fetchFn, applyFit } = await setup();
+  const report = 'Sport Records — 2026-09-08 to 2026-09-08 (2 records)\n========================\n\n' + records.map((r, i) => `${i + 1}. Outdoor Run — 2026-09-08\n   Time Window: startTimestamp=${r.startTimestamp} | endTimestamp=${r.endTimestamp}\n   LabelId: ${r.labelId} | SportType: ${r.sportType}`).join('\n\n');
+  const detail = `🏃 Outdoor Run Activity Details\n========================================\n\nWorkout Time: ${workoutTime}\nDistance: 7.54 km\nTotal Time: ${workoutTime}\nAverage Heart Rate: 125 bpm`;
+  client.callTool.mockImplementation(({ name, arguments: args }) => {
+    const text = name === 'querySportRecords' ? report : name === 'getActivityDetail' ? detail :
+      `Activity FIT file download URL(s):\n1. ${args.labelId}.fit\n   https://files.coros.com/${args.labelId}.fit`;
+    return { content: [{ type: 'text', text: encoded ? JSON.stringify(text) : text }] };
+  });
+  expect((await controller.receive('2026-09-08')).imported).toEqual(records.map(r => r.labelId));
+  expect(fetchFn).toHaveBeenCalledTimes(2);
+  expect(applyFit).toHaveBeenCalledTimes(2);
+  const metadata = JSON.parse(await fs.readFile(path.join(root, 'data/coros/metadata', `2026-09-08_${records[0].labelId}.json`), 'utf8'));
+  expect(metadata.activityDetails).toEqual({ format: 'coros_mcp_text', text: detail });
+  expect((await controller.receive('2026-09-08')).skipped).toEqual(records.map(r => r.labelId));
+  expect(fetchFn).toHaveBeenCalledTimes(2);
+});
+
+test.each(['unknown detail', 'wrong URL activity', 'multiple URLs', 'untrusted URL'])('invalid text %s fails before FIT download and application', async failure => {
+  const { controller, client, fetchFn, applyFit } = await setup({ list: [records[0]] });
+  const original = client.callTool.getMockImplementation();
+  client.callTool.mockImplementation(args => {
+    if (args.name === 'getActivityDetail' && failure === 'unknown detail') return { content: [{ type: 'text', text: 'Service unavailable' }] };
+    if (args.name === 'queryActivityFitFileDownloadUrls') {
+      const id = failure === 'wrong URL activity' ? records[1].labelId : records[0].labelId;
+      const url = failure === 'untrusted URL' ? 'https://coros.com.attacker.example/file.fit' : 'https://files.coros.com/file.fit';
+      const extra = failure === 'multiple URLs' ? `\n2. ${records[1].labelId}.fit\n   https://files.coros.com/another.fit` : '';
+      return { content: [{ type: 'text', text: `Activity FIT file download URL(s):\n1. ${id}.fit\n   ${url}${extra}` }] };
+    }
+    return original(args);
+  });
+  expect((await controller.receive('2026-09-08')).failed).toHaveLength(1);
+  expect(fetchFn).not.toHaveBeenCalled();
+  expect(applyFit).not.toHaveBeenCalled();
 });
 
 test('invalid FIT never reaches metadata or application', async () => {

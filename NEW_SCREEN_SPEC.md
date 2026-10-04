@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 
 ## 1. Scope
 
@@ -339,6 +339,10 @@ The server discovers the COROS MCP authorization metadata, uses dynamic client r
 For each returned RUN activity, the server retrieves its details and FIT download URL, validates the FIT before replacement, and writes the FIT and metadata into the existing COROS directories. The existing COROS importer then owns minute data, exact date-level metrics, Run Comment generation, and route output. The manual receiver shares the existing import lock with automatic processing and reuses already-valid local FIT pairs when possible.
 
 The manual path does not alter `RunUploader`, TCX behavior, same-date aggregation rules, FIT calculations, or the existing automatic reflection and scheduled acquisition behavior. It fails explicitly for unknown required live-tool arguments, unrecognized or truncated activity responses, unsafe IDs, date mismatches, and invalid FIT downloads rather than inventing fallback values.
+
+The manual receiver also accepts the verified `querySportRecords` text report beginning with `Sport Records — YYYY-MM-DD to YYYY-MM-DD (N records)`, whether returned as plain text or a JSON-encoded string. It extracts each numbered activity's full string `LabelId`, `SportType`, and `Time Window` timestamps. The reported count must match the parsed activities, required fields must be present, and report dates must match the requested date. An explicit zero-count report with no activity body or the verified `No sport records found from YYYY-MM-DD to YYYY-MM-DD.` response is accepted as an empty text list only for the requested date; unknown or incomplete text remains an error. Existing structured JSON activity lists remain supported.
+
+For `getActivityDetail`, the verified text report headed `🏃 Outdoor Run Activity Details` with workout time and distance is preserved in metadata as `{ format: "coros_mcp_text", text: ... }`; it is not converted into summary metrics. `Workout Time` accepts both minutes:seconds (for example, `39:49`) and hours:minutes:seconds (for example, `1:13:32`). Other unrecognized text detail formats fail explicitly. `queryActivityFitFileDownloadUrls` also accepts the verified `Activity FIT file download URL(s):` text report with exactly one numbered `<labelId>.fit` entry and its URL. The filename ID must match the requested activity, and the existing official COROS HTTPS URL and FIT integrity checks still apply. Plain-text and JSON-encoded reports are both supported, along with existing structured JSON responses. FIT parsing and `daily_summary` calculation rules are unchanged.
 
 ## 7. Run Cards
 

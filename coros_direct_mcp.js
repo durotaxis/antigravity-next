@@ -67,11 +67,12 @@ class CorosOAuthProvider {
   }
 }
 
-function toolData(result) {
+function toolData(result, allowText = false) {
   if (result?.isError) throw new Error('COROS MCPがエラーを返しました。再接続または日付を確認してください。');
   if (result?.structuredContent) return result.structuredContent;
   const texts = (result?.content || []).filter(item => item.type === 'text').map(item => item.text);
   for (const text of texts) { try { return JSON.parse(text); } catch {} }
+  if (allowText && texts.length === 1) return texts[0];
   throw new Error('COROSの応答が構造化JSONではありません。取込を停止しました。');
 }
 
@@ -93,13 +94,43 @@ function listEnvelope(data) {
   return data;
 }
 
-function listActivities(data) {
+function listActivities(data, date) {
+  if (typeof data === 'string') return textActivities(data, date);
   if (Array.isArray(data)) return data;
   for (const key of ['records', 'activities', 'sportRecords', 'list', 'items']) {
     if (Array.isArray(data?.[key])) return data[key];
   }
-  if (data?.data && data.data !== data) return listActivities(data.data);
+  if (data?.data && data.data !== data) return listActivities(data.data, date);
   throw new Error('COROS活動一覧の形式が未対応です。空の一覧とは扱いません。');
+}
+
+// The live querySportRecords response is a human-readable report, sometimes
+// JSON-encoded as a string. Accept only its verified header and complete records.
+function textActivities(text, date) {
+  const empty = /^No sport records found from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})\.$/.exec(text.trim());
+  if (empty && validDate(empty[1]) && validDate(empty[2]) && empty[1] <= empty[2]) {
+    if (date && (empty[1] !== date || empty[2] !== date)) throw new Error('指定日とCOROS活動一覧の日付が一致しません。');
+    return [];
+  }
+  const header = /^Sport Records — (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}) \((\d+) records\)\r?\n=+\s*(?:\r?\n|$)/.exec(text);
+  if (!header || !validDate(header[1]) || !validDate(header[2])) {
+    throw new Error('COROS活動一覧の形式が未対応です。空の一覧とは扱いません。');
+  }
+  if (date && (header[1] !== date || header[2] !== date)) throw new Error('指定日とCOROS活動一覧の日付が一致しません。');
+  const body = text.slice(header[0].length).trim();
+  const blocks = body ? body.split(/\r?\n\s*\r?\n/) : [];
+  if (blocks.length !== Number(header[3])) throw new Error('活動一覧が途中で切れています。全件取得できないため取込を停止しました。');
+  return blocks.map((block, index) => {
+    const title = /^(\d+)\. [^\r\n]+ — (\d{4}-\d{2}-\d{2})\r?\n/.exec(block);
+    const times = [...block.matchAll(/^\s+Time Window: startTimestamp=(\d+) \| endTimestamp=(\d+)\s*$/gm)];
+    const ids = [...block.matchAll(/^\s+LabelId: (\d+) \| SportType: (\d+)\s*$/gm)];
+    if (!title || Number(title[1]) !== index + 1 || title[2] < header[1] || title[2] > header[2] || times.length !== 1 || ids.length !== 1) {
+      throw new Error('COROS活動一覧の必須項目または日付が不正です。取込を停止しました。');
+    }
+    const record = { labelId: ids[0][1], sportType: Number(ids[0][2]), startTimestamp: Number(times[0][1]), endTimestamp: Number(times[0][2]) };
+    parseActivity(record, title[2]);
+    return record;
+  });
 }
 
 function parseActivity(record, date) {
@@ -111,7 +142,23 @@ function parseActivity(record, date) {
   return a;
 }
 
+function activityDetail(data) {
+  if (typeof data !== 'string') return data;
+  // Preserve the verified human-readable detail report as source metadata.
+  // Numeric summary fields continue to come exclusively from the FIT importer.
+  if (!/^🏃 Outdoor Run Activity Details\r?\n=+\r?\n/.test(data) ||
+      !/^Workout Time: \d+:\d{2}(?::\d{2})?\s*$/m.test(data) || !/^Distance: \d+(?:\.\d+)? km\s*$/m.test(data)) {
+    throw new Error('COROS活動詳細の形式が未対応です。取込を停止しました。');
+  }
+  return { format: 'coros_mcp_text', text: data };
+}
+
 function fitUrl(data, labelId) {
+  if (typeof data === 'string') {
+    const report = /^Activity FIT file download URL\(s\):\r?\n1\. (\d+)\.fit\r?\n[ \t]+(https:\/\/\S+)[ \t]*(?:\r?\n)?$/.exec(data);
+    if (!report || report[1] !== labelId) throw new Error('活動のFIT URLを一意に特定できません。');
+    data = { labelId: report[1], downloadUrl: report[2] };
+  }
   const matches = [];
   const walk = value => {
     if (Array.isArray(value)) return value.forEach(walk);
@@ -214,11 +261,15 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
         page.tools.forEach(tool => tools.set(tool.name, tool));
         cursor = page.nextCursor;
       } while (cursor);
-      const call = async (name, values) => toolData(await client.callTool({ name, arguments: toolArguments(tools.get(name), values) }));
+      const call = async (name, values) => {
+        const data = toolData(await client.callTool({ name, arguments: toolArguments(tools.get(name), values) }),
+          ['querySportRecords', 'getActivityDetail', 'queryActivityFitFileDownloadUrls'].includes(name));
+        return name === 'getActivityDetail' ? activityDetail(data) : data;
+      };
       const list = await call('querySportRecords', { startDate: date.replaceAll('-', ''), endDate: date.replaceAll('-', ''),
         sportTypeCodes: [100, 101, 102, 103], limit: 100, timezone: 'Asia/Tokyo',
         minDistanceKm: 0, maxDistanceKm: 0, minDurationMinutes: 0, maxDurationMinutes: 0, maxAveragePace: '', locationKeyword: '' });
-      const records = listActivities(list);
+      const records = listActivities(list, date);
       // Do not silently ingest a partial day if the server caps its response.
       const envelope = listEnvelope(list);
       if (records.length >= 100 || envelope.hasMore === true || envelope.nextCursor || Number(envelope.total ?? envelope.totalCount ?? records.length) > records.length) {

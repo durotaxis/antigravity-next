@@ -10,6 +10,7 @@ import LegacyStrideChart from './components/LegacyStrideChart';
 import LegacyMinuteDetail from './components/LegacyMinuteDetail';
 import RunVideoModal from './components/RunVideoModal';
 import CorosAutoImportControl from './components/CorosAutoImportControl';
+import CorosDirectReceive from './components/CorosDirectReceive';
 function getApiBase(): string {
   const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
   if (envBase) return envBase;
@@ -732,6 +733,7 @@ export default function Home() {
         </h1>
         {/* Upload Component */}
         <RunUploader />
+        <CorosDirectReceive apiBase={API_BASE} onImported={loadRuns} />
         <CorosAutoImportControl apiBase={API_BASE} onImported={loadRuns} />
         {corosSyncStatus && (
           <details className={`mt-4 rounded-lg border p-4 ${corosSyncStatus.delayed ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>

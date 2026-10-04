@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-09-26
+Last updated: 2026-10-04
 
 ## 1. Scope
 
@@ -10,6 +10,7 @@ The scope of this document is:
 
 - `client/app/page.tsx`
 - `client/app/components/RunUploader.tsx`
+- `client/app/components/CorosDirectReceive.tsx`
 - related shared APIs used by the new screen
 
 It does not define the legacy screen except where the new screen opens or embeds legacy functionality.
@@ -33,6 +34,7 @@ The new screen contains these major areas:
 
 - Page header
 - `RunUploader`
+- `COROSから受信`
 - error banner
 - efficiency chart
 - run card grid
@@ -159,10 +161,11 @@ For `TCX` upload:
 
 ## 6. New Screen Ingest Behavior
 
-The new screen currently supports two ingest paths:
+The new screen currently supports three ingest paths:
 
 - single-image ingest path
 - `TCX` ingest path
+- manual COROS MCP receive path
 
 The image path performs:
 
@@ -316,6 +319,30 @@ The COROS FIT ingest path also creates route data for the existing RUN VIDEO fea
 - the existing `GET /api/tcx-route/:date` response includes both TCX and COROS FIT routes; the endpoint name remains unchanged for client compatibility
 - when both sources contain routes for the selected date, the existing RUN VIDEO run selector can switch between returned runs
 - adding a COROS route does not change TCX route-cache creation or TCX route values
+
+### 6.3 Manual COROS MCP receive
+
+The new screen includes a `COROSから受信` panel for manually receiving all RUN activities for one selected Japanese calendar date.
+
+- `GET /api/coros-mcp` returns the local connection and running state
+- `POST /api/coros-mcp/connect` starts the independent COROS OAuth flow and returns its authorization URL
+- `GET /api/coros-mcp/callback` completes that OAuth flow
+- `POST /api/coros-mcp/disconnect` removes the locally stored connection credentials
+- `POST /api/coros-mcp/receive` receives the selected date and returns per-activity imported, skipped, and failed results
+- the UI provides connect/reconnect, status refresh, disconnect, date selection, and receive controls
+- after a receive operation, the new-screen run list is refreshed
+
+This OAuth client is local to Run Comment. It does not reuse ChatGPT/Codex credentials, use the COROS Partner API, advance the Codex acquisition cursor, or add or replace a background acquisition schedule.
+
+The server discovers the COROS MCP authorization metadata, uses dynamic client registration and PKCE S256, and stores credentials separately under `data/coros/oauth`. Only documented regional COROS MCP resource URLs are accepted. The callback must use `/api/coros-mcp/callback` over loopback HTTP or HTTPS.
+
+For each returned RUN activity, the server retrieves its details and FIT download URL, validates the FIT before replacement, and writes the FIT and metadata into the existing COROS directories. The existing COROS importer then owns minute data, exact date-level metrics, Run Comment generation, and route output. The manual receiver shares the existing import lock with automatic processing and reuses already-valid local FIT pairs when possible.
+
+The manual path does not alter `RunUploader`, TCX behavior, same-date aggregation rules, FIT calculations, or the existing automatic reflection and scheduled acquisition behavior. It fails explicitly for unknown required live-tool arguments, unrecognized or truncated activity responses, unsafe IDs, date mismatches, and invalid FIT downloads rather than inventing fallback values.
+
+The manual receiver also accepts the verified `querySportRecords` text report beginning with `Sport Records — YYYY-MM-DD to YYYY-MM-DD (N records)`, whether returned as plain text or a JSON-encoded string. It extracts each numbered activity's full string `LabelId`, `SportType`, and `Time Window` timestamps. The reported count must match the parsed activities, required fields must be present, and report dates must match the requested date. An explicit zero-count report with no activity body or the verified `No sport records found from YYYY-MM-DD to YYYY-MM-DD.` response is accepted as an empty text list only for the requested date; unknown or incomplete text remains an error. Existing structured JSON activity lists remain supported.
+
+For `getActivityDetail`, the verified text report headed `🏃 Outdoor Run Activity Details` with workout time and distance is preserved in metadata as `{ format: "coros_mcp_text", text: ... }`; it is not converted into summary metrics. `Workout Time` accepts both minutes:seconds (for example, `39:49`) and hours:minutes:seconds (for example, `1:13:32`). Other unrecognized text detail formats fail explicitly. `queryActivityFitFileDownloadUrls` also accepts the verified `Activity FIT file download URL(s):` text report with exactly one numbered `<labelId>.fit` entry and its URL. The filename ID must match the requested activity, and the existing official COROS HTTPS URL and FIT integrity checks still apply. Plain-text and JSON-encoded reports are both supported, along with existing structured JSON responses. FIT parsing and `daily_summary` calculation rules are unchanged.
 
 ## 7. Run Cards
 

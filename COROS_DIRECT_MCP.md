@@ -37,8 +37,13 @@ already be trusted by the browser.
 - Live `tools/list` schemas determine accepted arguments. An unknown required
   argument, unrecognized response, truncated list, unsafe numeric activity ID or
   mismatched date stops the operation instead of inventing values.
-- `querySportRecords` requests one date with running codes 100–103. Every activity
+- `querySportRecords` requests one date with running codes 100-103. Every activity
   is processed separately using its full string `labelId`.
+- COROS activity-list, activity-detail and FIT-URL results may arrive either as
+  structured JSON or as text containing JSON. Both forms are accepted when they
+  contain the required fields.
+- Activity duration accepts both minute-second text such as `21:14` and
+  hour-minute-second text such as `1:13:32`.
 - `getActivityDetail` and `queryActivityFitFileDownloadUrls` retrieve detail and
   an HTTPS COROS FIT link. FIT integrity is checked before replacing a file.
 - FIT and metadata go to the existing `data/coros/fit` and `metadata` directories.
@@ -52,7 +57,7 @@ already be trusted by the browser.
   automation memory. Existing scheduled acquisition is neither disabled nor
   replaced, and its status panel continues to describe that separate process.
 
-## Limits and acceptance check
+## Limits and verification
 
 COROS currently documents a shared allowance of 50 FIT/file-URL requests per fixed
 24-hour window. The server remains authoritative; this implementation additionally
@@ -60,12 +65,22 @@ limits a manual pass to 50 download-URL requests. It does not silently truncate 
 day with 100 or more returned records or a response advertising more records.
 There is no webhook and no new background schedule.
 
-Before considering this production-verified, authorize on the actual local app
-and receive a date with multiple runs. Verify the live activity-list/detail/URL
-response shapes and compare IDs, start/end timestamps, GPS route, laps and metrics
-with the source TCX. Synthetic FIT tests check conversion and separate route
-outputs, but do not prove equality with the user's COROS export. Existing lap
-behavior is preserved; no new COROS lap display is introduced.
+Verified on 2026-10-04 with the actual local app after PR #6 was merged:
+
+- Actual COROS authorization completed.
+- A single RUN activity was received and imported successfully.
+- Same-day multiple RUN activities were received and imported successfully.
+- Already imported activities were shown as already applied.
+- Re-receiving an imported activity completed without breaking existing data.
+- Mobile notification delivery was confirmed.
+- Regression checks for the existing TCX upload, same-day run handling, FIT
+  calculations and route replay were completed.
+
+Known field issues found during live verification were within the expected
+boundary handling: activity list JSON returned as text, phone authorization using
+localhost, and an import type mismatch. These were handled without changing the
+core TCX/FIT ingestion model. A separate source-to-source comparison with older
+TCX exports is not required for this direct-MCP acceptance check.
 
 Official references:
 

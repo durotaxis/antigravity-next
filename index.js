@@ -18,6 +18,8 @@ const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
 const { createCorosDirectMcp, createCorosDirectRouter } = require('./coros_direct_mcp');
+const { createCorosPushNotifications, createCorosPushRouter } = require('./coros_push_notifications');
+const corosPush = createCorosPushNotifications({ statePath: path.join(__dirname, 'data/coros/push/state.json') });
 const { fitRevision, completedImports } = require('./coros_import_completions');
 const { createHttpsFrontendHandler, attachNewScreenUpgradeProxy } = require('./new_screen_proxy');
 
@@ -3074,6 +3076,7 @@ app.get('/api/coros-fit-runs', async (req, res) => {
 });
 
 app.use('/api/coros-auto-import', createCorosAutoImportRouter(corosAutoImport));
+app.use('/api/coros-push', createCorosPushRouter(corosPush));
 app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
   applyFit: async (date, labelId) => {
     // Share the existing local scan lock; manual retrieval adds no timer.
@@ -3090,7 +3093,7 @@ app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
     const row = await repo.getRunMessage(date, labelId);
     return Boolean(row?.message && !isTemporaryRunMessage(row.message));
   }
-})));
+}), { notifications: corosPush }));
 
 app.get('/api/coros-sync-status', async (req, res) => {
   try {

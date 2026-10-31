@@ -201,3 +201,47 @@ test('router rejects cross-site mutations and never returns credentials', async 
   expect(JSON.stringify(response.body)).not.toContain('fixture-token');
   await request(app).get('/api/coros-mcp/callback?code=secret-code&state=wrong').expect(400);
 });
+
+test('forced reception redownloads and reapplies already imported FIT, including unchanged bytes', async () => {
+  const { controller, fetchFn, applyFit } = await setup();
+  const first = await controller.receive('2026-09-08');
+  expect((await controller.receive('2026-09-08', { force: true })).imported).toEqual(first.imported);
+  expect(fetchFn).toHaveBeenCalledTimes(4);
+  expect(applyFit).toHaveBeenCalledTimes(4);
+  expect((await controller.receive('2026-09-08')).skipped).toEqual(first.imported);
+  expect(fetchFn).toHaveBeenCalledTimes(4);
+});
+
+test.each(['network', 'invalid FIT'])('failed forced download preserves existing FIT and metadata (%s)', async failure => {
+  const { controller, fetchFn, applyFit } = await setup();
+  await controller.receive('2026-09-08');
+  const basename = `2026-09-08_${records[0].labelId}`;
+  const fitPath = path.join(root, 'data/coros/fit', `${basename}.fit`);
+  const metadataPath = path.join(root, 'data/coros/metadata', `${basename}.json`);
+  const originalFit = await fs.readFile(fitPath);
+  const originalMetadata = await fs.readFile(metadataPath);
+  if (failure === 'network') fetchFn.mockRejectedValueOnce(new Error('network unavailable'));
+  else fetchFn.mockResolvedValueOnce({ ok: true, headers: new Headers(), arrayBuffer: async () => Buffer.from('invalid FIT') });
+  const result = await controller.receive('2026-09-08', { force: true });
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0].labelId).toBe(records[0].labelId);
+  expect(result.imported).toEqual([records[1].labelId]);
+  expect(await fs.readFile(fitPath)).toEqual(originalFit);
+  expect(await fs.readFile(metadataPath)).toEqual(originalMetadata);
+  expect(applyFit).toHaveBeenCalledTimes(3);
+  expect((await controller.receive('2026-09-08')).skipped).toHaveLength(2);
+});
+
+test('force accepts only an explicit boolean at controller and API boundaries', async () => {
+  const { controller, fetchFn } = await setup();
+  await expect(controller.receive('2026-09-08', { force: 'false' })).rejects.toThrow('真偽値');
+  expect(fetchFn).not.toHaveBeenCalled();
+  const receive = jest.fn(async () => ({ date: '2026-09-08', imported: [], skipped: [], failed: [] }));
+  const app = express(); app.use(express.json()); app.use('/mcp', createCorosDirectRouter({ receive }));
+  await request(app).post('/mcp/receive').set('Host', 'app.test').set('Origin', 'https://app.test')
+    .send({ date: '2026-09-08', force: 'false' }).expect(400);
+  expect(receive).not.toHaveBeenCalled();
+  await request(app).post('/mcp/receive').set('Host', 'app.test').set('Origin', 'https://app.test')
+    .send({ date: '2026-09-08', force: true }).expect(200);
+  expect(receive).toHaveBeenLastCalledWith('2026-09-08', { force: true });
+});

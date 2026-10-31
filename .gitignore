@@ -62,3 +62,4 @@ data/run-comment/state/*.json
 data/coros/import-completions.json*
 data/coros/oauth/
 app-server.*.log
+data/coros/push/

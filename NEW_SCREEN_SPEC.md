@@ -226,6 +226,31 @@ The `取込完了の携帯通知` control enables browser system notifications o
 - the notification cursor advances after successful display; a failed display retries on a subsequent status check, and Web Locks coordinate open tabs where supported
 - receiving a new completion also refreshes the RUN list without reloading the page; tapping a notification focuses the app or opens it
 - COROS acquisition and local FIT scan intervals are unchanged; mobile background suspension can delay detection until the page runs again
+
+The manual receive section includes a collapsed `デバッグ` area with `指定日のランを強制再取り込み`.
+
+- it targets every running activity returned for the selected date and sends boolean `force: true` to POST `/api/coros-mcp/receive`
+- ordinary reception defaults to `force: false` and continues to reuse valid FIT pairs and skip already applied runs
+- force downloads FIT and activity details again even if already present and unchanged, then runs the existing minute/route generation, exact date-summary recalculation and comment overwrite for the same activity IDs
+- the UI explains that this overwrites outputs and consumes COROS download allowance and comment-generation API calls; it is disabled while busy, disconnected or missing a date
+- a replacement FIT is validated before replacing the old file; a failed download or FIT validation preserves the existing FIT and metadata, reports that run as failed and continues other runs
+- existing shared import locking, per-pass download cap, per-run failure handling and manual-reception push notifications apply to forced reception too
+
+The manual `指定日のランを受信` flow has a separate `手動受信の携帯通知` opt-in for Web Push.
+
+- the target file format is COROS `.FIT` (the older TODO's `.JIT` spelling referred to this format)
+- enabling requires HTTPS, notification permission, Service Worker and Push API support; on iPhone/iPad use the app installed on the home screen
+- the server generates VAPID keys once and atomically persists keys and subscriptions in ignored `data/coros/push/state.json`; the private key and subscription keys are never returned by the API
+- `GET /api/coros-push` exposes the application public key; JSON POST `/subscribe`, `/unsubscribe` and `/test` register the current device, disable its registration and send an actual server-originated test push
+- mutation requests require the app Origin hostname; subscription endpoints must belong to supported Google, Mozilla, Apple or Windows push services
+- the initiating browser includes its saved notification ID in POST `/api/coros-mcp/receive`; the server validates that ID before starting reception and continues processing after the page disconnects
+- after the existing FIT metrics/comment/route processing finishes, the server sends one result push to that device, including the date and imported/skipped/failed counts; partial failures and empty dates also receive a result, and a failed reception receives a failure notification
+- the Service Worker's push event displays the notification even when no app window is open; tapping it opens or focuses the app
+- manual receipt notifications are independent of the automatic-import foreground cursor and do not create duplicate automatic-import completion events
+- failed push delivery does not undo a successful import; its error is returned in the receipt, and 404/410 registrations are removed so the user can enable notifications again
+- the server must remain running and reach the browser's push service; `WEB_PUSH_SUBJECT` optionally sets the VAPID contact URI, and inherited `HTTPS_PROXY` is used for outbound push when configured
+- notification delivery depends on the device/browser push settings and network; browser force-stop and OS restrictions can delay delivery
+
 - for mobile HTTPS use, both the page and its API must be reachable securely
 - HTTP on `PORT` (default `3000`) continues to serve the legacy screen and API
 - HTTPS on `HTTPS_PORT` (default `3443`) is the secure new-screen entry point when either `HTTPS_PFX_PATH`, or both `HTTPS_KEY_PATH` and `HTTPS_CERT_PATH`, are configured

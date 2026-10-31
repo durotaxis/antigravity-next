@@ -155,9 +155,11 @@ function activityDetail(data) {
 
 function fitUrl(data, labelId) {
   if (typeof data === 'string') {
-    const report = /^Activity FIT file download URL\(s\):\r?\n1\. (\d+)\.fit\r?\n[ \t]+(https:\/\/\S+)[ \t]*(?:\r?\n)?$/.exec(data);
-    if (!report || report[1] !== labelId) throw new Error('活動のFIT URLを一意に特定できません。');
-    data = { labelId: report[1], downloadUrl: report[2] };
+    const report = /^Activity FIT file download URL\(s\):\r?\n1\. ([A-Za-z0-9_-]+\.fit)\r?\n[ \t]+(https:\/\/\S+)[ \t]*(?:\r?\n)?$/.exec(data);
+    if (!report) throw new Error('活動のFIT URLを一意に特定できません。');
+    // This response belongs to the single-activity request. COROS file names
+    // contain a storage ID that need not equal the requested activity labelId.
+    data = { downloadUrl: report[2] };
   }
   const matches = [];
   const walk = value => {

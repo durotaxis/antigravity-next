@@ -113,7 +113,7 @@ test.each([[false, '1:13:32'], [true, '1:13:32'], [false, '39:49'], [true, '39:4
   const detail = `🏃 Outdoor Run Activity Details\n========================================\n\nWorkout Time: ${workoutTime}\nDistance: 7.54 km\nTotal Time: ${workoutTime}\nAverage Heart Rate: 125 bpm`;
   client.callTool.mockImplementation(({ name, arguments: args }) => {
     const text = name === 'querySportRecords' ? report : name === 'getActivityDetail' ? detail :
-      `Activity FIT file download URL(s):\n1. ${args.labelId}.fit\n   https://files.coros.com/${args.labelId}.fit`;
+      `Activity FIT file download URL(s):\n1. 481401602706538607_b20dd4e4f2.fit\n   https://files.coros.com/${args.labelId}.fit`;
     return { content: [{ type: 'text', text: encoded ? JSON.stringify(text) : text }] };
   });
   expect((await controller.receive('2026-09-08')).imported).toEqual(records.map(r => r.labelId));
@@ -125,13 +125,18 @@ test.each([[false, '1:13:32'], [true, '1:13:32'], [false, '39:49'], [true, '39:4
   expect(fetchFn).toHaveBeenCalledTimes(2);
 });
 
-test.each(['unknown detail', 'wrong URL activity', 'multiple URLs', 'untrusted URL'])('invalid text %s fails before FIT download and application', async failure => {
+test.each(['481401595735605652.fit', '481401602706538607_b20dd4e4f2.fit'])('single-activity FIT report accepts storage filename %s', filename => {
+  const text = `Activity FIT file download URL(s):\n1. ${filename}\n   https://files.coros.com/${filename}`;
+  expect(fitUrl(text, '481401595735605652')).toBe(`https://files.coros.com/${filename}`);
+});
+
+test.each(['unknown detail', 'invalid filename', 'multiple URLs', 'untrusted URL'])('invalid text %s fails before FIT download and application', async failure => {
   const { controller, client, fetchFn, applyFit } = await setup({ list: [records[0]] });
   const original = client.callTool.getMockImplementation();
   client.callTool.mockImplementation(args => {
     if (args.name === 'getActivityDetail' && failure === 'unknown detail') return { content: [{ type: 'text', text: 'Service unavailable' }] };
     if (args.name === 'queryActivityFitFileDownloadUrls') {
-      const id = failure === 'wrong URL activity' ? records[1].labelId : records[0].labelId;
+      const id = failure === 'invalid filename' ? '../invalid' : records[0].labelId;
       const url = failure === 'untrusted URL' ? 'https://coros.com.attacker.example/file.fit' : 'https://files.coros.com/file.fit';
       const extra = failure === 'multiple URLs' ? `\n2. ${records[1].labelId}.fit\n   https://files.coros.com/another.fit` : '';
       return { content: [{ type: 'text', text: `Activity FIT file download URL(s):\n1. ${id}.fit\n   ${url}${extra}` }] };

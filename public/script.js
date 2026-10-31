@@ -1388,6 +1388,40 @@ async function copyVisibleTcxChartsAsImage() {
     alert('Clipboard image copy is unavailable in this browser. Downloaded PNG instead.');
 }
 
+function exportSelectedRunPdf() {
+    const date = normalizeRunDate(document.getElementById('dateInput')?.value || '');
+    if (document.getElementById('analyzeBtn')?.disabled || !date || currentTcxMinuteExport?.date !== date) {
+        throw new Error('対象日をRUN ANALYZERで読み込んでから書き出してください。');
+    }
+    const run = currentRunChartSource === 'health_connect'
+        ? currentHealthConnectRuns[currentHealthConnectRunPageIndex]
+        : getSelectedActiveRun();
+    const runId = String(run?.runId || run?.id || '');
+    if (!runId) throw new Error('選択中のランを確認できません。RUN ANALYZERで読み込み直してください。');
+    const charts = [
+        ['legacyStrideChartWrapper', 'Stride + HR'],
+        ['legacySpeedChartWrapper', 'Speed + Pitch'],
+        ['fitSpeedChartWrapper', 'Speed (accurate) + HR (accurate)'],
+        ['fitPitchChartWrapper', 'Pitch (accurate)'],
+        ['fitStrideChartWrapper', 'Stride (accurate)'],
+        ['tcxStrideChartWrapper', `${currentRunChartSource === 'coros_fit' ? 'COROS FIT' : 'TCX'} Stride + HR`],
+        ['tcxSpeedPitchChartWrapper', `${currentRunChartSource === 'coros_fit' ? 'COROS FIT' : 'TCX'} Speed + Pitch`]
+    ].flatMap(([id, title]) => {
+        const wrapper = document.getElementById(id);
+        const canvas = wrapper?.querySelector('canvas');
+        if (!isElementVisibleForExport(wrapper) || !canvas || !canvas.width || !canvas.height) return [];
+        return [{ title, canvas }];
+    });
+    const tableId = currentRunChartSource === 'tcx' ? 'tcxLapTable' : 'lapTable';
+    const table = document.getElementById(tableId);
+    const headers = Array.from(table?.querySelectorAll('thead th') || [], cell => cell.textContent.trim());
+    const rows = Array.from(table?.querySelectorAll('tbody tr') || [])
+        .map(row => Array.from(row.querySelectorAll('td'), cell => cell.textContent.trim()));
+    // Keep the displayed values and source, including the day-based Fit splits.
+    const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
+    return window.RunSharePdf.save({ date, runId, source: currentRunChartSource, charts, headers, rows, tableSource });
+}
+
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
@@ -3657,6 +3691,19 @@ document.addEventListener('DOMContentLoaded', () => {
             await copyVisibleTcxChartsAsImage();
         } catch (err) {
             alert(`Failed to copy charts: ${err.message}`);
+        }
+    });
+    document.getElementById('shareRunPdfBtn')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = 'PDF作成中…';
+        try {
+            await exportSelectedRunPdf();
+        } catch (error) {
+            alert(`PDFを書き出せませんでした: ${error.message}`);
+        } finally {
+            button.disabled = false;
+            button.textContent = '共有用PDF';
         }
     });
     document.getElementById('refreshTcxAdviceBtn')?.addEventListener('click', async () => {

@@ -502,6 +502,8 @@ The new screen can display a Run Comment imported independently of TCX.
 
 ## 13. Relation to Legacy Screen
 
+The legacy run pager includes a `共有用PDF` action to save the displayed run charts and existing 1km split table, with date and run ID, as one PDF for manual attachment to ChatGPT. See `LEGACY_SCREEN_SPEC.md` section 14.1 for source and validation rules. No new-screen card action or automatic ChatGPT attachment is added.
+
 The conceptual separation is:
 
 - New screen

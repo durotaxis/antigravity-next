@@ -66,6 +66,7 @@
                     <div id="tcxRunPagerLabel" style="color: var(--text-primary); font-weight: 600;">TCX Run 1 / 1</div>
                     <button id="tcxRunNextBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">▶</button>
                     <button id="copyTcxChartsBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">COPY CHARTS</button>
+                    <button id="shareRunPdfBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">共有用PDF</button>
                     <button id="refreshTcxAdviceBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">Apply</button>
                 </div>
                 <div id="tcxDailyMessageSlot"></div>
@@ -351,7 +352,9 @@
 
     <!-- Logic -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js?v=20260725-altitude-6"></script>
+    <script src="vendor/jspdf-4.2.1.umd.min.js"></script>
+    <script src="run-share-pdf.js?v=20261031-1"></script>
+    <script src="script.js?v=20261031-share-pdf-1"></script>
 </body>
 
 </html>

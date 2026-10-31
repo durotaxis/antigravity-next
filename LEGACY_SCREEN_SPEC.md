@@ -1,6 +1,6 @@
 # Legacy Screen Specification
 
-Last updated: 2026-09-19
+Last updated: 2026-10-31
 
 ## 1. Scope
 
@@ -647,6 +647,15 @@ The old screen can:
 - open the image lightbox
 
 Image unlink/delete from lightbox is currently disabled.
+
+### 14.1 Shareable run PDF
+
+- The run pager provides a `共有用PDF` button. After loading a run, one click saves one PDF containing the currently displayed charts, the existing displayed 1km split table, date, run ID, data source, and export timestamp.
+- The PDF contains chart images, repeats table headings across pages, and includes a collapsed split table without requiring it to be expanded. Hidden charts are not exported.
+- TCX exports the selected TCX run's lap table. COROS FIT and Health Connect export the existing Health Connect / Google Fit day-based split table, explicitly labeled with that source; the PDF does not recalculate a FIT-specific split table.
+- Missing charts, missing split rows, loading, or a date changed since loading produce an explicit error instead of a partial PDF. The user must load the target run first.
+- PDF creation runs locally in the browser using the locally served jsPDF bundle. It does not access the clipboard, generate advice, synchronize data, or write summaries. Saving the PDF does not automatically attach it to ChatGPT; the user attaches the saved file.
+- Existing COPY CHARTS, JSON, and MD buttons remain available.
 
 ## 15. Current Functional Separation
 

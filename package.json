@@ -16,6 +16,7 @@
   "dependencies": {
     "@garmin/fitsdk": "^21.208.0",
     "@google-cloud/local-auth": "^3.0.1",
+    "@google/genai": "^2.32.0",
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "axios": "^1.13.4",

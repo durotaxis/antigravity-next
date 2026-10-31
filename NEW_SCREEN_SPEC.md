@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-10-04
+Last updated: 2026-10-31
 
 ## 1. Scope
 
@@ -481,7 +481,10 @@ The new screen can display a Run Comment imported independently of TCX.
 - filenames use `run_<activityId>.json`
 - required fields are `date` and `activityId`; any incoming `message` is ignored
 - the local server generates the Run Comment from COROS activity data through `gemini_service`
-- Gemini model selection uses the configured fallback order and records the successful model in the processed JSON
+- Gemini generation uses the Google GenAI SDK (`@google/genai`) through the shared `gemini_service.js` generation function for COROS, TCX, image advice, and trend-chart advice.
+- Model selection tries `gemini-3.8-flash` first and `gemini-3.7-flash` only if the first attempt throws an error. No other models are attempted. If both fail, the existing caller-specific error handling and temporary-unavailable messages apply.
+- The processed JSON records the successful model. Prompts, image inputs, and summary/message persistence rules are unchanged by this SDK migration.
+- The separate `gemini_vision_ocr_service.js` OCR path continues to use `@google/generative-ai`; the legacy SDK dependency is retained for that path.
 - the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
 - an existing `(date, run_id)` message is overwritten
 - after generation, the same latest message is always written to `daily_summary.message`; it is not left `null` while waiting for a separate Apply action

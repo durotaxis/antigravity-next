@@ -1,7 +1,7 @@
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+let genAI;
 
 function buildTrainingLoadPrompt(context) {
     if (!context || typeof context !== 'object') return '';
@@ -59,12 +59,7 @@ function buildPreviousRunCommentPrompt(comment) {
 
 const FALLBACK_MODELS = [
     'gemini-3.8-flash',
-    'gemini-3.7-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite'
+    'gemini-3.7-flash'
 ];
 
 async function generateContentWithFallback(parts, options = {}) {
@@ -73,10 +68,12 @@ async function generateContentWithFallback(parts, options = {}) {
     for (const modelName of FALLBACK_MODELS) {
         console.log(`[GeminiService] Attempting generateContent with model: ${modelName}`);
         try {
-            const modelInstance = genAI.getGenerativeModel({ model: modelName });
-            const result = await modelInstance.generateContent(parts);
-            const response = await result.response;
-            const text = response.text().trim();
+            genAI ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+            const response = await genAI.models.generateContent({
+                model: modelName,
+                contents: [{ role: 'user', parts: parts.map(part => typeof part === 'string' ? { text: part } : part) }]
+            });
+            const text = (response.text || '').trim();
             console.log(`[GeminiService] Success with model: ${modelName}`);
             if (typeof options.onModelUsed === 'function') options.onModelUsed(modelName);
             return text;

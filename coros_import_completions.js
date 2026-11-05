@@ -4,6 +4,22 @@ const crypto = require('crypto');
 
 const HISTORY_LIMIT = 100;
 
+// The generated comment specifies one paragraph for the minute-table finding.
+// Keep its wording; notification formatting must not generate new advice.
+function extractMinuteObservation(message) {
+  if (typeof message !== 'string') return '';
+  const plain = message.replace(/\r\n?/g, '\n').replace(/\*\*|__/g, '');
+  const heading = /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+)?1分毎テーブル所見[ \t]*[:：][ \t]*/u.exec(plain);
+  if (!heading) return '';
+  return plain.slice(heading.index + heading[0].length).replace(/^[ \t]*\n(?![ \t]*\n)/u, '')
+    .split(/\n[ \t]*\n|\n[ \t]*#{1,6}[ \t]+/u)[0].replace(/\s+/gu, ' ').trim();
+}
+
+function observationFields(message) {
+  const minuteObservation = extractMinuteObservation(message);
+  return minuteObservation ? { minuteObservation } : {};
+}
+
 function fitRevision(payload) {
   const sha = String(payload.fitSha256 || '').trim().toLowerCase();
   return `fit:${sha || crypto.createHash('sha256').update(JSON.stringify(payload.chartData)).digest('hex')}`;
@@ -12,9 +28,9 @@ function fitRevision(payload) {
 function completedImports(fitResult, inboxResult) {
   return [
     ...fitResult.imported.filter(item => item.applied && item.applied.notificationReady !== false)
-      .map(item => ({ date: item.date, runId: item.labelId, revision: item.revision })),
+      .map(item => ({ date: item.date, runId: item.labelId, revision: item.revision, ...observationFields(item.applied.message) })),
     ...inboxResult.imported.filter(item => item.notificationReady !== false)
-      .map(item => ({ date: item.date, runId: item.activityId, revision: item.revision }))
+      .map(item => ({ date: item.date, runId: item.activityId, revision: item.revision, ...observationFields(item.message) }))
   ];
 }
 
@@ -33,7 +49,8 @@ function createCorosImportCompletions(filePath) {
             !Array.isArray(saved.events) || !saved.events.every(event =>
               Number.isSafeInteger(event.sequence) && event.sequence > 0 && event.sequence <= saved.sequence &&
               /^\d{4}-\d{2}-\d{2}$/.test(event.date) && /^[A-Za-z0-9_-]+$/.test(event.runId) &&
-              Number.isFinite(Date.parse(event.completedAt)))) {
+              Number.isFinite(Date.parse(event.completedAt)) &&
+              (event.minuteObservation === undefined || typeof event.minuteObservation === 'string'))) {
           throw new Error('Invalid COROS import completion journal');
         }
         state = saved;
@@ -54,11 +71,13 @@ function createCorosImportCompletions(filePath) {
         const next = { ...state, revisions: { ...state.revisions }, events: [...state.events] };
         for (const item of completed) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !/^[A-Za-z0-9_-]+$/.test(item.runId) ||
-              typeof item.revision !== 'string' || !item.revision) throw new Error('Invalid completed COROS import');
+              typeof item.revision !== 'string' || !item.revision ||
+              (item.minuteObservation !== undefined && typeof item.minuteObservation !== 'string')) throw new Error('Invalid completed COROS import');
           const key = `${item.date}:${item.runId}`;
           if (next.revisions[key] === item.revision) continue;
           next.revisions[key] = item.revision;
-          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString() });
+          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString(),
+            ...(item.minuteObservation ? { minuteObservation: item.minuteObservation } : {}) });
         }
         if (next.sequence === state.sequence) return;
         next.events = next.events.slice(-HISTORY_LIMIT);
@@ -76,4 +95,4 @@ function createCorosImportCompletions(filePath) {
   };
 }
 
-module.exports = { createCorosImportCompletions, fitRevision, completedImports };
+module.exports = { createCorosImportCompletions, fitRevision, completedImports, extractMinuteObservation };

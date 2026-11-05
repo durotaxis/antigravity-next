@@ -1,7 +1,7 @@
 const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
-const { createCorosImportCompletions, fitRevision, completedImports } = require('./coros_import_completions');
+const { createCorosImportCompletions, fitRevision, completedImports, extractMinuteObservation } = require('./coros_import_completions');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
 const express = require('express');
 const request = require('supertest');
@@ -14,6 +14,36 @@ describe('COROS completion notifications', () => {
     journalPath = path.join(root, 'import-completions.json');
   });
   afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+
+  test.each([
+    ['総合分析。\n\n1分毎テーブル所見: 後半は速度と心拍が上昇しました。', '後半は速度と心拍が上昇しました。'],
+    ['総合分析。\r\n\r\n**1分毎テーブル所見:**\r\n後半は速度が上昇し、\r\n心拍も連動しました。\r\n\r\n次回の助言。', '後半は速度が上昇し、 心拍も連動しました。'],
+    ['## 1分毎テーブル所見： ピッチは安定しました。\n## 次回\n軽く走りましょう。', 'ピッチは安定しました。'],
+    ['1分毎テーブル所見: データなし', 'データなし'],
+    ['総合分析だけ。', ''],
+    ['1分毎テーブル所見:', ''],
+    ['1分毎テーブル所見:\n\n次回の助言。', ''],
+    [undefined, ''],
+  ])('extracts only the minute finding from %p', (message, expected) => {
+    expect(extractMinuteObservation(message)).toBe(expected);
+  });
+
+  test('FIT and inbox findings survive the journal, restart, and status API per RUN', async () => {
+    const completed = completedImports({ imported: [{ date: '2026-09-21', labelId: '123', revision: 'fit:one',
+      applied: { notificationReady: true, message: '総合分析。\n\n1分毎テーブル所見: FITの所見。' } }] },
+    { imported: [{ date: '2026-09-21', activityId: '456', revision: 'overview:two',
+      notificationReady: true, message: '1分毎テーブル所見: Inboxの所見。' }] });
+    await createCorosImportCompletions(journalPath).record(completed);
+    const controller = createCorosAutoImport({ settingsPath: path.join(root, 'settings.json'), scan: jest.fn(), onError: jest.fn() });
+    const app = express();
+    app.use('/status', createCorosAutoImportRouter(controller));
+    const response = await request(app).get('/status').expect(200);
+    expect(response.body.completions.map(({ runId, minuteObservation }) => ({ runId, minuteObservation }))).toEqual([
+      { runId: '123', minuteObservation: 'FITの所見。' }, { runId: '456', minuteObservation: 'Inboxの所見。' },
+    ]);
+    await createCorosImportCompletions(journalPath).record(completed);
+    expect((await controller.getStatus()).completionSequence).toBe(2);
+  });
 
   test('empty scans stay silent; repeated FIT/inbox completion and restarts do not duplicate', async () => {
     let journal = createCorosImportCompletions(journalPath);

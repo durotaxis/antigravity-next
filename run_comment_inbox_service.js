@@ -131,7 +131,7 @@ async function importOneFile(filename, repo, options = {}) {
   const message = String(generated.message || '').trim();
   const notificationReady = Boolean(message) && generated.notificationReady !== false &&
     message !== (geminiService.TEMPORARY_UNAVAILABLE_MESSAGE || '現在利用が制限されています。しばらくお待ちください。');
-  return { filename, date: normalized.date, activityId: normalized.activityId, revision, notificationReady, model: generated.model, processedPath };
+  return { filename, date: normalized.date, activityId: normalized.activityId, revision, notificationReady, message, model: generated.model, processedPath };
 }
 
 async function scanInboxInternal(repo, options = {}) {

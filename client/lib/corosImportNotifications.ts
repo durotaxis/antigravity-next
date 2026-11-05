@@ -1,4 +1,4 @@
-export type ImportCompletion = { sequence: number; date: string; runId: string; completedAt: string };
+export type ImportCompletion = { sequence: number; date: string; runId: string; completedAt: string; minuteObservation?: string };
 export type ImportCompletionSnapshot = { completionSequence: number; completions: ImportCompletion[] };
 type Preferences = { enabled: boolean; cursor: number };
 type StorageAccess = Pick<Storage, 'getItem' | 'setItem'>;
@@ -51,7 +51,7 @@ export async function deliverImportNotifications({ snapshot, storage, key, show,
     if (!preferences.enabled) break;
     if (event.sequence <= preferences.cursor) continue;
     await show('COROSの取込が完了しました', {
-      body: `${event.date} のRUNとコメントを保存しました。`,
+      body: event.minuteObservation?.trim() || `${event.date} のRUNとコメントを保存しました。`,
       tag: `coros-import-${event.date}-${event.runId}`,
       data: { url },
     });

@@ -65,3 +65,19 @@ test('test notification does not change the import cursor', async () => {
   assert.match(options.shown[0].options.tag, /^coros-import-test-/);
   assert.equal(readNotificationPreferences(options.storage, options.key).cursor, 2);
 });
+
+test('each RUN notification uses its own minute finding and old events keep the completion message', async () => {
+  const options = setup();
+  setImportNotifications(options.storage, options.key, true, 0);
+  const snapshot = { completionSequence: 3, completions: [
+    { ...event(1), minuteObservation: '後半は速度と心拍が上昇しました。' },
+    { ...event(2), minuteObservation: 'ピッチは安定しました。' },
+    event(3),
+  ] };
+  assert.equal(await deliverImportNotifications({ ...options, snapshot }), 3);
+  assert.deepEqual(options.shown.map(item => item.options.body), [
+    '後半は速度と心拍が上昇しました。', 'ピッチは安定しました。', '2026-09-21 のRUNとコメントを保存しました。',
+  ]);
+  assert.equal(readNotificationPreferences(options.storage, options.key).cursor, 3);
+  assert.equal(await deliverImportNotifications({ ...options, snapshot }), 0);
+});

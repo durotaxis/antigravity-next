@@ -53,15 +53,39 @@ test('loading or missing-data placeholder rows cannot masquerade as a split tabl
     expect(() => exporter.create(snapshot)).toThrow();
 });
 
-test('changing the selected date without reloading refuses to export stale charts', () => {
+test('changing the selected date without reloading refuses to export stale charts', async () => {
     const script = fs.readFileSync('public/script.js', 'utf8');
-    const body = script.slice(script.indexOf('function exportSelectedRunPdf()'), script.indexOf('\nasync function loadData(', script.indexOf('function exportSelectedRunPdf()')));
+    const body = script.slice(script.indexOf('async function exportSelectedRunPdf()'), script.indexOf('\nasync function loadData(', script.indexOf('async function exportSelectedRunPdf()')));
     const save = jest.fn();
     const context = { currentTcxMinuteExport: { date: '2026-10-30' },
         normalizeRunDate: value => value,
         document: { getElementById: id => id === 'dateInput' ? { value: '2026-10-29' } : { disabled: false } },
         window: { RunSharePdf: { save } } };
     vm.runInNewContext(body, context);
-    expect(() => context.exportSelectedRunPdf()).toThrow('RUN ANALYZER');
+    await expect(context.exportSelectedRunPdf()).rejects.toThrow('RUN ANALYZER');
     expect(save).not.toHaveBeenCalled();
+});
+
+
+test('long Japanese comment paginates without changing the chart and split pages', () => {
+    const original = setup();
+    original.exporter.create(original.snapshot);
+    const { exporter, snapshot, pages } = setup();
+    snapshot.message = '新画面のランコメントです。'.repeat(700) + '\n最後の段落';
+    exporter.create(snapshot);
+    const commentPages = pages.filter(page => page.some(item => item.text?.startsWith('RUN COMMENT')));
+    expect(commentPages.length).toBeGreaterThan(1);
+    expect(pages.length - commentPages.length).toBe(original.pages.length);
+    for (const page of commentPages) {
+        for (const image of page.filter(item => item.width)) {
+            expect(image.y + image.height).toBeLessThan(565);
+        }
+    }
+});
+
+test('blank DB comment adds no comment page', () => {
+    const { exporter, snapshot, pages } = setup();
+    snapshot.message = '  ';
+    exporter.create(snapshot);
+    expect(pages.some(page => page.some(item => item.text?.startsWith('RUN COMMENT')))).toBe(false);
 });

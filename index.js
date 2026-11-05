@@ -779,7 +779,7 @@ function normalizeAdviceProvider(provider) {
 }
 
 function isTemporaryRunMessage(message) {
-  return String(message || '').trim() === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE;
+  return [GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE, 'No API Key', 'AI Analysis is currently unavailable.'].includes(String(message || '').trim());
 }
 
 async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini', options = {}) {
@@ -895,7 +895,7 @@ async function generateAndPersistCorosFitRunMessage(dateString, labelId, provide
     provider,
     { source: 'coros_fit' }
   ) || '').trim();
-  if (!message) throw new Error('Run Comment generation returned an empty message');
+  if (!message || isTemporaryRunMessage(message)) throw new Error(message || 'Run Comment generation returned an empty message');
 
   await repo.saveRunMessage({ date: dateString, run_id: labelId, message });
   await repo.saveDailySummary({ date: dateString, message });
@@ -2063,6 +2063,8 @@ app.get('/api/runs', async (req, res) => {
       }
 
       const derived = includeDerived ? await computeDerivedFromIntradayCache(row.date) : null;
+      // APPLY selects the date-level comment displayed on the new screen.
+      const dailySummary = await repo.getDailySummary(row.date);
       const images = Array.isArray(row.images)
         ? row.images.map((img) => {
             const rawUrl = String(img?.url || '').trim();
@@ -2091,7 +2093,7 @@ app.get('/api/runs', async (req, res) => {
       max_speed: row.max_speed ?? 0,
       ...(derived || {}),
       images,
-      message: row.message || '' // AI繧｢繝峨ヰ繧､繧ｹ
+      message: dailySummary?.message || ''
       });
     }));
 
@@ -2500,6 +2502,7 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
     ) || '').trim();
   }
 
+  if (isTemporaryRunMessage(runMessage)) runMessage = '';
   const shouldPersistRunMessage =
     String(runMessage || '').trim().length > 0 &&
     (
@@ -3994,12 +3997,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_speed: resolvedMaxSpeed
         }, [req.file.path]);
 
-        const adviceToSave = (advice === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE &&
-          existingSummary &&
-          String(existingSummary.message || '').trim().length > 0 &&
-          String(existingSummary.message || '').trim() !== GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE)
-          ? existingSummary.message
-          : advice;
+        const adviceToSave = isTemporaryRunMessage(advice) ? null : advice;
 
         await repo.saveDailySummary({
           date: result.date,
@@ -4301,6 +4299,32 @@ app.post('/api/advice/gemini', async (req, res) => {
     } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
+    if (String(runId || '').trim()) {
+      const selectedRunId = String(runId).trim();
+      const source = req.body.source;
+      if (source !== 'coros_fit' && (source !== 'tcx' || !selectedRunId.startsWith(`${date}_`))) {
+        return res.status(400).json({ error: 'Invalid run source or date' });
+      }
+      const saved = await repo.getRunMessage(date, selectedRunId);
+      if (saved?.message?.trim() && !isTemporaryRunMessage(saved.message)) return res.json({ advice: saved.message });
+      let rows;
+      if (source === 'coros_fit') {
+        const file = getCorosFitIntradayPath(date, selectedRunId);
+        if (!file) return res.status(400).json({ error: 'Invalid COROS FIT run' });
+        const fit = JSON.parse(await fs.readFile(file, 'utf8'));
+        if (fit.source !== source || String(fit.labelId) !== selectedRunId) return res.status(422).json({ error: 'COROS FIT metadata mismatch' });
+        rows = fit.chartData;
+      } else {
+        rows = await readTcxMinuteRunCache(selectedRunId);
+      }
+      if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Run minute data not found' });
+      const advice = String(await generateTcxRunMessage(date, selectedRunId, rows, 'gemini', { source }) || '').trim();
+      if (!advice || isTemporaryRunMessage(advice)) throw new Error('Run Comment generation did not complete');
+      await repo.saveRunMessage({ date, run_id: selectedRunId, message: advice });
+      await repo.saveDailySummary({ date, message: advice });
+      return res.json({ advice, provider: 'gemini-live' });
+    }
+
     const dailySummary = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
     const resolvedStepCount = pickPositive(dailySummary && dailySummary.step_count, pickPositive(cacheMetrics.step_count, stepCount));
@@ -4410,6 +4434,7 @@ app.post('/api/advice/gemini', async (req, res) => {
       compareRunSummaries
     });
 
+    if (isTemporaryRunMessage(advice)) return res.json({ advice, provider: 'gemini-live' });
     await repo.saveDailySummary({
       date,
       step_count: resolvedStepCount,

@@ -60,12 +60,10 @@ export default function CorosAutoImportControl({ apiBase, onImported }: { apiBas
   };
 
   return (
-    <section aria-label="FIT自動反映" className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-gray-800">FIT自動反映</h2>
-          <p className="mt-1 text-sm text-gray-600">取得済みのFITを30秒ごとに読み込み、RUNとコメントに反映します。</p>
-        </div>
+    <details open className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+      <summary className="cursor-pointer font-semibold text-gray-800">FIT自動反映</summary>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-600">取得済みのFITを30秒ごとに読み込み、RUNとコメントに反映します。</p>
         <button type="button" role="switch" aria-checked={status?.enabled ?? false} aria-label="FIT自動反映"
           disabled={!status || pending} onClick={toggle}
           className={`inline-flex min-w-24 items-center justify-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-wait disabled:opacity-60 ${status?.enabled ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
@@ -80,6 +78,6 @@ export default function CorosAutoImportControl({ apiBase, onImported }: { apiBas
       {status?.lastError && <p className="mt-2 text-sm text-amber-700" role="status">{status.lastError}</p>}
       {error && <p className="mt-2 text-sm text-red-700" role="alert">{error}</p>}
       <CorosImportNotifications apiBase={apiBase} snapshot={status} />
-    </section>
+    </details>
   );
 }

@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs').promises;
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
 const STORE_DIR = path.join(__dirname, 'public/assets/store');
 const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || '').trim();
@@ -150,8 +150,7 @@ async function analyzeImage(filename) {
   const ext = path.extname(filename).toLowerCase();
   const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
 
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: GEMINI_VISION_OCR_MODEL });
+  const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   const today = new Date();
   const currentDateString = today.toISOString().split('T')[0];
   const currentYear = today.getFullYear();
@@ -171,17 +170,16 @@ async function analyzeImage(filename) {
     'date must be YYYY-MM-DD. total_time must be HH:MM:SS or MM:SS.'
   ].join('\n');
 
-  const result = await model.generateContent([
-    prompt,
+  const response = await genAI.models.generateContent({ model: GEMINI_VISION_OCR_MODEL, contents: [{ role: 'user', parts: [
+    { text: prompt },
     {
       inlineData: {
         data: imageBuffer.toString('base64'),
         mimeType
       }
     }
-  ]);
-  const response = await result.response;
-  const text = String(response.text() || '').trim();
+  ] }] });
+  const text = String(response.text || '').trim();
   const parsed = tryExtractJson(text);
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Vision OCR returned non-JSON response');

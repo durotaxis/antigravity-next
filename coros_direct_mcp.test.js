@@ -45,6 +45,7 @@ async function setup({ list = records, applyFailure = false } = {}) {
       outputPath: path.join(base, 'intraday', `${basename}.json`), routeOutputPath: path.join(base, 'route', `${basename}.json`) });
     if (applyFailure) throw new Error('comment unavailable');
     applied.add(id);
+    return { applied: { message: `全体評価\n\n1分毎テーブル所見: 所見${id}\n\n次の提案` } };
   });
   return { controller: createCorosDirectMcp({ root, connectClient: async () => client, fetchFn, applyFit, isApplied: async (date, id) => applied.has(id) }),
     client, fetchFn, applyFit };
@@ -244,4 +245,17 @@ test('force accepts only an explicit boolean at controller and API boundaries', 
   await request(app).post('/mcp/receive').set('Host', 'app.test').set('Origin', 'https://app.test')
     .send({ date: '2026-09-08', force: true }).expect(200);
   expect(receive).toHaveBeenLastCalledWith('2026-09-08', { force: true });
+});
+
+test('manual receive push uses saved minute findings from each imported ID', async () => {
+  const { controller } = await setup();
+  const notifications = { check: jest.fn(), send: jest.fn() };
+  const app = express();
+  app.use(express.json(), createCorosDirectRouter(controller, { notifications }));
+  const response = await request(app).post('/receive').set('Host', 'localhost').set('Origin', 'https://localhost')
+    .send({ date: '2026-09-08', notificationId: 'device' }).expect(200);
+  expect(response.body.imported).toEqual(records.map(run => run.labelId));
+  const body = notifications.send.mock.calls[0][1].body;
+  for (const run of records) expect(body).toContain('所見' + run.labelId);
+  expect(body).not.toContain('次の提案');
 });

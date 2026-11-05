@@ -246,7 +246,7 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
     if (running || authenticating) throw new Error('COROSの処理が実行中です。');
     await provider.invalidateCredentials('all');
   };
-  const receive = async (date, { force = false } = {}) => {
+  const receive = async (date, { force = false, onSavedComment } = {}) => {
     if (typeof force !== 'boolean') throw new Error('forceには真偽値を指定してください。');
     if (!validDate(date)) throw new Error('有効な日付を指定してください。');
     await initialize();
@@ -337,7 +337,8 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
           }
           if (ready) result.skipped.push(a.labelId);
           else {
-            await applyFit(date, a.labelId);
+            const applied = await applyFit(date, a.labelId);
+            if (applied?.applied?.message) onSavedComment?.(applied.applied.message);
             result.imported.push(a.labelId);
           }
         } catch (error) { result.failed.push({ labelId: a.labelId, error: safeError(error) }); }
@@ -380,9 +381,11 @@ function createCorosDirectRouter(controller, { notifications } = {}) {
     }
     const tag = `coros-receive-${crypto.randomUUID()}`;
     let result;
+    const savedComments = [];
     try {
       // Continues on the server even when the initiating page is closed.
-      result = await controller.receive(req.body?.date, { force: req.body?.force ?? false });
+      result = await controller.receive(req.body?.date, { force: req.body?.force ?? false,
+        ...(id ? { onSavedComment: message => savedComments.push(message) } : {}) });
     } catch (error) {
       if (id) await notifications.send(id, { title: 'COROSの受信に失敗しました',
         body: 'アプリを開いて接続状態を確認し、もう一度受信してください。', tag }).catch(() => {});
@@ -390,9 +393,14 @@ function createCorosDirectRouter(controller, { notifications } = {}) {
     }
     if (id) {
       try {
+        // receive resolves only after each imported RUN's comment has been saved.
+        const comments = savedComments
+          .map(message => message.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?1分毎テーブル所見(?:\*\*)?\s*[:：]?\s*([\s\S]*?)(?=\n\s*\n|$)/)?.[1]?.trim())
+          .filter(Boolean);
+        const findingsText = comments.length ? `\n${comments.join('\n\n')}` : '';
         await notifications.send(id, {
           title: result.failed.length ? 'COROSの受信で失敗したランがあります' : 'COROSの受信が完了しました',
-          body: `${result.date}：反映 ${result.imported.length}件・取得済み ${result.skipped.length}件・失敗 ${result.failed.length}件`, tag,
+          body: `${result.date}：反映 ${result.imported.length}件・取得済み ${result.skipped.length}件・失敗 ${result.failed.length}件${findingsText}`, tag,
         });
       } catch (error) { result.notificationError = error.message; }
     }

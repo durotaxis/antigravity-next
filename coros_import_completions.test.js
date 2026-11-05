@@ -96,3 +96,14 @@ describe('COROS completion notifications', () => {
     expect(completed).toEqual([run()]);
   });
 });
+
+
+test('completion retains the saved comment through journal persistence', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'coros-comment-'));
+  try {
+    const file = path.join(root, 'events.json');
+    const completed = completedImports({ imported: [{ date: '2026-11-03', labelId: '123', revision: 'fit:one', applied: { notificationReady: true, message: 'Saved guide' } }] }, { imported: [] });
+    await createCorosImportCompletions(file).record(completed);
+    expect((await createCorosImportCompletions(file).getSnapshot()).completions[0].message).toBe('Saved guide');
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

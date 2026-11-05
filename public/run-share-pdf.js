@@ -97,6 +97,40 @@
             pending.push(row);
         });
         if (pending.length) flush();
+        // Browser canvas retains Japanese glyphs without changing the existing PDF fonts.
+        if (typeof snapshot.message === 'string' && snapshot.message.trim()) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1600;
+            const ctx = canvas.getContext('2d');
+            ctx.font = '28px Arial, sans-serif';
+            const lines = [];
+            for (const paragraph of snapshot.message.replace(/\r\n?/g, '\n').split('\n')) {
+                let line = '';
+                for (const character of paragraph) {
+                    if (line && ctx.measureText(line + character).width > canvas.width - 48) {
+                        lines.push(line);
+                        line = '';
+                    }
+                    line += character;
+                }
+                lines.push(line);
+            }
+            const lineHeight = 42;
+            const maxLines = Math.max(1, Math.floor(((height - 140) * canvas.width / contentWidth - 48) / lineHeight));
+            for (let offset = 0; offset < lines.length; offset += maxLines) {
+                const chunk = lines.slice(offset, offset + maxLines);
+                canvas.height = chunk.length * lineHeight + 48;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#172334';
+                ctx.font = '28px Arial, sans-serif';
+                ctx.textBaseline = 'top';
+                chunk.forEach((line, index) => ctx.fillText(line, 24, 24 + index * lineHeight));
+                page('RUN COMMENT - New screen / daily summary');
+                doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 102,
+                    contentWidth, canvas.height * contentWidth / canvas.width);
+            }
+        }
         const count = doc.getNumberOfPages();
         for (let index = 1; index <= count; index++) {
             doc.setPage(index);

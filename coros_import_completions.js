@@ -12,9 +12,9 @@ function fitRevision(payload) {
 function completedImports(fitResult, inboxResult) {
   return [
     ...fitResult.imported.filter(item => item.applied && item.applied.notificationReady !== false)
-      .map(item => ({ date: item.date, runId: item.labelId, revision: item.revision })),
+      .map(item => ({ date: item.date, runId: item.labelId, revision: item.revision, ...(item.applied.message ? { message: item.applied.message } : {}) })),
     ...inboxResult.imported.filter(item => item.notificationReady !== false)
-      .map(item => ({ date: item.date, runId: item.activityId, revision: item.revision }))
+      .map(item => ({ date: item.date, runId: item.activityId, revision: item.revision, ...(item.message ? { message: item.message } : {}) }))
   ];
 }
 
@@ -58,7 +58,7 @@ function createCorosImportCompletions(filePath) {
           const key = `${item.date}:${item.runId}`;
           if (next.revisions[key] === item.revision) continue;
           next.revisions[key] = item.revision;
-          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString() });
+          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString(), ...(item.message ? { message: String(item.message) } : {}) });
         }
         if (next.sequence === state.sequence) return;
         next.events = next.events.slice(-HISTORY_LIMIT);

@@ -126,7 +126,7 @@
                 ctx.font = '28px Arial, sans-serif';
                 ctx.textBaseline = 'top';
                 chunk.forEach((line, index) => ctx.fillText(line, 24, 24 + index * lineHeight));
-                page('RUN COMMENT - New screen / daily summary');
+                page(snapshot.selectedRunComment ? 'RUN COMMENT - Selected run' : 'RUN COMMENT - New screen / daily summary');
                 doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 102,
                     contentWidth, canvas.height * contentWidth / canvas.width);
             }

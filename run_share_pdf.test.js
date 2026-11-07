@@ -89,3 +89,90 @@ test('blank DB comment adds no comment page', () => {
     exporter.create(snapshot);
     expect(pages.some(page => page.some(item => item.text?.startsWith('RUN COMMENT')))).toBe(false);
 });
+
+// Exercise the actual selection/HTTP/snapshot flow, not only the PDF renderer.
+function exportSetup(source = 'coros_fit') {
+    const date = '2026-11-07';
+    const runIds = ['481584951647567878', '481585163711578613'];
+    const messages = new Map(runIds.map((id, i) => [id, `検証用コメント${i + 1}: RUN ${id}`]));
+    const save = jest.fn();
+    const canvas = { width: 1936, height: 421 };
+    const cells = values => values.map(textContent => ({ textContent }));
+    const elements = {
+        dateInput: { value: date }, analyzeBtn: { disabled: false },
+        tcxStrideChartWrapper: { querySelector: () => canvas },
+        lapTable: { querySelectorAll: selector => selector === 'thead th' ? cells(['Lap', 'Speed'])
+            : [{ querySelectorAll: () => cells(['1', '7.8']) }] }
+    };
+    elements.tcxLapTable = elements.lapTable;
+    const context = {
+        currentTcxMinuteExport: { date }, currentRunChartSource: source,
+        currentHealthConnectRuns: runIds.map(runId => ({ runId })), currentHealthConnectRunPageIndex: 0,
+        selectedId: runIds[0], normalizeRunDate: value => value,
+        getSelectedActiveRun: () => ({ runId: context.selectedId }),
+        isElementVisibleForExport: wrapper => !!wrapper,
+        document: { getElementById: id => elements[id] },
+        window: { RunSharePdf: { save } },
+        fetch: jest.fn(async url => {
+            const runId = url.split('/run-message/')[1];
+            return { ok: true, json: async () => ({ date, run_id: runId,
+                message: runId ? messages.get(runId) : '日次コメント（後半RUN）' }) };
+        })
+    };
+    const script = fs.readFileSync('public/script.js', 'utf8');
+    const start = script.indexOf('async function exportSelectedRunPdf()');
+    vm.runInNewContext(script.slice(start, script.indexOf('\nasync function loadData(', start)), context);
+    return { context, save, runIds, messages, elements, date };
+}
+
+test.each(['coros_fit', 'tcx'])('%s exports each selected RUN comment, including switching back', async source => {
+    const { context, save, runIds, messages, date } = exportSetup(source);
+    for (const runId of [...runIds, runIds[0]]) {
+        context.selectedId = runId;
+        await context.exportSelectedRunPdf();
+        expect(context.fetch).toHaveBeenLastCalledWith(`/api/daily/${date}/run-message/${runId}`, { cache: 'no-store' });
+        expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ runId, message: messages.get(runId), selectedRunComment: true }));
+    }
+});
+
+test('Health Connect retains its existing daily comment', async () => {
+    const { context, save, date } = exportSetup('health_connect');
+    await context.exportSelectedRunPdf();
+    expect(context.fetch).toHaveBeenCalledWith(`/api/daily/${date}`, { cache: 'no-store' });
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ message: '日次コメント（後半RUN）', selectedRunComment: false }));
+});
+
+test.each(['date', 'run_id'])('rejects a mismatched comment %s', async field => {
+    const { context, save, date, runIds } = exportSetup();
+    context.fetch.mockResolvedValue({ ok: true, json: async () => ({ date, run_id: runIds[0], message: 'wrong', [field]: 'wrong' }) });
+    await expect(context.exportSelectedRunPdf()).rejects.toThrow('一致しません');
+    expect(save).not.toHaveBeenCalled();
+});
+
+test.each(['run', 'source', 'date'])('selection change during comment read rejects export: %s', async field => {
+    const { context, save, date, runIds, elements } = exportSetup();
+    context.fetch.mockImplementation(async () => {
+        if (field === 'run') context.selectedId = runIds[1];
+        if (field === 'source') context.currentRunChartSource = 'tcx';
+        if (field === 'date') elements.dateInput.value = '2026-11-06';
+        return { ok: true, json: async () => ({ date, run_id: runIds[0], message: 'old selection' }) };
+    });
+    await expect(context.exportSelectedRunPdf()).rejects.toThrow('選択が変わりました');
+    expect(save).not.toHaveBeenCalled();
+});
+
+test.each([404, 500, 'network'])('failed per-run read never falls back to the daily message: %s', async status => {
+    const { context, save } = exportSetup();
+    if (status === 'network') context.fetch.mockRejectedValue(new Error('offline'));
+    else context.fetch.mockResolvedValue({ ok: false, status });
+    await expect(context.exportSelectedRunPdf()).rejects.toThrow();
+    expect(context.fetch).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+});
+
+test('empty per-run comment stays empty instead of substituting daily text', async () => {
+    const { context, save, messages, runIds } = exportSetup();
+    messages.set(runIds[0], '');
+    await context.exportSelectedRunPdf();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ message: '' }));
+});

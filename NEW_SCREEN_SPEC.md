@@ -505,7 +505,7 @@ The new screen can display a Run Comment imported independently of TCX.
 
 ## 13. Relation to Legacy Screen
 
-The legacy run pager includes a `共有用PDF` action to save the displayed run charts and existing 1km split table, with date and run ID, as one PDF for manual attachment to ChatGPT. See `LEGACY_SCREEN_SPEC.md` section 14.1 for source and validation rules. The PDF also appends the full saved `daily_summary.message` displayed by the new screen for the target date, with wrapping and pagination. PDF export reads the DB without AI generation or DB updates. No new-screen card action or automatic ChatGPT attachment is added.
+The legacy run pager includes a `共有用PDF` action to save the displayed run charts and existing 1km split table, with date and run ID, as one PDF for manual attachment to ChatGPT. See `LEGACY_SCREEN_SPEC.md` section 14.1 for source and validation rules. For TCX and COROS FIT, the PDF appends the full saved `run_messages.message` for the selected `(date, run_id)`, with wrapping and pagination; it does not use the latest applied daily comment. Health Connect retains its date-level comment. PDF export reads the DB without AI generation or DB updates. No new-screen card action or automatic ChatGPT attachment is added.
 
 The conceptual separation is:
 

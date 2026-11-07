@@ -1423,10 +1423,16 @@ async function exportSelectedRunPdf() {
     // Keep the displayed values and source, including the day-based Fit splits.
     const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
     const source = currentRunChartSource;
-    const response = await fetch(`/api/daily/${encodeURIComponent(date)}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('新画面のランコメントをDBから読み込めませんでした。');
+    // TCX/COROS comments belong to (date, run_id), not the last applied daily message.
+    const selectedRunComment = source === 'tcx' || source === 'coros_fit';
+    const messageUrl = `/api/daily/${encodeURIComponent(date)}` +
+        (selectedRunComment ? `/run-message/${encodeURIComponent(runId)}` : '');
+    const response = await fetch(messageUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error('対象のランコメントをDBから読み込めませんでした。');
     const summary = await response.json();
-    if (summary.date !== date) throw new Error('ランコメントの日付が一致しません。');
+    if (summary.date !== date || (selectedRunComment && summary.run_id !== runId)) {
+        throw new Error('ランコメントの日付またはRUN IDが一致しません。');
+    }
     const currentRun = currentRunChartSource === 'health_connect'
         ? currentHealthConnectRuns[currentHealthConnectRunPageIndex] : getSelectedActiveRun();
     if (normalizeRunDate(document.getElementById('dateInput')?.value || '') !== date ||
@@ -1434,7 +1440,7 @@ async function exportSelectedRunPdf() {
         throw new Error('選択が変わりました。対象のランを確認して書き出し直してください。');
     }
     const message = typeof summary.message === 'string' ? summary.message : '';
-    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, message });
+    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, message, selectedRunComment });
 }
 
 async function loadData(options = {}) {

@@ -45,6 +45,7 @@ async function setup({ list = records, applyFailure = false } = {}) {
       outputPath: path.join(base, 'intraday', `${basename}.json`), routeOutputPath: path.join(base, 'route', `${basename}.json`) });
     if (applyFailure) throw new Error('comment unavailable');
     applied.add(id);
+    return { applied: { message: `全体評価\n\n1分毎テーブル所見: 所見${id}\n\n次の提案` } };
   });
   return { controller: createCorosDirectMcp({ root, connectClient: async () => client, fetchFn, applyFit, isApplied: async (date, id) => applied.has(id) }),
     client, fetchFn, applyFit };
@@ -113,7 +114,7 @@ test.each([[false, '1:13:32'], [true, '1:13:32'], [false, '39:49'], [true, '39:4
   const detail = `🏃 Outdoor Run Activity Details\n========================================\n\nWorkout Time: ${workoutTime}\nDistance: 7.54 km\nTotal Time: ${workoutTime}\nAverage Heart Rate: 125 bpm`;
   client.callTool.mockImplementation(({ name, arguments: args }) => {
     const text = name === 'querySportRecords' ? report : name === 'getActivityDetail' ? detail :
-      `Activity FIT file download URL(s):\n1. ${args.labelId}.fit\n   https://files.coros.com/${args.labelId}.fit`;
+      `Activity FIT file download URL(s):\n1. 481401602706538607_b20dd4e4f2.fit\n   https://files.coros.com/${args.labelId}.fit`;
     return { content: [{ type: 'text', text: encoded ? JSON.stringify(text) : text }] };
   });
   expect((await controller.receive('2026-09-08')).imported).toEqual(records.map(r => r.labelId));
@@ -125,13 +126,18 @@ test.each([[false, '1:13:32'], [true, '1:13:32'], [false, '39:49'], [true, '39:4
   expect(fetchFn).toHaveBeenCalledTimes(2);
 });
 
-test.each(['unknown detail', 'wrong URL activity', 'multiple URLs', 'untrusted URL'])('invalid text %s fails before FIT download and application', async failure => {
+test.each(['481401595735605652.fit', '481401602706538607_b20dd4e4f2.fit'])('single-activity FIT report accepts storage filename %s', filename => {
+  const text = `Activity FIT file download URL(s):\n1. ${filename}\n   https://files.coros.com/${filename}`;
+  expect(fitUrl(text, '481401595735605652')).toBe(`https://files.coros.com/${filename}`);
+});
+
+test.each(['unknown detail', 'invalid filename', 'multiple URLs', 'untrusted URL'])('invalid text %s fails before FIT download and application', async failure => {
   const { controller, client, fetchFn, applyFit } = await setup({ list: [records[0]] });
   const original = client.callTool.getMockImplementation();
   client.callTool.mockImplementation(args => {
     if (args.name === 'getActivityDetail' && failure === 'unknown detail') return { content: [{ type: 'text', text: 'Service unavailable' }] };
     if (args.name === 'queryActivityFitFileDownloadUrls') {
-      const id = failure === 'wrong URL activity' ? records[1].labelId : records[0].labelId;
+      const id = failure === 'invalid filename' ? '../invalid' : records[0].labelId;
       const url = failure === 'untrusted URL' ? 'https://coros.com.attacker.example/file.fit' : 'https://files.coros.com/file.fit';
       const extra = failure === 'multiple URLs' ? `\n2. ${records[1].labelId}.fit\n   https://files.coros.com/another.fit` : '';
       return { content: [{ type: 'text', text: `Activity FIT file download URL(s):\n1. ${id}.fit\n   ${url}${extra}` }] };
@@ -195,4 +201,61 @@ test('router rejects cross-site mutations and never returns credentials', async 
   const response = await request(app).get('/api/coros-mcp').expect(200);
   expect(JSON.stringify(response.body)).not.toContain('fixture-token');
   await request(app).get('/api/coros-mcp/callback?code=secret-code&state=wrong').expect(400);
+});
+
+test('forced reception redownloads and reapplies already imported FIT, including unchanged bytes', async () => {
+  const { controller, fetchFn, applyFit } = await setup();
+  const first = await controller.receive('2026-09-08');
+  expect((await controller.receive('2026-09-08', { force: true })).imported).toEqual(first.imported);
+  expect(fetchFn).toHaveBeenCalledTimes(4);
+  expect(applyFit).toHaveBeenCalledTimes(4);
+  expect((await controller.receive('2026-09-08')).skipped).toEqual(first.imported);
+  expect(fetchFn).toHaveBeenCalledTimes(4);
+});
+
+test.each(['network', 'invalid FIT'])('failed forced download preserves existing FIT and metadata (%s)', async failure => {
+  const { controller, fetchFn, applyFit } = await setup();
+  await controller.receive('2026-09-08');
+  const basename = `2026-09-08_${records[0].labelId}`;
+  const fitPath = path.join(root, 'data/coros/fit', `${basename}.fit`);
+  const metadataPath = path.join(root, 'data/coros/metadata', `${basename}.json`);
+  const originalFit = await fs.readFile(fitPath);
+  const originalMetadata = await fs.readFile(metadataPath);
+  if (failure === 'network') fetchFn.mockRejectedValueOnce(new Error('network unavailable'));
+  else fetchFn.mockResolvedValueOnce({ ok: true, headers: new Headers(), arrayBuffer: async () => Buffer.from('invalid FIT') });
+  const result = await controller.receive('2026-09-08', { force: true });
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0].labelId).toBe(records[0].labelId);
+  expect(result.imported).toEqual([records[1].labelId]);
+  expect(await fs.readFile(fitPath)).toEqual(originalFit);
+  expect(await fs.readFile(metadataPath)).toEqual(originalMetadata);
+  expect(applyFit).toHaveBeenCalledTimes(3);
+  expect((await controller.receive('2026-09-08')).skipped).toHaveLength(2);
+});
+
+test('force accepts only an explicit boolean at controller and API boundaries', async () => {
+  const { controller, fetchFn } = await setup();
+  await expect(controller.receive('2026-09-08', { force: 'false' })).rejects.toThrow('真偽値');
+  expect(fetchFn).not.toHaveBeenCalled();
+  const receive = jest.fn(async () => ({ date: '2026-09-08', imported: [], skipped: [], failed: [] }));
+  const app = express(); app.use(express.json()); app.use('/mcp', createCorosDirectRouter({ receive }));
+  await request(app).post('/mcp/receive').set('Host', 'app.test').set('Origin', 'https://app.test')
+    .send({ date: '2026-09-08', force: 'false' }).expect(400);
+  expect(receive).not.toHaveBeenCalled();
+  await request(app).post('/mcp/receive').set('Host', 'app.test').set('Origin', 'https://app.test')
+    .send({ date: '2026-09-08', force: true }).expect(200);
+  expect(receive).toHaveBeenLastCalledWith('2026-09-08', { force: true });
+});
+
+test('manual receive push uses saved minute findings from each imported ID', async () => {
+  const { controller } = await setup();
+  const notifications = { check: jest.fn(), send: jest.fn() };
+  const app = express();
+  app.use(express.json(), createCorosDirectRouter(controller, { notifications }));
+  const response = await request(app).post('/receive').set('Host', 'localhost').set('Origin', 'https://localhost')
+    .send({ date: '2026-09-08', notificationId: 'device' }).expect(200);
+  expect(response.body.imported).toEqual(records.map(run => run.labelId));
+  const body = notifications.send.mock.calls[0][1].body;
+  for (const run of records) expect(body).toContain('所見' + run.labelId);
+  expect(body).not.toContain('次の提案');
 });

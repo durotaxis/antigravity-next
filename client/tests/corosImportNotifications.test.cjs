@@ -65,3 +65,12 @@ test('test notification does not change the import cursor', async () => {
   assert.match(options.shown[0].options.tag, /^coros-import-test-/);
   assert.equal(readNotificationPreferences(options.storage, options.key).cursor, 2);
 });
+
+
+test('notification formats minute findings from the completed saved comment', async () => {
+  const options = setup();
+  setImportNotifications(options.storage, options.key, true, 0);
+  await deliverImportNotifications({ ...options, snapshot: { completionSequence: 1, completions: [{ ...event(1), message: 'Overall comment\n\n1分毎テーブル所見：\nMinute findings\n\nNext advice' }] } });
+  assert.match(options.shown[0].options.body, /Minute findings/);
+  assert.doesNotMatch(options.shown[0].options.body, /Overall comment|Next advice/);
+});

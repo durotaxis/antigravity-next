@@ -155,9 +155,11 @@ function activityDetail(data) {
 
 function fitUrl(data, labelId) {
   if (typeof data === 'string') {
-    const report = /^Activity FIT file download URL\(s\):\r?\n1\. (\d+)\.fit\r?\n[ \t]+(https:\/\/\S+)[ \t]*(?:\r?\n)?$/.exec(data);
-    if (!report || report[1] !== labelId) throw new Error('活動のFIT URLを一意に特定できません。');
-    data = { labelId: report[1], downloadUrl: report[2] };
+    const report = /^Activity FIT file download URL\(s\):\r?\n1\. ([A-Za-z0-9_-]+\.fit)\r?\n[ \t]+(https:\/\/\S+)[ \t]*(?:\r?\n)?$/.exec(data);
+    if (!report) throw new Error('活動のFIT URLを一意に特定できません。');
+    // This response belongs to the single-activity request. COROS file names
+    // contain a storage ID that need not equal the requested activity labelId.
+    data = { downloadUrl: report[2] };
   }
   const matches = [];
   const walk = value => {
@@ -244,7 +246,8 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
     if (running || authenticating) throw new Error('COROSの処理が実行中です。');
     await provider.invalidateCredentials('all');
   };
-  const receive = async date => {
+  const receive = async (date, { force = false, onSavedComment } = {}) => {
+    if (typeof force !== 'boolean') throw new Error('forceには真偽値を指定してください。');
     if (!validDate(date)) throw new Error('有効な日付を指定してください。');
     await initialize();
     if (!provider.data.tokens?.access_token) throw new UnauthorizedError('COROSに接続してください。');
@@ -285,17 +288,19 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
           const metadataPath = path.join(root, 'data/coros/metadata', `${basename}.json`);
           let bytes;
           let metadata;
-          try {
-            bytes = await fs.readFile(fitPath);
-            metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
-            const hash = crypto.createHash('sha256').update(bytes).digest('hex');
-            if (metadata.source !== 'coros_fit' || metadata.labelId !== a.labelId || metadata.date !== a.date ||
-                metadata.sportType !== a.sportType || Date.parse(metadata.startTime) !== a.startTimestamp * 1000 ||
-                Date.parse(metadata.endTime) !== a.endTimestamp * 1000 || metadata.fitSha256 !== hash) throw new Error('Existing FIT pair mismatch');
-            await validateFit(fitPath);
-          } catch (error) {
-            if (error.code && error.code !== 'ENOENT') throw error;
-            bytes = null;
+          if (!force) {
+            try {
+              bytes = await fs.readFile(fitPath);
+              metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+              const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+              if (metadata.source !== 'coros_fit' || metadata.labelId !== a.labelId || metadata.date !== a.date ||
+                  metadata.sportType !== a.sportType || Date.parse(metadata.startTime) !== a.startTimestamp * 1000 ||
+                  Date.parse(metadata.endTime) !== a.endTimestamp * 1000 || metadata.fitSha256 !== hash) throw new Error('Existing FIT pair mismatch');
+              await validateFit(fitPath);
+            } catch (error) {
+              if (error.code && error.code !== 'ENOENT') throw error;
+              bytes = null;
+            }
           }
           if (!bytes) {
             if (++downloads > 50) throw new Error('今回のFIT取得上限50件に達しました。');
@@ -332,7 +337,8 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
           }
           if (ready) result.skipped.push(a.labelId);
           else {
-            await applyFit(date, a.labelId);
+            const applied = await applyFit(date, a.labelId);
+            if (applied?.applied?.message) onSavedComment?.(applied.applied.message);
             result.imported.push(a.labelId);
           }
         } catch (error) { result.failed.push({ labelId: a.labelId, error: safeError(error) }); }
@@ -343,7 +349,7 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
   return { status, begin, callback, disconnect, receive };
 }
 
-function createCorosDirectRouter(controller) {
+function createCorosDirectRouter(controller, { notifications } = {}) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -364,7 +370,42 @@ function createCorosDirectRouter(controller) {
   router.get('/', handle(async (req, res) => res.json(await controller.status())));
   router.post('/connect', handle(async (req, res) => res.json(await controller.begin())));
   router.post('/disconnect', handle(async (req, res) => { await controller.disconnect(); res.json({ connected: false }); }));
-  router.post('/receive', handle(async (req, res) => res.json(await controller.receive(req.body?.date))));
+  router.post('/receive', handle(async (req, res) => {
+    if (req.body?.force !== undefined && typeof req.body.force !== 'boolean') {
+      throw new Error('forceには真偽値を指定してください。');
+    }
+    const id = req.body?.notificationId;
+    if (id) {
+      if (!notifications) throw new Error('携帯通知を利用できません。');
+      await notifications.check(id);
+    }
+    const tag = `coros-receive-${crypto.randomUUID()}`;
+    let result;
+    const savedComments = [];
+    try {
+      // Continues on the server even when the initiating page is closed.
+      result = await controller.receive(req.body?.date, { force: req.body?.force ?? false,
+        ...(id ? { onSavedComment: message => savedComments.push(message) } : {}) });
+    } catch (error) {
+      if (id) await notifications.send(id, { title: 'COROSの受信に失敗しました',
+        body: 'アプリを開いて接続状態を確認し、もう一度受信してください。', tag }).catch(() => {});
+      throw error;
+    }
+    if (id) {
+      try {
+        // receive resolves only after each imported RUN's comment has been saved.
+        const comments = savedComments
+          .map(message => message.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?1分毎テーブル所見(?:\*\*)?\s*[:：]?\s*([\s\S]*?)(?=\n\s*\n|$)/)?.[1]?.trim())
+          .filter(Boolean);
+        const findingsText = comments.length ? `\n${comments.join('\n\n')}` : '';
+        await notifications.send(id, {
+          title: result.failed.length ? 'COROSの受信で失敗したランがあります' : 'COROSの受信が完了しました',
+          body: `${result.date}：反映 ${result.imported.length}件・取得済み ${result.skipped.length}件・失敗 ${result.failed.length}件${findingsText}`, tag,
+        });
+      } catch (error) { result.notificationError = error.message; }
+    }
+    res.json(result);
+  }));
   router.get('/callback', async (req, res) => {
     try {
       if (req.query.error) throw new Error('COROS認証がキャンセルされました。');

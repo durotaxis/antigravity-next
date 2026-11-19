@@ -164,7 +164,7 @@ async function fetchIntradayBuckets(dateString) {
     }
 }
 
-async function fetchSessionsForDate(dateString) {
+async function fetchSessionsForDate(dateString, options = {}) {
     const CACHE_DIR = path.join(__dirname, 'storage', 'cache');
     const sessionsCacheFile = path.join(CACHE_DIR, `sessions_${dateString}.json`);
     const isToday = dateString === toLocalDateString();
@@ -174,7 +174,7 @@ async function fetchSessionsForDate(dateString) {
         await fs.mkdir(CACHE_DIR, { recursive: true });
         const rawCached = await fs.readFile(sessionsCacheFile, 'utf8');
         cachedSessions = JSON.parse(rawCached);
-        if (!isToday && Array.isArray(cachedSessions)) {
+        if (!options.force && !isToday && Array.isArray(cachedSessions)) {
             console.log(`[GoogleFit] Using session cache: ${sessionsCacheFile} (${cachedSessions.length} sessions)`);
             return cachedSessions;
         }

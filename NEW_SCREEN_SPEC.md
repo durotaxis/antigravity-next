@@ -1,6 +1,6 @@
 # New Screen Specification
 
-Last updated: 2026-10-04
+Last updated: 2026-10-31
 
 ## 1. Scope
 
@@ -64,6 +64,8 @@ The screen normalizes API rows into run cards with:
 - speed
 - message
 - images
+
+The run-list API returns the current date-level `daily_summary.message` as the card message. This includes the selected legacy run comment saved by APPLY. A newer `run_messages.created_at` does not replace that selection in the response. Empty daily messages remain empty. Reloading the new screen reads the saved selection.
 
 ### 4.3 Filtering behavior
 
@@ -226,6 +228,31 @@ The `取込完了の携帯通知` control enables browser system notifications o
 - the notification cursor advances after successful display; a failed display retries on a subsequent status check, and Web Locks coordinate open tabs where supported
 - receiving a new completion also refreshes the RUN list without reloading the page; tapping a notification focuses the app or opens it
 - COROS acquisition and local FIT scan intervals are unchanged; mobile background suspension can delay detection until the page runs again
+
+The manual receive section includes a collapsed `デバッグ` area with `指定日のランを強制再取り込み`.
+
+- it targets every running activity returned for the selected date and sends boolean `force: true` to POST `/api/coros-mcp/receive`
+- ordinary reception defaults to `force: false` and continues to reuse valid FIT pairs and skip already applied runs
+- force downloads FIT and activity details again even if already present and unchanged, then runs the existing minute/route generation, exact date-summary recalculation and comment overwrite for the same activity IDs
+- the UI explains that this overwrites outputs and consumes COROS download allowance and comment-generation API calls; it is disabled while busy, disconnected or missing a date
+- a replacement FIT is validated before replacing the old file; a failed download or FIT validation preserves the existing FIT and metadata, reports that run as failed and continues other runs
+- existing shared import locking, per-pass download cap, per-run failure handling and manual-reception push notifications apply to forced reception too
+
+The manual `指定日のランを受信` flow has a separate `手動受信の携帯通知` opt-in for Web Push.
+
+- the target file format is COROS `.FIT` (the older TODO's `.JIT` spelling referred to this format)
+- enabling requires HTTPS, notification permission, Service Worker and Push API support; on iPhone/iPad use the app installed on the home screen
+- the server generates VAPID keys once and atomically persists keys and subscriptions in ignored `data/coros/push/state.json`; the private key and subscription keys are never returned by the API
+- `GET /api/coros-push` exposes the application public key; JSON POST `/subscribe`, `/unsubscribe` and `/test` register the current device, disable its registration and send an actual server-originated test push
+- mutation requests require the app Origin hostname; subscription endpoints must belong to supported Google, Mozilla, Apple or Windows push services
+- the initiating browser includes its saved notification ID in POST `/api/coros-mcp/receive`; the server validates that ID before starting reception and continues processing after the page disconnects
+- after the existing FIT metrics/comment/route processing finishes, the server sends one result push to that device, including the date and imported/skipped/failed counts; partial failures and empty dates also receive a result, and a failed reception receives a failure notification
+- the Service Worker's push event displays the notification even when no app window is open; tapping it opens or focuses the app
+- manual receipt notifications are independent of the automatic-import foreground cursor and do not create duplicate automatic-import completion events
+- failed push delivery does not undo a successful import; its error is returned in the receipt, and 404/410 registrations are removed so the user can enable notifications again
+- the server must remain running and reach the browser's push service; `WEB_PUSH_SUBJECT` optionally sets the VAPID contact URI, and inherited `HTTPS_PROXY` is used for outbound push when configured
+- notification delivery depends on the device/browser push settings and network; browser force-stop and OS restrictions can delay delivery
+
 - for mobile HTTPS use, both the page and its API must be reachable securely
 - HTTP on `PORT` (default `3000`) continues to serve the legacy screen and API
 - HTTPS on `HTTPS_PORT` (default `3443`) is the secure new-screen entry point when either `HTTPS_PFX_PATH`, or both `HTTPS_KEY_PATH` and `HTTPS_CERT_PATH`, are configured
@@ -342,7 +369,7 @@ The manual path does not alter `RunUploader`, TCX behavior, same-date aggregatio
 
 The manual receiver also accepts the verified `querySportRecords` text report beginning with `Sport Records — YYYY-MM-DD to YYYY-MM-DD (N records)`, whether returned as plain text or a JSON-encoded string. It extracts each numbered activity's full string `LabelId`, `SportType`, and `Time Window` timestamps. The reported count must match the parsed activities, required fields must be present, and report dates must match the requested date. An explicit zero-count report with no activity body or the verified `No sport records found from YYYY-MM-DD to YYYY-MM-DD.` response is accepted as an empty text list only for the requested date; unknown or incomplete text remains an error. Existing structured JSON activity lists remain supported.
 
-For `getActivityDetail`, the verified text report headed `🏃 Outdoor Run Activity Details` with workout time and distance is preserved in metadata as `{ format: "coros_mcp_text", text: ... }`; it is not converted into summary metrics. `Workout Time` accepts both minutes:seconds (for example, `39:49`) and hours:minutes:seconds (for example, `1:13:32`). Other unrecognized text detail formats fail explicitly. `queryActivityFitFileDownloadUrls` also accepts the verified `Activity FIT file download URL(s):` text report with exactly one numbered `<labelId>.fit` entry and its URL. The filename ID must match the requested activity, and the existing official COROS HTTPS URL and FIT integrity checks still apply. Plain-text and JSON-encoded reports are both supported, along with existing structured JSON responses. FIT parsing and `daily_summary` calculation rules are unchanged.
+For `getActivityDetail`, the verified text report headed `🏃 Outdoor Run Activity Details` with workout time and distance is preserved in metadata as `{ format: "coros_mcp_text", text: ... }`; it is not converted into summary metrics. `Workout Time` accepts both minutes:seconds (for example, `39:49`) and hours:minutes:seconds (for example, `1:13:32`). Other unrecognized text detail formats fail explicitly. `queryActivityFitFileDownloadUrls` also accepts the verified `Activity FIT file download URL(s):` text report with exactly one numbered FIT filename entry and its URL from a single-activity request. FIT filenames may contain ASCII letters, digits, underscores, and hyphens before `.fit`; COROS storage filenames (for example, `481401602706538607_b20dd4e4f2.fit`) need not match the requested activity ID. The request determines the activity association; multiple entries and malformed reports are rejected. Explicit activity IDs in structured JSON responses must still match the requested activity. The existing official COROS HTTPS URL and FIT integrity checks still apply. Plain-text and JSON-encoded reports are both supported, along with existing structured JSON responses. FIT parsing and `daily_summary` calculation rules are unchanged.
 
 ## 7. Run Cards
 
@@ -456,7 +483,11 @@ The new screen can display a Run Comment imported independently of TCX.
 - filenames use `run_<activityId>.json`
 - required fields are `date` and `activityId`; any incoming `message` is ignored
 - the local server generates the Run Comment from COROS activity data through `gemini_service`
-- Gemini model selection uses the configured fallback order and records the successful model in the processed JSON
+- Gemini generation uses the Google GenAI SDK (`@google/genai`) through the shared `gemini_service.js` generation function for COROS, TCX, image advice, and trend-chart advice.
+- Model selection tries `gemini-3.8-flash`, then `gemini-3.7-flash`, then `gemini-3.6-flash`, proceeding to the next model only if the preceding attempt throws an error. No other models are attempted. If all three fail, the existing caller-specific error handling and temporary-unavailable messages apply.
+- Each model attempt has a 60-second deadline. An empty text response or timeout advances to the next configured model. Late responses are ignored. Error messages are not saved as generated guides.
+- The processed JSON records the successful model. Prompts, image inputs, and summary/message persistence rules are unchanged by this SDK migration.
+- The separate `gemini_vision_ocr_service.js` OCR path uses `@google/genai` with its existing OCR model, image and JSON prompt.
 - the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
 - an existing `(date, run_id)` message is overwritten
 - after generation, the same latest message is always written to `daily_summary.message`; it is not left `null` while waiting for a separate Apply action
@@ -474,6 +505,8 @@ The new screen can display a Run Comment imported independently of TCX.
 
 ## 13. Relation to Legacy Screen
 
+The legacy run pager includes a `共有用PDF` action to save the displayed run charts and existing 1km split table, with date and run ID, as one PDF for manual attachment to ChatGPT. See `LEGACY_SCREEN_SPEC.md` section 14.1 for source and validation rules. For TCX and COROS FIT, the PDF appends the full saved `run_messages.message` for the selected `(date, run_id)`, with wrapping and pagination; it does not use the latest applied daily comment. Health Connect retains its date-level comment. PDF export reads the DB without AI generation or DB updates. No new-screen card action or automatic ChatGPT attachment is added.
+
 The conceptual separation is:
 
 - New screen
@@ -482,3 +515,8 @@ The conceptual separation is:
   - analyzer/debug/manual sync operations
 
 This is the current operational split between the two UIs.
+
+
+## Selected-run Gemini and notification restoration (2026-11-03)
+
+The new screen continues to display persisted DB comments. After comment persistence, both manual and automatic notifications extract the 1分毎テーブル所見 section from the saved run comment immediately before sending/displaying. Automatic completion events retain the saved comment so notification formatting occurs after generation has completed.

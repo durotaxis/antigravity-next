@@ -95,3 +95,40 @@ NODE_OPTIONS=--experimental-vm-modules npm test -- --runInBand coros_direct_mcp.
 ./client/node_modules/.bin/tsc --noEmit --project client/tsconfig.json
 npm run build --prefix client
 ```
+
+## Manual reception notifications
+
+In the manual receive section, enable **受信通知を有効にする** on the phone,
+then use **受信のテスト通知** to verify server-to-device delivery. Notifications
+for **指定日のランを受信** continue after the page closes once the server has
+accepted the request. One result includes imported, already-present and failed
+counts; an empty day or failed reception also receives a result. This is separate
+from the existing foreground-only automatic-import notification control.
+
+Use trusted HTTPS for the page and API. On iOS/iPadOS 16.4 or later, add the app
+to the home screen and enable notifications there. The API server must remain
+running and be able to reach the device's push service (Google FCM, Mozilla,
+Apple or Windows); HTTPS_PROXY is honored when configured. An optional
+WEB_PUSH_SUBJECT sets a VAPID contact URI such as mailto:you@example.com.
+
+VAPID keys and device registrations are generated and saved automatically in
+ignored data/coros/push/state.json. Keep this file private, preserve it across
+server restarts, and do not commit it. If it is deleted, switch the phone's
+receive notifications OFF and ON to register with the new server key.
+Expired subscriptions are removed on a 404/410 response. Push delivery failures
+appear in the receipt without reverting imported runs. A successful test API
+response means the push service accepted it; verify actual display on the phone.
+Browser force-stop, notification settings and OS restrictions may delay delivery.
+
+## Debug forced reception
+
+Expand **デバッグ** and press **指定日のランを強制再取り込み**. This targets
+the selected date's RUN activities, downloads FIT and activity details again,
+and regenerates minute charts, route data, exact day metrics and Run Comment
+through the existing apply path. Identical FIT bytes still trigger regeneration.
+POST /api/coros-mcp/receive accepts boolean force: true for this operation;
+omitting it preserves ordinary reception. COROS download limits still apply,
+and comment generation uses the configured API. Invalid replacement downloads
+are rejected before replacing existing FIT/metadata. Individual failures are
+reported while other runs continue. The enabled manual-reception notification
+reports forced-reception results through the same Web Push flow.

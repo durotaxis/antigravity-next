@@ -688,3 +688,8 @@ COROS Run Comment JSON import writes the generated Run Comment to both `run_mess
 - Whether cache deletion should remain visible after immediate UI refresh
 - How OCR-side `daily_summary` construction should interact with an already-existing FIT/JSON-derived row
 - Which fields are owned by FIT/JSON versus OCR when both are present for the same date
+
+
+## Selected-run Gemini and notification restoration (2026-11-03)
+
+Legacy RUN ANALYZER Gemini generation for a selected TCX or COROS FIT run saves that run's comment in run_messages and applies the same comment to daily_summary.message. It does not substitute date-level data for the selected run's analysis.

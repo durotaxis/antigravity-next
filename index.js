@@ -18,6 +18,8 @@ const runCommentInboxService = require('./run_comment_inbox_service');
 const corosFitImporter = require('./coros_fit_importer');
 const { createCorosAutoImport, createCorosAutoImportRouter } = require('./coros_auto_import');
 const { createCorosDirectMcp, createCorosDirectRouter } = require('./coros_direct_mcp');
+const { createCorosPushNotifications, createCorosPushRouter } = require('./coros_push_notifications');
+const corosPush = createCorosPushNotifications({ statePath: path.join(__dirname, 'data/coros/push/state.json') });
 const { fitRevision, completedImports } = require('./coros_import_completions');
 const { createHttpsFrontendHandler, attachNewScreenUpgradeProxy } = require('./new_screen_proxy');
 
@@ -777,7 +779,7 @@ function normalizeAdviceProvider(provider) {
 }
 
 function isTemporaryRunMessage(message) {
-  return String(message || '').trim() === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE;
+  return [GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE, 'No API Key', 'AI Analysis is currently unavailable.'].includes(String(message || '').trim());
 }
 
 async function generateTcxRunMessage(dateString, runId, minuteRows, provider = 'gemini', options = {}) {
@@ -893,7 +895,7 @@ async function generateAndPersistCorosFitRunMessage(dateString, labelId, provide
     provider,
     { source: 'coros_fit' }
   ) || '').trim();
-  if (!message) throw new Error('Run Comment generation returned an empty message');
+  if (!message || isTemporaryRunMessage(message)) throw new Error(message || 'Run Comment generation returned an empty message');
 
   await repo.saveRunMessage({ date: dateString, run_id: labelId, message });
   await repo.saveDailySummary({ date: dateString, message });
@@ -2061,6 +2063,8 @@ app.get('/api/runs', async (req, res) => {
       }
 
       const derived = includeDerived ? await computeDerivedFromIntradayCache(row.date) : null;
+      // APPLY selects the date-level comment displayed on the new screen.
+      const dailySummary = await repo.getDailySummary(row.date);
       const images = Array.isArray(row.images)
         ? row.images.map((img) => {
             const rawUrl = String(img?.url || '').trim();
@@ -2089,7 +2093,7 @@ app.get('/api/runs', async (req, res) => {
       max_speed: row.max_speed ?? 0,
       ...(derived || {}),
       images,
-      message: row.message || '' // AI繧｢繝峨ヰ繧､繧ｹ
+      message: dailySummary?.message || ''
       });
     }));
 
@@ -2498,6 +2502,7 @@ async function importTcxContent(originalName, xmlText, fallbackDate = '', option
     ) || '').trim();
   }
 
+  if (isTemporaryRunMessage(runMessage)) runMessage = '';
   const shouldPersistRunMessage =
     String(runMessage || '').trim().length > 0 &&
     (
@@ -2652,9 +2657,15 @@ function legacyRunOwnedCacheIsStale(existing, tcxRunWindows = []) {
     endMs: Number(session?.endTimeMillis)
   })));
   const intradayWindows = buildIntradayCoverageWindows(existing.intradayRows || []);
-  const coverageWindows = intradayWindows.length > 0 ? intradayWindows : sessionWindows;
-  if (coverageWindows.length === 0) return true;
-  return tcxRunWindows.some((tcxWindow) => !windowOverlapsAny(tcxWindow, coverageWindows));
+  const detailedSeries = [existing.speedSeries, existing.hrSeries];
+  return tcxRunWindows.some((runWindow) => {
+    if (!windowOverlapsAny(runWindow, sessionWindows)) return true;
+    if (!windowOverlapsAny(runWindow, intradayWindows)) return true;
+    return detailedSeries.some((series) => !(series?.points || []).some((point) => {
+      const timestampMs = Number(point?.startTimeNanos) / 1000000;
+      return timestampMs >= runWindow.startMs && timestampMs <= runWindow.endMs;
+    }));
+  });
 }
 
 async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
@@ -2690,7 +2701,7 @@ async function ensureLegacyRunOwnedCaches(dateString, options = {}) {
 
   const buildPromise = (async () => {
     const [baseSessions] = await Promise.all([
-      googleFitService.fetchSessionsForDate(date),
+      googleFitService.fetchSessionsForDate(date, { force: force || existingIsStale }),
     ]);
     const ownedRunSessions = filterRunSessionsOwnedByDate(baseSessions, date);
     const ownedRunWindows = dedupeRunWindows([
@@ -3074,6 +3085,7 @@ app.get('/api/coros-fit-runs', async (req, res) => {
 });
 
 app.use('/api/coros-auto-import', createCorosAutoImportRouter(corosAutoImport));
+app.use('/api/coros-push', createCorosPushRouter(corosPush));
 app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
   applyFit: async (date, labelId) => {
     // Share the existing local scan lock; manual retrieval adds no timer.
@@ -3090,7 +3102,7 @@ app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
     const row = await repo.getRunMessage(date, labelId);
     return Boolean(row?.message && !isTemporaryRunMessage(row.message));
   }
-})));
+}), { notifications: corosPush }));
 
 app.get('/api/coros-sync-status', async (req, res) => {
   try {
@@ -3991,12 +4003,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           max_speed: resolvedMaxSpeed
         }, [req.file.path]);
 
-        const adviceToSave = (advice === GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE &&
-          existingSummary &&
-          String(existingSummary.message || '').trim().length > 0 &&
-          String(existingSummary.message || '').trim() !== GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE)
-          ? existingSummary.message
-          : advice;
+        const adviceToSave = isTemporaryRunMessage(advice) ? null : advice;
 
         await repo.saveDailySummary({
           date: result.date,
@@ -4298,6 +4305,32 @@ app.post('/api/advice/gemini', async (req, res) => {
     } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
+    if (String(runId || '').trim()) {
+      const selectedRunId = String(runId).trim();
+      const source = req.body.source;
+      if (source !== 'coros_fit' && (source !== 'tcx' || !selectedRunId.startsWith(`${date}_`))) {
+        return res.status(400).json({ error: 'Invalid run source or date' });
+      }
+      const saved = await repo.getRunMessage(date, selectedRunId);
+      if (saved?.message?.trim() && !isTemporaryRunMessage(saved.message)) return res.json({ advice: saved.message });
+      let rows;
+      if (source === 'coros_fit') {
+        const file = getCorosFitIntradayPath(date, selectedRunId);
+        if (!file) return res.status(400).json({ error: 'Invalid COROS FIT run' });
+        const fit = JSON.parse(await fs.readFile(file, 'utf8'));
+        if (fit.source !== source || String(fit.labelId) !== selectedRunId) return res.status(422).json({ error: 'COROS FIT metadata mismatch' });
+        rows = fit.chartData;
+      } else {
+        rows = await readTcxMinuteRunCache(selectedRunId);
+      }
+      if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Run minute data not found' });
+      const advice = String(await generateTcxRunMessage(date, selectedRunId, rows, 'gemini', { source }) || '').trim();
+      if (!advice || isTemporaryRunMessage(advice)) throw new Error('Run Comment generation did not complete');
+      await repo.saveRunMessage({ date, run_id: selectedRunId, message: advice });
+      await repo.saveDailySummary({ date, message: advice });
+      return res.json({ advice, provider: 'gemini-live' });
+    }
+
     const dailySummary = await repo.getDailySummary(date);
     const cacheMetrics = await computeDailySummaryFromCache(date);
     const resolvedStepCount = pickPositive(dailySummary && dailySummary.step_count, pickPositive(cacheMetrics.step_count, stepCount));
@@ -4407,6 +4440,7 @@ app.post('/api/advice/gemini', async (req, res) => {
       compareRunSummaries
     });
 
+    if (isTemporaryRunMessage(advice)) return res.json({ advice, provider: 'gemini-live' });
     await repo.saveDailySummary({
       date,
       step_count: resolvedStepCount,

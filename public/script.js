@@ -685,7 +685,7 @@ function hasNonEmptyMessage(summary) {
 
 function isTemporaryUnavailableMessage(summary) {
     const text = summary && typeof summary.message === 'string' ? summary.message.trim() : '';
-    return text === '現在利用が制限されています。しばらくお待ちください。';
+    return ['現在利用が制限されています。しばらくお待ちください。', 'No API Key', 'AI Analysis is currently unavailable.'].includes(text);
 }
 
 async function fetchDailySummary(date) {
@@ -767,7 +767,10 @@ async function renderSavedAdvice(summary) {
     if (!container || !textSpan) return;
     const selectedRun = getSelectedActiveRun();
     if (selectedRun) {
-        const runMessage = await loadRunMessage(currentTcxRunPageDate, selectedRun.runId);
+        const date = currentTcxRunPageDate;
+        const source = currentRunChartSource;
+        const runMessage = await loadRunMessage(date, selectedRun.runId);
+        if (date !== currentTcxRunPageDate || source !== currentRunChartSource || selectedRun.runId !== getSelectedAdviceRunId()) return;
         if (String(runMessage || '').trim()) {
             textSpan.textContent = String(runMessage).trim();
             container.style.display = 'block';
@@ -1388,6 +1391,58 @@ async function copyVisibleTcxChartsAsImage() {
     alert('Clipboard image copy is unavailable in this browser. Downloaded PNG instead.');
 }
 
+async function exportSelectedRunPdf() {
+    const date = normalizeRunDate(document.getElementById('dateInput')?.value || '');
+    if (document.getElementById('analyzeBtn')?.disabled || !date || currentTcxMinuteExport?.date !== date) {
+        throw new Error('対象日をRUN ANALYZERで読み込んでから書き出してください。');
+    }
+    const run = currentRunChartSource === 'health_connect'
+        ? currentHealthConnectRuns[currentHealthConnectRunPageIndex]
+        : getSelectedActiveRun();
+    const runId = String(run?.runId || run?.id || '');
+    if (!runId) throw new Error('選択中のランを確認できません。RUN ANALYZERで読み込み直してください。');
+    const charts = [
+        ['legacyStrideChartWrapper', 'Stride + HR'],
+        ['legacySpeedChartWrapper', 'Speed + Pitch'],
+        ['fitSpeedChartWrapper', 'Speed (accurate) + HR (accurate)'],
+        ['fitPitchChartWrapper', 'Pitch (accurate)'],
+        ['fitStrideChartWrapper', 'Stride (accurate)'],
+        ['tcxStrideChartWrapper', `${currentRunChartSource === 'coros_fit' ? 'COROS FIT' : 'TCX'} Stride + HR`],
+        ['tcxSpeedPitchChartWrapper', `${currentRunChartSource === 'coros_fit' ? 'COROS FIT' : 'TCX'} Speed + Pitch`]
+    ].flatMap(([id, title]) => {
+        const wrapper = document.getElementById(id);
+        const canvas = wrapper?.querySelector('canvas');
+        if (!isElementVisibleForExport(wrapper) || !canvas || !canvas.width || !canvas.height) return [];
+        return [{ title, canvas }];
+    });
+    const tableId = currentRunChartSource === 'tcx' ? 'tcxLapTable' : 'lapTable';
+    const table = document.getElementById(tableId);
+    const headers = Array.from(table?.querySelectorAll('thead th') || [], cell => cell.textContent.trim());
+    const rows = Array.from(table?.querySelectorAll('tbody tr') || [])
+        .map(row => Array.from(row.querySelectorAll('td'), cell => cell.textContent.trim()));
+    // Keep the displayed values and source, including the day-based Fit splits.
+    const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
+    const source = currentRunChartSource;
+    // TCX/COROS comments belong to (date, run_id), not the last applied daily message.
+    const selectedRunComment = source === 'tcx' || source === 'coros_fit';
+    const messageUrl = `/api/daily/${encodeURIComponent(date)}` +
+        (selectedRunComment ? `/run-message/${encodeURIComponent(runId)}` : '');
+    const response = await fetch(messageUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error('対象のランコメントをDBから読み込めませんでした。');
+    const summary = await response.json();
+    if (summary.date !== date || (selectedRunComment && summary.run_id !== runId)) {
+        throw new Error('ランコメントの日付またはRUN IDが一致しません。');
+    }
+    const currentRun = currentRunChartSource === 'health_connect'
+        ? currentHealthConnectRuns[currentHealthConnectRunPageIndex] : getSelectedActiveRun();
+    if (normalizeRunDate(document.getElementById('dateInput')?.value || '') !== date ||
+        currentRunChartSource !== source || String(currentRun?.runId || currentRun?.id || '') !== runId) {
+        throw new Error('選択が変わりました。対象のランを確認して書き出し直してください。');
+    }
+    const message = typeof summary.message === 'string' ? summary.message : '';
+    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, message, selectedRunComment });
+}
+
 async function loadData(options = {}) {
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
@@ -1487,6 +1542,18 @@ async function loadData(options = {}) {
         if (currentRunChartSource === 'health_connect' && !hasHealthConnectRunData) currentRunChartSource = hasCorosFitRunData ? 'coros_fit' : 'tcx';
         updateRunSourceControls(hasCorosFitRunData, hasTcxRunData);
         updateActiveRunPager();
+        const adviceRunId = getSelectedAdviceRunId();
+        const adviceSource = currentRunChartSource;
+        const sameAdviceRun = () => dateInput.value === date && adviceSource === currentRunChartSource && adviceRunId === getSelectedAdviceRunId();
+        let savedRunAdvice = '';
+        if (adviceRunId) {
+            savedRunAdvice = await loadRunMessage(date, adviceRunId);
+            if (!sameAdviceRun()) return;
+            if (savedRunAdvice && msgText && msgContainer) {
+                msgText.textContent = savedRunAdvice;
+                msgContainer.style.display = 'block';
+            }
+        }
         const tcxMinutePayload = selectedTcxRun
             ? await fetchTcxMinuteSeries(date, selectedTcxRun.runId).catch(() => ({ chartData: [], altitudeDetail: [] }))
             : { chartData: [], altitudeDetail: [] };
@@ -1758,6 +1825,13 @@ async function loadData(options = {}) {
 
         // --- Check & Render Images ---
         checkAndRenderImages(date);
+
+        if (!sameAdviceRun()) return;
+        if (adviceRunId && savedRunAdvice && !isTemporaryUnavailableMessage({ message: savedRunAdvice })) return;
+        if (triggerAdvice && adviceRunId && isGeminiEnabled()) {
+            await getGeminiAdvice(date, peakMetrics.maxStride, data);
+            return;
+        }
 
         const canTriggerAdvice =
             triggerAdvice &&
@@ -2214,25 +2288,29 @@ async function getGeminiAdvice(date, maxStride, data) {
     const textSpan = document.getElementById('daily-message-text');
     if (!container || !textSpan) return;
 
+    const requestedRunId = getSelectedAdviceRunId();
+    const requestedSource = currentRunChartSource;
+    const stillSelected = () => requestedRunId === getSelectedAdviceRunId() && requestedSource === currentRunChartSource && date === currentAdviceRunDate;
+
     container.style.display = 'block';
     textSpan.innerHTML = '<span style="animation: pulse-glow 1.5s infinite;">Gemini is analyzing...</span>';
 
     try {
-        const payload = await buildAdvicePayload(date, maxStride, data);
-        const selectedRunId = getSelectedAdviceRunId();
-        if (selectedRunId) {
-            payload.runId = selectedRunId;
-        }
-        const chartCanvas = buildVisibleChartsCompositeCanvas();
-        const minuteTableMarkdown = buildVisibleMinuteTablesMarkdown();
-        if (chartCanvas) {
-            payload.chartImageDataUrl = chartCanvas.toDataURL('image/png');
-        }
-        if (minuteTableMarkdown) {
-            payload.minuteTableMarkdown = minuteTableMarkdown;
-            console.log('[Gemini payload] minuteTableMarkdown\n' + minuteTableMarkdown);
-        } else {
-            console.log('[Gemini payload] minuteTableMarkdown is empty');
+        const payload = requestedRunId ? { date, runId: requestedRunId, source: requestedSource }
+            : await buildAdvicePayload(date, maxStride, data);
+        if (!stillSelected()) return;
+        if (!requestedRunId) {
+            const chartCanvas = buildVisibleChartsCompositeCanvas();
+            const minuteTableMarkdown = buildVisibleMinuteTablesMarkdown();
+            if (chartCanvas) {
+                payload.chartImageDataUrl = chartCanvas.toDataURL('image/png');
+            }
+            if (minuteTableMarkdown) {
+                payload.minuteTableMarkdown = minuteTableMarkdown;
+                console.log('[Gemini payload] minuteTableMarkdown\n' + minuteTableMarkdown);
+            } else {
+                console.log('[Gemini payload] minuteTableMarkdown is empty');
+            }
         }
         const res = await fetch('/api/advice/gemini', {
             method: 'POST',
@@ -2242,9 +2320,9 @@ async function getGeminiAdvice(date, maxStride, data) {
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
-        textSpan.textContent = normalizedAdvice;
+        if (stillSelected()) textSpan.textContent = normalizedAdvice;
     } catch (e) {
-        textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
+        if (stillSelected()) textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
     }
 }
 
@@ -2255,9 +2333,15 @@ async function applySelectedRunAdviceFromCurrentView() {
         alert('No TCX or COROS FIT run selected. Run ANALYZER on a run day first.');
         return;
     }
-    if (!visibleText) {
+    if (!visibleText || isTemporaryUnavailableMessage({ message: visibleText })) {
         alert('No run comment is available for this run yet.');
         return;
+    }
+    const date = currentAdviceRunDate;
+    const runId = selectedRun.runId;
+    const saved = await loadRunMessage(date, runId);
+    if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || saved !== visibleText) {
+        throw new Error('選択したランの保存済みコメントを確認できません。');
     }
     const btn = document.getElementById('refreshTcxAdviceBtn');
     const originalText = btn ? btn.textContent : '';
@@ -3657,6 +3741,19 @@ document.addEventListener('DOMContentLoaded', () => {
             await copyVisibleTcxChartsAsImage();
         } catch (err) {
             alert(`Failed to copy charts: ${err.message}`);
+        }
+    });
+    document.getElementById('shareRunPdfBtn')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = 'PDF作成中…';
+        try {
+            await exportSelectedRunPdf();
+        } catch (error) {
+            alert(`PDFを書き出せませんでした: ${error.message}`);
+        } finally {
+            button.disabled = false;
+            button.textContent = '共有用PDF';
         }
     });
     document.getElementById('refreshTcxAdviceBtn')?.addEventListener('click', async () => {

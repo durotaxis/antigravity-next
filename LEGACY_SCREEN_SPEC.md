@@ -1,6 +1,6 @@
 # Legacy Screen Specification
 
-Last updated: 2026-09-19
+Last updated: 2026-10-31
 
 ## 1. Scope
 
@@ -648,6 +648,16 @@ The old screen can:
 
 Image unlink/delete from lightbox is currently disabled.
 
+### 14.1 Shareable run PDF
+
+- The run pager provides a `共有用PDF` button. After loading a run, one click saves one PDF containing the currently displayed charts, the existing displayed 1km split table, date, run ID, data source, and export timestamp.
+- The PDF contains chart images, repeats table headings across pages, and includes a collapsed split table without requiring it to be expanded. Hidden charts are not exported.
+- TCX exports the selected TCX run's lap table. COROS FIT and Health Connect export the existing Health Connect / Google Fit day-based split table, explicitly labeled with that source; the PDF does not recalculate a FIT-specific split table.
+- Missing charts, missing split rows, loading, or a date changed since loading produce an explicit error instead of a partial PDF. The user must load the target run first.
+- PDF creation runs locally in the browser using the locally served jsPDF bundle. It does not access the clipboard, generate advice, synchronize data, or write summaries. Saving the PDF does not automatically attach it to ChatGPT; the user attaches the saved file.
+- For TCX and COROS FIT, PDF export reads `run_messages.message` through `GET /api/daily/:date/run-message/:runId` using the selected run's exact string ID, validates both date and returned `run_id`, and appends the full text as `RUN COMMENT - Selected run`. It never substitutes `daily_summary.message` for a missing per-run comment. Health Connect retains the date-level daily API and `RUN COMMENT - New screen / daily summary` heading because its displayed comment is date-based. Long Japanese text wraps and continues across pages. Empty saved comments add no comment pages; read failures stop export with an error. Selection changes during the read require retrying. Export does not regenerate comments or write the DB.
+- Existing COPY CHARTS, JSON, and MD buttons remain available.
+
 ## 15. Current Functional Separation
 
 The intended separation of legacy debug tools is:
@@ -683,3 +693,8 @@ At the time of writing, the following areas are still under active alignment:
 - whether and when FIT JSON cache should visibly "stay deleted" after a clear
 - how `SYNC DAILY` should treat an already-existing cache-derived `daily_summary`
 - how OCR-derived day totals and cache-derived day totals should coexist in `daily_summary`
+
+
+## Selected-run Gemini and notification restoration (2026-11-03)
+
+RUN ANALYZER with Gemini selected generates a comment for the currently selected TCX or COROS FIT run using that run's minute data. It saves both run_messages and daily_summary.message. Run selection displays the selected run's saved comment. A response for a previously selected run must not replace the current selection's display.

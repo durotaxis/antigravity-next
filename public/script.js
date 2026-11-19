@@ -1422,6 +1422,19 @@ async function exportSelectedRunPdf() {
         .map(row => Array.from(row.querySelectorAll('td'), cell => cell.textContent.trim()));
     // Keep the displayed values and source, including the day-based Fit splits.
     const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
+    const minuteTables = [
+        ['legacyPerMinuteWrapper', 'resultTable'],
+        ['tcxPerMinuteWrapper', 'tcxResultTable']
+    ].flatMap(([wrapperId, minuteTableId]) => {
+        const wrapper = document.getElementById(wrapperId);
+        const minuteTable = document.getElementById(minuteTableId);
+        if (!isElementVisibleForExport(wrapper) || !minuteTable) return [];
+        const minuteHeaders = Array.from(minuteTable.querySelectorAll('thead th'), cell => cell.innerText.trim());
+        const minuteRows = Array.from(minuteTable.querySelectorAll('tbody tr'), row =>
+            Array.from(row.querySelectorAll('td'), cell => cell.innerText.trim()));
+        if (!minuteHeaders.length || !minuteRows.length) return [];
+        return [{ title: wrapper.querySelector('h3').innerText.trim(), headers: minuteHeaders, rows: minuteRows }];
+    });
     const source = currentRunChartSource;
     // TCX/COROS comments belong to (date, run_id), not the last applied daily message.
     const selectedRunComment = source === 'tcx' || source === 'coros_fit';
@@ -1440,7 +1453,7 @@ async function exportSelectedRunPdf() {
         throw new Error('選択が変わりました。対象のランを確認して書き出し直してください。');
     }
     const message = typeof summary.message === 'string' ? summary.message : '';
-    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, message, selectedRunComment });
+    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, minuteTables, message, selectedRunComment });
 }
 
 async function loadData(options = {}) {

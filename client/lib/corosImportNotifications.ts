@@ -23,8 +23,8 @@ export async function deliverTestImportNotification({ show, url }: {
   show: (title: string, options: NotificationOptions) => Promise<void>;
   url: string;
 }) {
-  await show('AntiGravity 通知テスト', {
-    body: '携帯通知を表示できる状態です。',
+  await show('【テスト通知】AntiGravity', {
+    body: 'これは携帯通知の動作確認用テストです。',
     tag: `coros-import-test-${Date.now()}`,
     data: { url },
   });
@@ -50,7 +50,7 @@ export async function deliverImportNotifications({ snapshot, storage, key, show,
     preferences = readNotificationPreferences(storage, key);
     if (!preferences.enabled) break;
     if (event.sequence <= preferences.cursor) continue;
-    const findings = String(event.message || '').match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?1分毎テーブル所見(?:\*\*)?\s*[:：]?\s*([\s\S]*?)(?=\n\s*\n|$)/)?.[1]?.trim();
+    const findings = String(event.message || '').replace(/\r\n?/g, '\n').replace(/\*\*|__/g, '').match(/1分毎テーブル所見[ \t]*[:：][ \t]*(?:\n(?![ \t]*\n))?([\s\S]*?)(?=\n[ \t]*\n|\n[ \t]*#{1,6}[ \t]+|$)/u)?.[1]?.trim();
     await show('COROSの取込が完了しました', {
       body: `${event.date} のRUNとコメントを保存しました。${findings ? `\n${findings}` : ''}`,
       tag: `coros-import-${event.date}-${event.runId}`,

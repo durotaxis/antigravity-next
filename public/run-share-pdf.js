@@ -22,6 +22,10 @@
         const wrap = text => {
             const lines = [''];
             for (const character of String(text)) {
+                if (character === '\n') {
+                    lines.push('');
+                    continue;
+                }
                 if (ctx.measureText(lines[lines.length - 1] + character).width > columnWidth - padding * 2) lines.push('');
                 lines[lines.length - 1] += character;
             }
@@ -83,20 +87,24 @@
             doc.addImage(image.toDataURL('image/png'), 'PNG', margin, y + 10, image.width * scale, image.height * scale);
         });
         // Paginate at row boundaries; each page repeats the column headings.
-        let pending = [];
-        const flush = () => {
-            page(`1km Splits - ${snapshot.tableSource}`);
-            const image = tableImage(snapshot.headers, pending);
-            const scale = Math.min(contentWidth / image.width, (height - 130) / image.height);
-            doc.addImage(image.toDataURL('image/png'), 'PNG', margin, 102, image.width * scale, image.height * scale);
-            pending = [];
+        const renderTable = ({ title, headers, rows }) => {
+            let pending = [];
+            const flush = () => {
+                page(title);
+                const image = tableImage(headers, pending);
+                const scale = Math.min(contentWidth / image.width, (height - 130) / image.height);
+                doc.addImage(image.toDataURL('image/png'), 'PNG', margin, 102, image.width * scale, image.height * scale);
+                pending = [];
+            };
+            rows.forEach(row => {
+                const candidate = tableImage(headers, [...pending, row]);
+                if (pending.length && candidate.height * contentWidth / candidate.width > height - 130) flush();
+                pending.push(row);
+            });
+            if (pending.length) flush();
         };
-        snapshot.rows.forEach(row => {
-            const candidate = tableImage(snapshot.headers, [...pending, row]);
-            if (pending.length && candidate.height * contentWidth / candidate.width > height - 130) flush();
-            pending.push(row);
-        });
-        if (pending.length) flush();
+        renderTable({ title: `1km Splits - ${snapshot.tableSource}`, headers: snapshot.headers, rows: snapshot.rows });
+        (snapshot.minuteTables || []).forEach(renderTable);
         // Browser canvas retains Japanese glyphs without changing the existing PDF fonts.
         if (typeof snapshot.message === 'string' && snapshot.message.trim()) {
             const canvas = document.createElement('canvas');

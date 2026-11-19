@@ -45,7 +45,7 @@ async function setup({ list = records, applyFailure = false } = {}) {
       outputPath: path.join(base, 'intraday', `${basename}.json`), routeOutputPath: path.join(base, 'route', `${basename}.json`) });
     if (applyFailure) throw new Error('comment unavailable');
     applied.add(id);
-    return { applied: { message: `全体評価\n\n1分毎テーブル所見: 所見${id}\n\n次の提案` } };
+    return { applied: { message: `全体評価。 **1分毎テーブル所見：** 所見${id}\n\n次の提案` } };
   });
   return { controller: createCorosDirectMcp({ root, connectClient: async () => client, fetchFn, applyFit, isApplied: async (date, id) => applied.has(id) }),
     client, fetchFn, applyFit };

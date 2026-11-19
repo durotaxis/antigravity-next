@@ -395,7 +395,7 @@ function createCorosDirectRouter(controller, { notifications } = {}) {
       try {
         // receive resolves only after each imported RUN's comment has been saved.
         const comments = savedComments
-          .map(message => message.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?1分毎テーブル所見(?:\*\*)?\s*[:：]?\s*([\s\S]*?)(?=\n\s*\n|$)/)?.[1]?.trim())
+          .map(message => message.replace(/\r\n?/g, '\n').replace(/\*\*|__/g, '').match(/1分毎テーブル所見[ \t]*[:：][ \t]*(?:\n(?![ \t]*\n))?([\s\S]*?)(?=\n[ \t]*\n|\n[ \t]*#{1,6}[ \t]+|$)/u)?.[1]?.trim())
           .filter(Boolean);
         const findingsText = comments.length ? `\n${comments.join('\n\n')}` : '';
         await notifications.send(id, {

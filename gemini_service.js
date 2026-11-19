@@ -74,11 +74,11 @@ async function generateContentWithFallback(parts, options = {}) {
             const controller = new AbortController();
             const deadline = new Promise((_, reject) => {
                 timeoutId = setTimeout(() => {
-                    const error = new Error(`${modelName} timed out after 60 seconds`);
+                    const error = new Error(`${modelName} timed out after 180 seconds`);
                     error.name = 'TimeoutError';
                     reject(error);
                     controller.abort();
-                }, 60000);
+                }, 180000);
             });
             const pending = genAI.models.generateContent({
                 model: modelName,

@@ -105,7 +105,7 @@ function createCorosPushRouter(service) {
   router.post('/subscribe', handle(async (req, res) => res.json({ id: await service.subscribe(req.body?.subscription, req.body?.url) })));
   router.post('/unsubscribe', handle(async (req, res) => { await service.remove(req.body?.id); res.json({ enabled: false }); }));
   router.post('/test', handle(async (req, res) => {
-    await service.send(req.body?.id, { title: 'AntiGravity 通知テスト', body: '画面を閉じていても受信結果を通知できます。', tag: `coros-test-${crypto.randomUUID()}` });
+    await service.send(req.body?.id, { title: '【テスト通知】AntiGravity', body: 'これは携帯通知の動作確認用テストです。', tag: `coros-test-${crypto.randomUUID()}` });
     res.json({ accepted: true });
   }));
   return router;

@@ -485,7 +485,7 @@ The new screen can display a Run Comment imported independently of TCX.
 - the local server generates the Run Comment from COROS activity data through `gemini_service`
 - Gemini generation uses the Google GenAI SDK (`@google/genai`) through the shared `gemini_service.js` generation function for COROS, TCX, image advice, and trend-chart advice.
 - Model selection tries `gemini-3.8-flash`, then `gemini-3.7-flash`, then `gemini-3.6-flash`, proceeding to the next model only if the preceding attempt throws an error. No other models are attempted. If all three fail, the existing caller-specific error handling and temporary-unavailable messages apply.
-- Each model attempt has a 60-second deadline. An empty text response or timeout advances to the next configured model. Late responses are ignored. Error messages are not saved as generated guides.
+- Each model attempt has a 180-second deadline. An empty text response or timeout advances to the next configured model. Late responses are ignored. Error messages are not saved as generated guides.
 - The processed JSON records the successful model. Prompts, image inputs, and summary/message persistence rules are unchanged by this SDK migration.
 - The separate `gemini_vision_ocr_service.js` OCR path uses `@google/genai` with its existing OCR model, image and JSON prompt.
 - the server writes the locally generated message into `run_messages` with `activityId` as `run_id`
@@ -520,3 +520,4 @@ This is the current operational split between the two UIs.
 ## Selected-run Gemini and notification restoration (2026-11-03)
 
 The new screen continues to display persisted DB comments. After comment persistence, both manual and automatic notifications extract the 1分毎テーブル所見 section from the saved run comment immediately before sending/displaying. Automatic completion events retain the saved comment so notification formatting occurs after generation has completed.
+The legacy shareable run PDF includes the visible per-minute tables with their displayed values and correction annotations. See Legacy Screen Spec section 14.1.

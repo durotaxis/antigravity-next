@@ -650,6 +650,8 @@ Image unlink/delete from lightbox is currently disabled.
 
 ### 14.1 Shareable run PDF
 
+- The PDF also includes the visible per-minute tables, preserving their screen titles, column headings, displayed values (including altitude and missing-value markers), and correction annotations such as `Adjusted`, raw distance, and raw speed. Column headings repeat on continuation pages.
+
 - The run pager provides a `共有用PDF` button. After loading a run, one click saves one PDF containing the currently displayed charts, the existing displayed 1km split table, date, run ID, data source, and export timestamp.
 - The PDF contains chart images, repeats table headings across pages, and includes a collapsed split table without requiring it to be expanded. Hidden charts are not exported.
 - TCX exports the selected TCX run's lap table. COROS FIT and Health Connect export the existing Health Connect / Google Fit day-based split table, explicitly labeled with that source; the PDF does not recalculate a FIT-specific split table.

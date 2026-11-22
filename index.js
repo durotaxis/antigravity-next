@@ -2174,6 +2174,32 @@ app.get('/api/daily/:date/run-message/:runId', async (req, res) => {
   }
 });
 
+// Apply the currently displayed selected RUN comment (a preview may not yet be saved).
+// Persist both the run-level message and the selected date-level message together.
+app.post('/api/run-comment/apply', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.body?.date);
+    const runId = String(req.body?.runId || '').trim();
+    const source = String(req.body?.source || '').trim();
+    const message = String(req.body?.message || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !runId) {
+      return res.status(400).json({ error: 'Valid date and runId are required' });
+    }
+    const validTcx = source === 'tcx' && runId.startsWith(`${date}_`) && sanitizeTcxRunId(runId) === runId;
+    const validCorosFit = source === 'coros_fit' && sanitizeCorosLabelId(runId) === runId;
+    if (!validTcx && !validCorosFit) {
+      return res.status(400).json({ error: 'Run source and runId do not match' });
+    }
+    if (!message || isTemporaryRunMessage(message)) {
+      return res.status(422).json({ error: 'A completed Run Comment is required' });
+    }
+    await repo.applyRunComment({ date, run_id: runId, message });
+    res.json({ success: true, date, runId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/run-comment/import-inbox', async (req, res) => {
   try {
     const result = await runCommentInboxService.scanInbox(repo, { generateCorosFitRunMessage: generateAndPersistCorosFitRunMessage });

@@ -23,7 +23,10 @@
 - `.gitignore`: 旧JSON試作時の `data/gemini/run-comment-prefix.json` の除外を維持（現在の保存先ではない）。実設定はGit管理外のSQLite DBに保持する。既に旧JSONに入力値がある場合は消さず、明示的に画面から再保存して移す。
 - 画面で保存した時点ではGeminiを呼ばず、保存済みコメントも再生成しない。**RUN Comment再取得ボタンは未実装**（後続作業に混同しない）。
 - `Apply` は保存済みRUN Commentを日別メッセージに適用する既存動作のみ。設定保存や日付変更によって `Apply` やコメント生成は自動実行しない。
-- GeminiがAPIエラーや空応答として拒否した場合、新しいコメントを保存しない既存ガードがある。一方、**通常のテキストとして返された拒否文は現在検出できず、コメントとして保存される可能性がある**。設定自体は残る。Safety Violationの確実な判別、表示・再試行制御は未実装（Astraで要検証）。
+- Geminiの構造化されたSafetyブロックを `gemini_service.js` が判定する。入力側は `promptFeedback.blockReason`、出力側は `candidates[].finishReason`。ブロックコード `GEMINI_SAFETY_BLOCK` を上流へ伝え、**同一生成処理で別モデルへフォールバックしない**。通常の429/503/一般的な400・空応答の既存フォールバックは維持。 `OTHER` は原因不明としNGワードと断定しない。
+- `index.js`: 明示的なGeminiブロックをHTTP 422＋ `code` / `blockReason` / `blockSource` で返す。拒否文・入力文の全文はレスポンスに含めない。ブロックされた生成結果をRUN Commentや `daily_summary.message` に書かない（既存の数値再計算はGemini呼び出し前に実行される場合がある）。
+- `public/script.js`: 既存の `runCommentPrefixStatus` に理由を表示。入力文はクリアしない。RUN Comment欄に拒否文を入れず、保存済みコメントがあれば復元し、なければ非表示にする。これによりApplyの誤適用を避ける。自動FIT受信・通知が走る無画面時は、ここへリアルタイム表示されない。
+- **制限**: Geminiがブロックコードなしで通常の生成テキストとして拒否文を返すケースは判別できない。Safetyによる再試行抑止は「そのAPI呼び出し内」であり、自動受信の後日の再実行制御までは変更していない。
 - PC/携帯は同じAPIサーバー・SQLite DBの設定を共有する。RUNや日付で設定を切り替えず、日付変更時にも入力文をクリアしない。`run_messages` と `daily_summary.message` に入力文そのもの、参照ID、履歴スナップショットは保存しない。**設定を変更しても保存済みコメントは変化しない**。
 
 ### 同じPRに含まれる直前の変更
@@ -39,19 +42,20 @@
 
 - 追加: `coros_run_chart.js`, `coros_run_chart.test.js`, `run_comment_prefix_store.js`, `run_comment_prefix_store.test.js`, `run_comment_prefix_db.test.js`
 - 更新: `db.js`, `repo.js`, `index.js`, `gemini_service.js`, `gemini_service.test.js`, `public/index.html`, `public/script.js`, `.gitignore`, `LEGACY_SCREEN_SPEC.md`, 本引き継ぎファイル
-- 画面入力・保存・Geminiプロンプトの先頭追加・画像パートに加え、SQLiteで設定が1行だけ更新され、RUNコメントと日別メッセージを書き換えないことを確認するテストを追加。**テストは追加したが未実行**。
+- 画面入力・保存・Geminiプロンプトの先頭追加・画像パート、SQLite保存、Safetyブロック／モデルフォールバックの単体テストを追加。Safetyの一部は**独立したJavaScriptモック実行で確認済み**（BLOCKLIST・SAFETY・OTHER・PROHIBITED_CONTENTは1リクエストで中止、通常400・503・空応答は従来どおり次モデル）。**フルJestテストは未実行**。
 - **未実施**: フルJest、実画面の操作検証、実APIサーバーでの保存・別端末からの再読込、実Gemini APIでの画像受信・コメント生成、既存RUNの回帰テスト。テストコードの追加はテスト成功を意味しない。
 
 ### PC側・Astra/CODEX側の確認事項
 
 1. まずPCローカルの未コミット差分を確認し、失わずに対象ブランチを取得する。mainに直接適用・マージしない。
-2. `npm test -- --runInBand run_comment_prefix_db.test.js run_comment_prefix_store.test.js gemini_service.test.js coros_run_chart.test.js` を実行し、DB設定のUPSERT・メッセージ非更新・入力・画像の受け渡しを検証する。
+2. `npm test -- --runInBand run_comment_prefix_db.test.js run_comment_prefix_store.test.js gemini_service.test.js coros_run_chart.test.js` を実行し、DBのUPSERT・メッセージ非更新・画像送信・ブロック時1回停止・通常503時のフォールバックを検証する。
 3. 旧画面にテキスト欄が表示され、保存→ページ再読み込み→同じ入力文の復元を確認する。空欄保存で無効化できることも確認する。
 4. 可能ならPCと携帯から同じサーバーにアクセスし、SQLiteの共通設定が共有されることを確認する。DBのバックアップ対象に `app_settings` の1レコードが含まれることも確認する。
 5. COROS FITのRUN Comment生成時に、入力文がプロンプトの先頭にあり、その後ろに固定プロンプト・RUN集計・1分毎テーブルがあることを確認する。
 6. Geminiへ送る画像が選択RUNだけから生成したPNGであること、および削除指定の完全休止に関する一文が復活していないことを確認する。
 7. 既存RUN Commentを画面表示しただけで再生成されないことを確認する。今回の追加プロンプト設定で既存コメントを再生成したい場合は、別途手動の再生成操作が必要。
-8. 実FIT受信・再生成はユーザーの手動操作を前提とし、許可なく実データを再取得・上書きしない。
+8. Geminiから入力側 `promptFeedback.blockReason=BLOCKLIST` または出力側 `finishReason=SAFETY` が返った場合、UIの入力欄下にコードを表示し、変更前のRUN Commentを保持し、Apply対象にエラーを入れないことを確認する。
+9. 実FIT受信・再生成はユーザーの手動操作を前提とし、許可なく実データを再取得・上書きしない。
 
 詳細な仕様は `LEGACY_SCREEN_SPEC.md` セクション17を参照。
 

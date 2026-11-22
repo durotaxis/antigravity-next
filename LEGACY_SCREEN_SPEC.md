@@ -202,6 +202,10 @@ Current COROS FIT legacy behavior:
 - manual import/apply operations and the separate five-minute COROS acquisition schedule remain available independently
 - only new FIT data, changed FIT SHA data, or missing local output is processed; existing historical FIT files are not blindly regenerated
 - when COROS FIT minute data exists, the shared run-minute charts and `Per Minute` table display those rows
+- COROS FIT `1km Splits` uses the selected FIT file's native `lapMesgs` (including a final partial lap), not the Google Fit day-level 1km recomputation
+- native FIT laps are saved alongside the per-run minute cache; historical caches without laps read the original FIT on demand without regenerating run comments or updating the DB
+- if the original FIT is unavailable and no native laps were cached, COROS split rows stay empty; do not silently show a different source's laps
+- the displayed COROS lap table, JSON/MD exports, and share PDF use the same selected-run lap records with an explicit COROS FIT source label
 - COROS FIT and TCX use the same `renderTcxMinuteCharts` chart-rendering path for:
   - `Stride + HR`
   - `Speed + Pitch`
@@ -654,7 +658,7 @@ Image unlink/delete from lightbox is currently disabled.
 
 - The run pager provides a `共有用PDF` button. After loading a run, one click saves one PDF containing the currently displayed charts, the existing displayed 1km split table, date, run ID, data source, and export timestamp.
 - The PDF contains chart images, repeats table headings across pages, and includes a collapsed split table without requiring it to be expanded. Hidden charts are not exported.
-- TCX exports the selected TCX run's lap table. COROS FIT and Health Connect export the existing Health Connect / Google Fit day-based split table, explicitly labeled with that source; the PDF does not recalculate a FIT-specific split table.
+- TCX exports the selected TCX run's lap table. COROS FIT exports the selected run's native FIT lap table. Health Connect retains the Health Connect / Google Fit day-based split table; all PDFs explicitly label their source.
 - Missing charts, missing split rows, loading, or a date changed since loading produce an explicit error instead of a partial PDF. The user must load the target run first.
 - PDF creation runs locally in the browser using the locally served jsPDF bundle. It does not access the clipboard, generate advice, synchronize data, or write summaries. Saving the PDF does not automatically attach it to ChatGPT; the user attaches the saved file.
 - For TCX and COROS FIT, PDF export reads `run_messages.message` through `GET /api/daily/:date/run-message/:runId` using the selected run's exact string ID, validates both date and returned `run_id`, and appends the full text as `RUN COMMENT - Selected run`. It never substitutes `daily_summary.message` for a missing per-run comment. Health Connect retains the date-level daily API and `RUN COMMENT - New screen / daily summary` heading because its displayed comment is date-based. Long Japanese text wraps and continues across pages. Empty saved comments add no comment pages; read failures stop export with an error. Selection changes during the read require retrying. Export does not regenerate comments or write the DB.

@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
+const { readRunCommentPrefix } = require('./run_comment_prefix_store');
 
 let genAI;
 
@@ -130,8 +131,9 @@ async function generateCorosRunComment(payload, previousRunComment = '') {
         JSON.stringify(sourceData, null, 2),
         previous ? `\n前回保存されたRUN COMMENT:\n${previous}` : ''
     ].filter(Boolean).join('\n');
+    const prefix = await readRunCommentPrefix();
     let model = '';
-    const message = await generateContentWithFallback([prompt], {
+    const message = await generateContentWithFallback([prefix ? prefix + '\n\n' + prompt : prompt], {
         onModelUsed: (modelName) => { model = modelName; }
     });
     if (!String(message || '').trim()) throw new Error('Gemini returned an empty Run Comment');
@@ -316,6 +318,10 @@ LTHR補足:
 
         prompt += buildCompleteRestPrompt(extraContext?.completeRestWindows);
         prompt += buildPreviousRunCommentPrompt(extraContext?.previousRunComment);
+        if (extraContext?.useRunCommentPrefix === true) {
+            const prefix = await readRunCommentPrefix();
+            if (prefix) prompt = prefix + '\n\n' + prompt;
+        }
         const parts = [
             minuteTableMarkdown
                 ? `${prompt}\n追加コンテキスト: 以下は旧画面の1分毎テーブルです。必要に応じて分析に使ってください。\n\n${minuteTableMarkdown}`

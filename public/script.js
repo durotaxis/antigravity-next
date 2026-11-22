@@ -68,6 +68,15 @@ function bindAdviceToggles() {
     });
 }
 
+// Keep the safety refusal next to the editable prompt, not in the Apply-able RUN COMMENT.
+function showGeminiSafetyBlock(details) {
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!status) return;
+    const reason = String(details?.blockReason || 'OTHER').replace(/[^A-Z0-9_]/gi, '').slice(0, 64) || 'OTHER';
+    const source = details?.blockSource === 'candidate' ? '出力' : 'リクエスト';
+    status.textContent = `Geminiの${source}が制限されました（${reason}）。入力文は保持しています。`;
+}
+
 async function initializeRunCommentPrefixEditor() {
     const input = document.getElementById('runCommentPrefixInput');
     const save = document.getElementById('saveRunCommentPrefixBtn');
@@ -75,6 +84,10 @@ async function initializeRunCommentPrefixEditor() {
     if (!input || !save || !status) return;
     input.disabled = true;
     save.disabled = true;
+
+    input.addEventListener('input', () => {
+        status.textContent = '変更中（保存ボタンで確定）';
+    });
 
     save.addEventListener('click', async () => {
         save.disabled = true;
@@ -2375,6 +2388,21 @@ async function getGeminiAdvice(date, maxStride, data) {
             body: JSON.stringify(payload)
         });
         const json = await res.json();
+        if (json?.code === 'GEMINI_SAFETY_BLOCK') {
+            if (!stillSelected()) return;
+            showGeminiSafetyBlock(json);
+            // Leave the saved comment untouched and never expose a refusal in the Apply-able message.
+            textSpan.textContent = '';
+            container.style.display = 'none';
+            const saved = requestedRunId
+                ? await loadRunMessage(date, requestedRunId).catch(() => null)
+                : await fetchDailySummary(date).then(row => row?.message || null).catch(() => null);
+            if (stillSelected() && String(saved || '').trim()) {
+                textSpan.textContent = String(saved).trim();
+                container.style.display = 'block';
+            }
+            return;
+        }
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
         if (stillSelected()) textSpan.textContent = normalizedAdvice;

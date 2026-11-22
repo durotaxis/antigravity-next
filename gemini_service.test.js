@@ -1,10 +1,11 @@
 const fs = require('fs');
 const vm = require('vm');
 
-function load(generateContent) {
+function load(generateContent, prefix = '') {
     const sandbox = {
         require(name) {
             if (name === 'dotenv') return { config() {} };
+            if (name === './run_comment_prefix_store') return { readRunCommentPrefix: async () => prefix };
             if (name === '@google/genai') return { GoogleGenAI: class {
                 constructor() { this.models = { generateContent }; }
             } };
@@ -156,4 +157,36 @@ test('COROS FIT chart and minute table reach Gemini; rest-placement instruction 
     expect(parts[0].text).toContain('前回のRUN COMMENT');
     expect(parts[0].text).toContain('完全休止時間帯:');
     expect(parts[0].text).not.toContain('走行構造がインターバルトレーニングと判断できる場合');
+});
+
+
+test('saved user prefix comes before the existing FIT RUN COMMENT prompt', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: 'コメント' });
+    const service = load(generate, '最高値は同時発生とは限らない');
+    await service.generateAdvice({
+        date: '2026-11-22',
+        avg_stride_cm: 70,
+        max_stride_cm: 90,
+        avg_heart_rate: 120,
+        max_heart_rate: 140,
+        avg_cadence: 160,
+        max_cadence: 180,
+        avg_speed: 8,
+        max_speed: 10
+    }, [], { useRunCommentPrefix: true, minuteTableMarkdown: '## COROS FIT Per Minute' });
+    const text = generate.mock.calls[0][0].contents[0].parts[0].text;
+    expect(text.startsWith('最高値は同時発生とは限らない\\n\\n')).toBe(true);
+    expect(text).toContain('あなたはバイオメカニクス専門のランニング分析コーチです。');
+    expect(text).toContain('## COROS FIT Per Minute');
+
+    await service.generateAdvice({ date: '2026-11-22' }, [], {});
+    expect(generate.mock.calls[1][0].contents[0].parts[0].text).not.toContain('最高値は同時発生とは限らない');
+});
+
+test('COROS overview comment also prepends saved user text', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: '概要コメント' });
+    const service = load(generate, 'ユーザー入力');
+    await service.generateCorosRunComment({ date: '2026-11-22' });
+    const text = generate.mock.calls[0][0].contents[0].parts[0].text;
+    expect(text.startsWith('ユーザー入力\\n\\n以下のCOROSランニング活動データ')).toBe(true);
 });

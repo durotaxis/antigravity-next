@@ -63,3 +63,5 @@ data/coros/import-completions.json*
 data/coros/oauth/
 app-server.*.log
 data/coros/push/
+# User-authored local Gemini RUN COMMENT instructions
+data/gemini/run-comment-prefix.json

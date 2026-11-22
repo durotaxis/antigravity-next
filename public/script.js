@@ -68,6 +68,50 @@ function bindAdviceToggles() {
     });
 }
 
+async function initializeRunCommentPrefixEditor() {
+    const input = document.getElementById('runCommentPrefixInput');
+    const save = document.getElementById('saveRunCommentPrefixBtn');
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!input || !save || !status) return;
+    input.disabled = true;
+    save.disabled = true;
+
+    save.addEventListener('click', async () => {
+        save.disabled = true;
+        input.disabled = true;
+        status.textContent = '保存中…';
+        try {
+            const response = await fetch('/api/gemini/run-comment-prefix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: input.value })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '保存できませんでした');
+            input.value = data.text;
+            status.textContent = '保存済み（次のRUN Comment生成から適用）';
+        } catch (error) {
+            status.textContent = '保存失敗: ' + error.message;
+        } finally {
+            input.disabled = false;
+            save.disabled = false;
+        }
+    });
+
+    try {
+        const response = await fetch('/api/gemini/run-comment-prefix');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '読み込みに失敗しました');
+        input.value = data.text || '';
+        input.disabled = false;
+        save.disabled = false;
+        status.textContent = '設定読込済み';
+    } catch (error) {
+        // Do not overwrite an unknown server value if reading failed.
+        status.textContent = '読込失敗: ' + error.message;
+    }
+}
+
 function isValidRunDate(value) {
     return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
@@ -3713,6 +3757,7 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreAdviceToggles();
     renderHeartRateGuide();
     bindAdviceToggles();
+    initializeRunCommentPrefixEditor();
 
     loadData({ triggerAdvice: false });
     updateDebugHints();

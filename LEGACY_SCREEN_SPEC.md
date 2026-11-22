@@ -713,15 +713,23 @@ RUN ANALYZER with Gemini selected generates a comment for the currently selected
 - Saved text is server-scoped, not browser `localStorage`, so the same local API instance serves the setting to PC and mobile clients.
 - Saving the text does not itself call Gemini, reload FIT files, recalculate a RUN, or regenerate a previously stored RUN COMMENT. A separate `RUN Comment再取得` button is **not** implemented by this change.
 
-### 17.2 Persistence and API
+### 17.2 Persistence and API (SQLite)
 
-- Persistence module: `run_comment_prefix_store.js`.
-- Storage: `data/gemini/run-comment-prefix.json` with shape `{ "text": "..." }`; this file is ignored by Git and is not published with code changes.
-- `GET /api/gemini/run-comment-prefix` returns `{ "text": "..." }`. When the file is absent, text is empty.
-- `POST /api/gemini/run-comment-prefix` accepts JSON `{ "text": "..." }`; values that are not strings or exceed 8,000 characters are rejected with HTTP 400. Valid saves use a temporary file followed by rename.
-- Saving and loading errors are shown in the editor's status area.
+- User-entered prompt text is stored **only in the existing SQLite database** (the `DB_PATH` database, or `daily.db` by default).
+- Schema: `app_settings(setting_key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`. The one row uses the fixed key `gemini.run_comment_prefix`. The table is created by `db.js` via `CREATE TABLE IF NOT EXISTS` and works on existing databases.
+- There is **no `date`, `run_id`, or message foreign key** on this setting. It is neither stored in `run_messages` nor copied into `daily_summary`. Changing it cannot alter a saved comment.
+- `repo.js` owns the SQL read/upsert; `run_comment_prefix_store.js` validates the input and exposes the setting to the API and Gemini service. The former `data/gemini/run-comment-prefix.json` storage is no longer read or written.
+- `GET /api/gemini/run-comment-prefix` returns `{ "text": "..." }`. If no setting row exists, it returns an empty string. DB read failures are reported rather than silently falling back to a file.
+- `POST /api/gemini/run-comment-prefix` accepts `{ "text": "..." }`. It validates a string of at most 8,000 characters and uses a parameterized SQLite upsert. Invalid input returns HTTP 400; DB errors return HTTP 500. Empty text is a valid saved setting and disables the optional prefix.
+- The older unmerged JSON experiment is not an automatic migration source; if any user-written JSON value already exists locally, preserve it and explicitly re-save it through the UI before relying on the DB setting. Do not delete old user data without checking.
+- The editor reports save/load success or failure. Saving changes the common setting only, not any existing RUN record.
 
 ### 17.3 Prompt application
+
+- The same global setting remains visible when the selected date or RUN changes; the date selector does not implicitly reset it. This avoids the editor showing one value while the server secretly uses another.
+- The setting is **read at the moment of each new Gemini RUN COMMENT generation**. Existing saved messages are not retroactively associated with that setting, and changing the setting requires an explicit separate regeneration step to affect their content.
+- The existing `Apply` action only copies a previously saved per-RUN comment to the daily message. It does not send the new prefix or call Gemini; the separate regeneration action has not yet been implemented.
+- If Gemini rejects an instruction, saving the setting is not undone and no new comment is written by the normal FIT generation path. Detailed distinction between Gemini safety rejections and generic API errors remains unresolved and is **not** claimed as implemented.
 
 - For Gemini RUN COMMENT generation from a selected COROS FIT run, `index.js` sets `useRunCommentPrefix: true` and `gemini_service.js` reads the current server-saved text.
 - If nonempty, the final Gemini text is `saved prefix + two newlines + existing RUN COMMENT prompt`. The original fixed prompt, past-run comparison, rest instructions, and one-minute markdown are not replaced by the prefix.
@@ -739,7 +747,7 @@ RUN ANALYZER with Gemini selected generates a comment for the currently selected
 ### 17.5 Validation and deployment status
 
 - Changes exist on `feature/coros-run-comment-chart-20261122` and draft PR #9; they have **not** been merged into `main`.
-- JavaScript syntax checks were performed while editing, and tests were added: `run_comment_prefix_store.test.js`, additions to `gemini_service.test.js`, and `coros_run_chart.test.js`.
+- JavaScript syntax checks were performed while editing. Tests now include SQLite persistence without RUN linkage (`run_comment_prefix_db.test.js`), store validation (`run_comment_prefix_store.test.js`), Gemini forwarding (`gemini_service.test.js`), and PNG rendering (`coros_run_chart.test.js`).
 - Full Jest execution, actual server/UI behavior, and a real Gemini API send/response are **not yet verified**. Do not treat code-path inspection or newly added tests as a completed live integration test.
 - Existing published/older sections about COROS FIT automatic import and polling are historical documentation and are not assertions that a polling process is currently running; this PR does not change acquisition triggers.
 

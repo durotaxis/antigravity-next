@@ -175,7 +175,7 @@ test('saved user prefix comes before the existing FIT RUN COMMENT prompt', async
         max_speed: 10
     }, [], { useRunCommentPrefix: true, minuteTableMarkdown: '## COROS FIT Per Minute' });
     const text = generate.mock.calls[0][0].contents[0].parts[0].text;
-    expect(text.startsWith('最高値は同時発生とは限らない\\n\\n')).toBe(true);
+    expect(text.startsWith('最高値は同時発生とは限らない\n\n')).toBe(true);
     expect(text).toContain('あなたはバイオメカニクス専門のランニング分析コーチです。');
     expect(text).toContain('## COROS FIT Per Minute');
 
@@ -188,5 +188,5 @@ test('COROS overview comment also prepends saved user text', async () => {
     const service = load(generate, 'ユーザー入力');
     await service.generateCorosRunComment({ date: '2026-11-22' });
     const text = generate.mock.calls[0][0].contents[0].parts[0].text;
-    expect(text.startsWith('ユーザー入力\\n\\n以下のCOROSランニング活動データ')).toBe(true);
+    expect(text.startsWith('ユーザー入力\n\n以下のCOROSランニング活動データ')).toBe(true);
 });

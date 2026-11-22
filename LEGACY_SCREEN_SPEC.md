@@ -700,3 +700,46 @@ At the time of writing, the following areas are still under active alignment:
 ## Selected-run Gemini and notification restoration (2026-11-03)
 
 RUN ANALYZER with Gemini selected generates a comment for the currently selected TCX or COROS FIT run using that run's minute data. It saves both run_messages and daily_summary.message. Run selection displays the selected run's saved comment. A response for a previously selected run must not replace the current selection's display.
+
+## 17. User-authored Gemini RUN COMMENT prefix (2026-11-22, PR #9)
+
+### 17.1 Purpose and user operation
+
+- The legacy RUN ANALYZER page adds a text area labeled `Gemini RUN COMMENT 追加プロンプト（先頭に挿入）`, together with a `保存` button and load/save status text.
+- The operator writes arbitrary additional instructions. The application does not provide or overwrite the operator's prompt text.
+- On page load, the editor requests the saved text from the server. Editing the text alone does not update the setting; pressing `保存` persists it.
+- The field accepts up to 8,000 characters. The server trims surrounding whitespace; saving an empty value disables the prefix.
+- If loading the saved setting fails, the editor stays disabled instead of allowing an unverified value to overwrite the server setting.
+- Saved text is server-scoped, not browser `localStorage`, so the same local API instance serves the setting to PC and mobile clients.
+- Saving the text does not itself call Gemini, reload FIT files, recalculate a RUN, or regenerate a previously stored RUN COMMENT. A separate `RUN Comment再取得` button is **not** implemented by this change.
+
+### 17.2 Persistence and API
+
+- Persistence module: `run_comment_prefix_store.js`.
+- Storage: `data/gemini/run-comment-prefix.json` with shape `{ "text": "..." }`; this file is ignored by Git and is not published with code changes.
+- `GET /api/gemini/run-comment-prefix` returns `{ "text": "..." }`. When the file is absent, text is empty.
+- `POST /api/gemini/run-comment-prefix` accepts JSON `{ "text": "..." }`; values that are not strings or exceed 8,000 characters are rejected with HTTP 400. Valid saves use a temporary file followed by rename.
+- Saving and loading errors are shown in the editor's status area.
+
+### 17.3 Prompt application
+
+- For Gemini RUN COMMENT generation from a selected COROS FIT run, `index.js` sets `useRunCommentPrefix: true` and `gemini_service.js` reads the current server-saved text.
+- If nonempty, the final Gemini text is `saved prefix + two newlines + existing RUN COMMENT prompt`. The original fixed prompt, past-run comparison, rest instructions, and one-minute markdown are not replaced by the prefix.
+- The separate COROS overview-JSON comment generator `generateCorosRunComment` also prepends the saved text when it is present.
+- The new prefix is not automatically attached to unrelated Gemini trend-chart analysis, legacy daily analysis, or OpenAI advice.
+- Any newly generated RUN COMMENT uses the setting as read at generation time. Previously persisted `run_messages.message` and `daily_summary.message` are not rewritten when the prefix changes.
+
+### 17.4 Related COROS FIT chart and prompt changes in the same draft PR
+
+- The COROS FIT RUN COMMENT path builds a server-side PNG from the selected RUN's one-minute data, using `coros_run_chart.js`. It contains `Stride + HR` and `Speed + Pitch` panels with the altitude background. This is server-side chart rendering, **not** a browser-captured screenshot.
+- `gemini_service.js` passes the image to Gemini as an inline PNG part alongside the existing COROS minute-table text.
+- The single instruction `走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。` was removed from `buildCompleteRestPrompt`. Other rest-related and previous-comment instructions remain.
+- The PNG is chart context only. Numeric summary, FIT import, RUN identity, and message persistence rules are not intentionally changed by this work.
+
+### 17.5 Validation and deployment status
+
+- Changes exist on `feature/coros-run-comment-chart-20261122` and draft PR #9; they have **not** been merged into `main`.
+- JavaScript syntax checks were performed while editing, and tests were added: `run_comment_prefix_store.test.js`, additions to `gemini_service.test.js`, and `coros_run_chart.test.js`.
+- Full Jest execution, actual server/UI behavior, and a real Gemini API send/response are **not yet verified**. Do not treat code-path inspection or newly added tests as a completed live integration test.
+- Existing published/older sections about COROS FIT automatic import and polling are historical documentation and are not assertions that a polling process is currently running; this PR does not change acquisition triggers.
+

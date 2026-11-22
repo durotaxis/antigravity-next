@@ -40,7 +40,7 @@
 
 ### 変更ファイルとテスト
 
-- 追加: `coros_run_chart.js`, `coros_run_chart.test.js`, `run_comment_prefix_store.js`, `run_comment_prefix_store.test.js`, `run_comment_prefix_db.test.js`
+- 追加: `coros_run_chart.js`, `coros_run_chart.test.js`, `run_comment_prefix_store.js`, `run_comment_prefix_store.test.js`, `run_comment_prefix_db.test.js`, `gemini_safety_ui.test.js`
 - 更新: `db.js`, `repo.js`, `index.js`, `gemini_service.js`, `gemini_service.test.js`, `public/index.html`, `public/script.js`, `.gitignore`, `LEGACY_SCREEN_SPEC.md`, 本引き継ぎファイル
 - 画面入力・保存・Geminiプロンプトの先頭追加・画像パート、SQLite保存、Safetyブロック／モデルフォールバックの単体テストを追加。Safetyの一部は**独立したJavaScriptモック実行で確認済み**（BLOCKLIST・SAFETY・OTHER・PROHIBITED_CONTENTは1リクエストで中止、通常400・503・空応答は従来どおり次モデル）。**フルJestテストは未実行**。
 - **未実施**: フルJest、実画面の操作検証、実APIサーバーでの保存・別端末からの再読込、実Gemini APIでの画像受信・コメント生成、既存RUNの回帰テスト。テストコードの追加はテスト成功を意味しない。
@@ -48,7 +48,7 @@
 ### PC側・Astra/CODEX側の確認事項
 
 1. まずPCローカルの未コミット差分を確認し、失わずに対象ブランチを取得する。mainに直接適用・マージしない。
-2. `npm test -- --runInBand run_comment_prefix_db.test.js run_comment_prefix_store.test.js gemini_service.test.js coros_run_chart.test.js` を実行し、DBのUPSERT・メッセージ非更新・画像送信・ブロック時1回停止・通常503時のフォールバックを検証する。
+2. `npm test -- --runInBand run_comment_prefix_db.test.js run_comment_prefix_store.test.js gemini_service.test.js gemini_safety_ui.test.js coros_run_chart.test.js` を実行し、DBのUPSERT・メッセージ非更新・画像送信・ブロック時1回停止・通常503時のフォールバックを検証する。
 3. 旧画面にテキスト欄が表示され、保存→ページ再読み込み→同じ入力文の復元を確認する。空欄保存で無効化できることも確認する。
 4. 可能ならPCと携帯から同じサーバーにアクセスし、SQLiteの共通設定が共有されることを確認する。DBのバックアップ対象に `app_settings` の1レコードが含まれることも確認する。
 5. COROS FITのRUN Comment生成時に、入力文がプロンプトの先頭にあり、その後ろに固定プロンプト・RUN集計・1分毎テーブルがあることを確認する。

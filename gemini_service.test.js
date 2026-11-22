@@ -128,3 +128,32 @@ test('OCR keeps the configured model, image MIME, prompt and numeric conversion 
     expect(request.contents[0].parts[0].text).toContain('Return ONLY valid JSON');
     expect(request.contents[0].parts[1].inlineData).toEqual({ data: 'YQ==', mimeType: 'image/png' });
 });
+
+
+test('COROS FIT chart and minute table reach Gemini; rest-placement instruction is absent', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: '観測結果' });
+    const service = load(generate);
+    const answer = await service.generateAdvice({
+        date: '2026-11-22',
+        avg_stride_cm: 75,
+        max_stride_cm: 82,
+        avg_heart_rate: 121,
+        max_heart_rate: 137,
+        avg_cadence: 168,
+        max_cadence: 182,
+        avg_speed: 8,
+        max_speed: 10
+    }, [], {
+        chartImageDataUrl: 'data:image/png;base64,YQ==',
+        minuteTableMarkdown: '## COROS FIT Per Minute\n| Time | Speed |\n| --- | --- |\n| 10:00 | 8 |',
+        completeRestWindows: [],
+        previousRunComment: '前回の記録'
+    });
+    expect(answer).toBe('観測結果');
+    const parts = generate.mock.calls[0][0].contents[0].parts;
+    expect(parts[1]).toEqual({ inlineData: { data: 'YQ==', mimeType: 'image/png' } });
+    expect(parts[0].text).toContain('## COROS FIT Per Minute');
+    expect(parts[0].text).toContain('前回のRUN COMMENT');
+    expect(parts[0].text).toContain('完全休止時間帯:');
+    expect(parts[0].text).not.toContain('走行構造がインターバルトレーニングと判断できる場合');
+});

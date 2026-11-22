@@ -63,6 +63,39 @@ const FALLBACK_MODELS = [
     'gemini-3.6-flash'
 ];
 
+// Gemini can return HTTP 200 even when a prompt or candidate is blocked.
+// Preserve the structured reason without exposing the submitted prompt or response text.
+const BLOCKED_CANDIDATE_FINISH_REASONS = new Set([
+    'SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'MODEL_ARMOR', 'IMAGE_SAFETY', 'RECITATION'
+]);
+
+function geminiSafetyBlockFromResponse(response) {
+    const promptReason = String(response?.promptFeedback?.blockReason || '').toUpperCase();
+    if (promptReason && promptReason !== 'BLOCK_REASON_UNSPECIFIED') {
+        return { blockReason: promptReason, blockSource: 'prompt' };
+    }
+    const candidate = (Array.isArray(response?.candidates) ? response.candidates : [])
+        .find(item => BLOCKED_CANDIDATE_FINISH_REASONS.has(String(item?.finishReason || '').toUpperCase()));
+    if (candidate) {
+        return { blockReason: String(candidate.finishReason).toUpperCase(), blockSource: 'candidate' };
+    }
+    return null;
+}
+
+function throwIfGeminiSafetyBlocked(response) {
+    const blocked = geminiSafetyBlockFromResponse(response);
+    if (!blocked) return;
+    const error = new Error(`Gemini blocked generation (${blocked.blockSource}: ${blocked.blockReason})`);
+    error.code = 'GEMINI_SAFETY_BLOCK';
+    error.blockReason = blocked.blockReason;
+    error.blockSource = blocked.blockSource;
+    throw error;
+}
+
+function isGeminiSafetyBlockError(error) {
+    return error?.code === 'GEMINI_SAFETY_BLOCK';
+}
+
 async function generateContentWithFallback(parts, options = {}) {
     let lastError = null;
 
@@ -86,12 +119,17 @@ async function generateContentWithFallback(parts, options = {}) {
                 contents: [{ role: 'user', parts: parts.map(part => typeof part === 'string' ? { text: part } : part) }]
             });
             const response = await Promise.race([pending, deadline]);
+            throwIfGeminiSafetyBlocked(response);
             const text = (response.text || '').trim();
             if (!text) throw new Error('Gemini returned an empty response');
             console.log(`[GeminiService] Success with model: ${modelName}`);
             if (typeof options.onModelUsed === 'function') options.onModelUsed(modelName);
             return text;
         } catch (err) {
+            if (isGeminiSafetyBlockError(err)) {
+                console.warn(`[GeminiService] Blocked: source=${err.blockSource} reason=${err.blockReason}; no model fallback`);
+                throw err;
+            }
             lastError = err;
             const status = Number(err?.status || err?.statusCode || err?.response?.status);
             console.warn(`[GeminiService] Model ${modelName} failed: status=${status}. error=${err.message}`);
@@ -217,6 +255,7 @@ async function generateAdvice(metrics, imagePaths = [], extraContext = {}) {
         };
         return await generateCoachAdvice(stats, imagePaths, extraContext);
     } catch (e) {
+        if (isGeminiSafetyBlockError(e)) throw e;
         console.error(`[GeminiError] status=${formatErrorStatusLabel(e)}`);
         if (isRateLimitError(e)) return TEMPORARY_UNAVAILABLE_MESSAGE;
         console.error('Gemini generateAdvice failed:', e && e.message ? e.message : e);
@@ -344,6 +383,7 @@ LTHR補足:
 
         return await generateContentWithFallback(parts);
     } catch (error) {
+        if (isGeminiSafetyBlockError(error)) throw error;
         console.error(`[GeminiError] status=${formatErrorStatusLabel(error)}`);
         if (isRateLimitError(error)) return TEMPORARY_UNAVAILABLE_MESSAGE;
         console.error('Gemini generateCoachAdvice failed:', error && error.message ? error.message : error);

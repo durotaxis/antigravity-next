@@ -135,6 +135,15 @@ test.each(['coros_fit', 'tcx'])('%s exports each selected RUN comment, including
     }
 });
 
+test('COROS share PDF identifies native FIT laps from the selected run', async () => {
+    const { context, save } = exportSetup('coros_fit');
+    await context.exportSelectedRunPdf();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'coros_fit',
+        tableSource: 'COROS FIT (recorded laps, selected run)'
+    }));
+});
+
 test('Health Connect retains its existing daily comment', async () => {
     const { context, save, date } = exportSetup('health_connect');
     await context.exportSelectedRunPdf();

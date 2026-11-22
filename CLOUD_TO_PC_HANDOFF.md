@@ -2,6 +2,56 @@
 
 作成日: 2026-10-31（日本時間）
 
+## 2026-11-22 追記: Gemini RUN COMMENT プロンプト入力機能・チャート送信（Draft PR #9）
+
+この節は **2026-11-22の追加作業** を引き継ぐためのもの。以下の2026-10-31通知・強制再取り込みに関する既存節は当時の作業記録であり、現在の運用・動作を無条件に表すものではない。
+
+- 対象GitHubリポジトリ: `durotaxis/antigravity-next`
+- 作業ブランチ: `feature/coros-run-comment-chart-20261122`
+- Draft PR: https://github.com/durotaxis/antigravity-next/pull/9
+- 状態: GitHubへコミット・Push済み。**main未マージ、PC実環境およびGemini実送信は未検証**。
+- 作業の目的: プロンプトの内容をAIが勝手に書き換えるのではなく、ユーザーが入力したテキストを**既存のGemini RUN COMMENTプロンプトの先頭**に追加できるようにする。ユーザーが入力する文章をコードに埋め込まない。
+
+### 今回追加したユーザー入力機能
+
+- `public/index.html`: 旧画面RUN ANALYZERに `Gemini RUN COMMENT 追加プロンプト（先頭に挿入）` テキストエリアと `保存` ボタン、ステータス欄を設置。
+- `public/script.js`: 画面初期化時にサーバーからテキストを取得し、保存ボタン操作でサーバーへPOSTする。サーバー読込エラー時は編集を許さず、既存設定の意図しない上書きを避ける。JSのキャッシュバスターを更新。
+- `run_comment_prefix_store.js`（新規）: UTF-8 JSON `data/gemini/run-comment-prefix.json` に `{ "text": "..." }` の形式で保存。最大8,000文字。前後空白は除去し、空欄保存で追加指示を無効化。ファイル不在は空欄として扱う。テンポラリファイルからrenameして書き込み。
+- `index.js`: `GET /api/gemini/run-comment-prefix` と `POST /api/gemini/run-comment-prefix` を追加。COROS FITの詳細RUN Comment生成時に `useRunCommentPrefix: true` を追加コンテキストとして渡す。
+- `gemini_service.js`: COROS FIT RUN Commentで指定フラグがある場合、保存済みの入力文が空でなければ、**入力文 + 2改行 + 元のプロンプト**の順序でGeminiへ送る。COROS活動概要JSONによる代替コメント生成でも同じ先頭追加を実施。トレンドチャート等の別分析には波及させない。
+- `.gitignore`: `data/gemini/run-comment-prefix.json` を除外。ユーザーが書いた文章をリポジトリへコミットしない。
+- 画面で保存した時点ではGeminiを呼ばず、保存済みコメントも再生成しない。**RUN Comment再取得ボタンは未実装**（後続作業に混同しない）。
+- PC/携帯は同じAPIサーバーの保存設定を共有する。ブラウザの `localStorage` のみで保持する仕様ではない。
+
+### 同じPRに含まれる直前の変更
+
+- `coros_run_chart.js`（新規）: COROS FITの選択RUNの1分毎データからサーバーでPNG画像を作成。`Stride + HR` と `Speed + Pitch`、高度の背景を表現する。ブラウザの画面キャプチャ画像そのものではない。
+- `index.js` / `gemini_service.js`: COROS FIT RUN Comment生成時、PNGを `inlineData` 画像パートとして1分毎テーブルと併せてGeminiに渡す。
+- `gemini_service.js` の `buildCompleteRestPrompt` から、指定された文
+  `走行構造がインターバルトレーニングと判断できる場合は、完全休止の長さと配置も含めて評価してください。`
+  だけを削除。その他のプロンプトはこの削除を除き変更しない。
+- 原FITの再取り込みトリガー、RUNの数値集計、DBの既存保存ルール、ポーリングの再開は今回の変更対象ではない。
+
+### 変更ファイルとテスト
+
+- 追加: `coros_run_chart.js`, `coros_run_chart.test.js`, `run_comment_prefix_store.js`, `run_comment_prefix_store.test.js`
+- 更新: `index.js`, `gemini_service.js`, `gemini_service.test.js`, `public/index.html`, `public/script.js`, `.gitignore`, `LEGACY_SCREEN_SPEC.md`, 本引き継ぎファイル
+- 画面入力・保存・Geminiプロンプトの先頭追加・画像パートの組み立てに関するテストコードは追加済み。
+- **未実施**: フルJest、実画面の操作検証、実APIサーバーでの保存・別端末からの再読込、実Gemini APIでの画像受信・コメント生成、既存RUNの回帰テスト。テストコードの追加はテスト成功を意味しない。
+
+### PC側・Astra/CODEX側の確認事項
+
+1. まずPCローカルの未コミット差分を確認し、失わずに対象ブランチを取得する。mainに直接適用・マージしない。
+2. `npm test -- --runInBand run_comment_prefix_store.test.js gemini_service.test.js coros_run_chart.test.js` を実行し、失敗時は入力・画像の受け渡しから検証する。
+3. 旧画面にテキスト欄が表示され、保存→ページ再読み込み→同じ入力文の復元を確認する。空欄保存で無効化できることも確認する。
+4. 可能ならPCと携帯から同じサーバーにアクセスし、保存設定が共有されることを確認する。
+5. COROS FITのRUN Comment生成時に、入力文がプロンプトの先頭にあり、その後ろに固定プロンプト・RUN集計・1分毎テーブルがあることを確認する。
+6. Geminiへ送る画像が選択RUNだけから生成したPNGであること、および削除指定の完全休止に関する一文が復活していないことを確認する。
+7. 既存RUN Commentを画面表示しただけで再生成されないことを確認する。今回の追加プロンプト設定で既存コメントを再生成したい場合は、別途手動の再生成操作が必要。
+8. 実FIT受信・再生成はユーザーの手動操作を前提とし、許可なく実データを再取得・上書きしない。
+
+詳細な仕様は `LEGACY_SCREEN_SPEC.md` セクション17を参照。
+
 ## PC反映・検証結果（2026-10-31追記）
 
 以下はCloud作業後のPCでの実施結果。後続の各節はCloud公開時点の記録。

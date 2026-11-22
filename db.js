@@ -15,6 +15,9 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
+// Share the resolved SQLite location with transactional repository operations.
+db.databasePath = dbPath;
+
 db.serialize(() => {
     // チェック5 (最重要): date に PRIMARY KEY を指定し、UNIQUE制約を保証する
     // これで repo.js の ON CONFLICT(date) がエラーにならず機能する

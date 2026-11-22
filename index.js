@@ -11,6 +11,7 @@ const imageService = require('./image_service');
 const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
+const { renderCorosRunChartPng } = require('./coros_run_chart');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
 const trainingLoadService = require('./training_load_service');
@@ -789,6 +790,9 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
 
   const adviceProvider = normalizeAdviceProvider(provider);
   const summary = runSummary.summary;
+  const chartImageDataUrl = source === 'coros_fit' && adviceProvider === 'gemini'
+    ? 'data:image/png;base64,' + renderCorosRunChartPng(minuteRows).toString('base64')
+    : '';
   const completeRestWindows = trainingLoadService.extractCompleteRestWindows(
     Array.isArray(options.trackpoints) ? options.trackpoints : []
   );
@@ -865,7 +869,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     latestRunSummary,
     compareRunSummaries,
     completeRestWindows,
-    previousRunComment
+    previousRunComment,
+    chartImageDataUrl
   });
 }
 

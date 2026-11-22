@@ -12,6 +12,7 @@ const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
 const { renderCorosRunChartPng } = require('./coros_run_chart');
+const { readRunCommentPrefix, saveRunCommentPrefix } = require('./run_comment_prefix_store');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
 const trainingLoadService = require('./training_load_service');
@@ -870,7 +871,8 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     compareRunSummaries,
     completeRestWindows,
     previousRunComment,
-    chartImageDataUrl
+    chartImageDataUrl,
+    useRunCommentPrefix: true
   });
 }
 
@@ -2005,6 +2007,23 @@ const genAI = null; // Removed generic init
 const model = null; // Removed generic init
 
 // --- API Controller ---
+
+// User-authored prefix for Gemini RUN COMMENT; shared by browser and FIT reception.
+app.get('/api/gemini/run-comment-prefix', async (_req, res) => {
+  try {
+    res.json({ text: await readRunCommentPrefix() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/gemini/run-comment-prefix', async (req, res) => {
+  try {
+    res.json({ text: await saveRunCommentPrefix(req.body?.text) });
+  } catch (error) {
+    res.status(error.code === 'INVALID_PREFIX' ? 400 : 500).json({ error: error.message });
+  }
+});
 
 // 1. Get All Runs (繧ｷ繝ｳ繝励Ν繝ｻ繧､繧ｺ繝ｻ繝吶せ繝・
 // DB縺ｫ縺ゅｋ莠句ｮ滂ｼ域律莉倥√せ繝医Λ繧､繝峨∝ｿ・牛謨ｰ縲∫判蜒擾ｼ峨□縺代ｒ霑斐＠縺ｾ縺・

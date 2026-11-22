@@ -990,6 +990,31 @@ function setRunChartSource(source) {
     loadData({ triggerAdvice: false });
 }
 
+
+function buildCorosFitLapExportPayload(dateString, labelId, laps) {
+    const splits = (Array.isArray(laps) ? laps : []).map((lap) => ({
+        lap: lap.lapLabel,
+        distance: lap.distanceLabel,
+        avg_speed: lap.avgSpeed,
+        avg_pitch: lap.avgPitch,
+        avg_hr: lap.avgHr,
+        avg_stride: lap.avgStride,
+        distance_meters: lap.distanceMeters,
+        elapsed_seconds: lap.elapsedSeconds
+    }));
+    return {
+        date: dateString,
+        generated_at: new Date().toISOString(),
+        source: { type: 'coros_fit_lap', run_id: String(labelId || '') },
+        sessions: [{
+            session_number: 1,
+            id: String(labelId || ''),
+            name: 'COROS FIT (recorded laps)',
+            splits
+        }]
+    };
+}
+
 function buildLapSplitsExportPayload(dateString, sessions = [], data = []) {
     const runSessions = (Array.isArray(sessions) ? sessions : [])
         .filter((session) => Number(session && session.activityType) === 8)
@@ -1420,8 +1445,10 @@ async function exportSelectedRunPdf() {
     const headers = Array.from(table?.querySelectorAll('thead th') || [], cell => cell.textContent.trim());
     const rows = Array.from(table?.querySelectorAll('tbody tr') || [])
         .map(row => Array.from(row.querySelectorAll('td'), cell => cell.textContent.trim()));
-    // Keep the displayed values and source, including the day-based Fit splits.
-    const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
+    // PDF uses exactly the selected source's visible lap table, not a day-level substitute.
+    const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)'
+        : currentRunChartSource === 'coros_fit' ? 'COROS FIT (recorded laps, selected run)'
+        : 'Health Connect / Google Fit (day)';
     const minuteTables = [
         ['legacyPerMinuteWrapper', 'resultTable'],
         ['tcxPerMinuteWrapper', 'tcxResultTable']
@@ -1580,6 +1607,7 @@ async function loadData(options = {}) {
             ? await fetchCorosFitMinuteSeries(date, selectedCorosFitRun.labelId).catch(() => ({ chartData: [] }))
             : { chartData: [] };
         const corosFitMinuteData = Array.isArray(corosFitMinutePayload?.chartData) ? corosFitMinutePayload.chartData : [];
+        const corosFitLapSplits = Array.isArray(corosFitMinutePayload?.lapSplits) ? corosFitMinutePayload.lapSplits : [];
         const selectedHealthConnectRun = hasHealthConnectRunData ? currentHealthConnectRuns[currentHealthConnectRunPageIndex] : null;
         const healthConnectMinuteData = selectedHealthConnectRun
             ? (Array.isArray(data) ? data.filter((point) => pointBelongsToSession(point, selectedHealthConnectRun, date)) : [])
@@ -1624,10 +1652,16 @@ async function loadData(options = {}) {
             currentRunChartSource === 'tcx' && hasTcxRunData,
             currentRunChartSource === 'coros_fit' && hasCorosFitRunData
         );
-        setLapExportState(buildLapSplitsExportPayload(date, sessions, data));
+        setLapExportState(currentRunChartSource === 'coros_fit'
+            ? buildCorosFitLapExportPayload(date, selectedCorosFitRun?.labelId, corosFitLapSplits)
+            : buildLapSplitsExportPayload(date, sessions, data));
         setTcxExportState(buildTcxMinuteExportPayload(date, activeMinuteData));
+        const lapTitle = document.getElementById('lapSplitsTitle');
+        if (lapTitle) lapTitle.textContent = currentRunChartSource === 'coros_fit'
+            ? 'COROS FIT 1km Splits' : '1km Splits';
         if (lapTbody) {
-            renderLapTableRows(lapTbody, buildPerKmSplits(data, sessions, date));
+            renderLapTableRows(lapTbody, currentRunChartSource === 'coros_fit'
+                ? corosFitLapSplits : buildPerKmSplits(data, sessions, date));
         }
         tbody.innerHTML = '';
         if (tcxTbody) {

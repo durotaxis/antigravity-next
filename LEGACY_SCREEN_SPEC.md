@@ -751,7 +751,7 @@ RUN ANALYZER with Gemini selected generates a comment for the currently selected
 ### 17.5 Validation and deployment status
 
 - Changes exist on `feature/coros-run-comment-chart-20261122` and draft PR #9; they have **not** been merged into `main`.
-- JavaScript syntax checks were performed while editing. Tests now include SQLite persistence without RUN linkage (`run_comment_prefix_db.test.js`), store validation (`run_comment_prefix_store.test.js`), Gemini forwarding (`gemini_service.test.js`, including mock safety-block responses), and PNG rendering (`coros_run_chart.test.js`).
+- JavaScript syntax checks were performed while editing. Tests now include SQLite persistence without RUN linkage (`run_comment_prefix_db.test.js`), store validation (`run_comment_prefix_store.test.js`), Gemini forwarding and mock safety blocks (`gemini_service.test.js`), legacy safety status and message restoration (`gemini_safety_ui.test.js`), and PNG rendering (`coros_run_chart.test.js`).
 - Full Jest execution, actual server/UI behavior, and a real Gemini API send/response are **not yet verified**. Do not treat code-path inspection or newly added tests as a completed live integration test.
 - Existing published/older sections about COROS FIT automatic import and polling are historical documentation and are not assertions that a polling process is currently running; this PR does not change acquisition triggers.
 

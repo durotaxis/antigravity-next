@@ -780,6 +780,19 @@ function normalizeAdviceProvider(provider) {
   return normalized === 'openai' ? 'openai' : 'gemini';
 }
 
+// Safety-blocked generations are application-level refusals, not transient API failures.
+// Return a structured error without including the user's prompt or a generated refusal in DB messages.
+function respondGeminiSafetyBlock(res, err) {
+  if (err?.code !== 'GEMINI_SAFETY_BLOCK') return false;
+  res.status(422).json({
+    code: 'GEMINI_SAFETY_BLOCK',
+    blockReason: String(err.blockReason || 'OTHER').slice(0, 64),
+    blockSource: err.blockSource === 'candidate' ? 'candidate' : 'prompt',
+    error: 'Gemini blocked this request or generated response'
+  });
+  return true;
+}
+
 function isTemporaryRunMessage(message) {
   return [GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE, 'No API Key', 'AI Analysis is currently unavailable.'].includes(String(message || '').trim());
 }
@@ -3197,6 +3210,7 @@ app.post('/api/import-coros-fit/apply-comment', async (req, res) => {
     const result = await generateAndPersistCorosFitRunMessage(date, labelId, req.body?.provider || 'gemini');
     res.json({ success: true, ...result });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT minute data not found' });
     res.status(500).json({ error: err.message });
   }
@@ -3209,6 +3223,7 @@ app.post('/api/import-coros-fit', async (req, res) => {
     const result = await importAndApplyCorosFit(date, labelId, req.body?.provider || 'gemini');
     res.json({ success: true, ...result });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT or metadata file not found' });
     res.status(500).json({ error: err.message });
   }
@@ -4491,6 +4506,7 @@ app.post('/api/advice/gemini', async (req, res) => {
 
     return res.json({ advice, provider: 'gemini-live' });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     console.error(err);
     return res.status(500).json({ error: err.message });
   }
@@ -4523,6 +4539,7 @@ app.post('/api/advice/gemini/chart', async (req, res) => {
 
     return res.json({ advice, provider: 'gemini-chart-live' });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     console.error(err);
     return res.status(500).json({ error: err.message });
   }

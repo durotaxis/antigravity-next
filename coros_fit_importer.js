@@ -163,7 +163,46 @@ function buildRouteData(records, labelId) {
   };
 }
 
-async function decodeFitRecords(fitPath) {
+
+function normalizeFitLaps(laps) {
+  // FIT lap messages are recorded by the watch. Do not synthesize 1 km boundaries
+  // from minute buckets or mix in Google Fit values.
+  let accumulatedMeters = 0;
+  return (Array.isArray(laps) ? laps : []).map((lap, index) => {
+    const distanceMeters = finiteNumber(lap?.totalDistance);
+    const elapsedSeconds = finiteNumber(lap?.totalTimerTime) ?? finiteNumber(lap?.totalElapsedTime);
+    const recordedSpeedMps = finiteNumber(lap?.enhancedAvgSpeed) ?? finiteNumber(lap?.avgSpeed);
+    const avgSpeedMps = recordedSpeedMps !== null && recordedSpeedMps >= 0
+      ? recordedSpeedMps
+      : (distanceMeters > 0 && elapsedSeconds > 0 ? distanceMeters / elapsedSeconds : null);
+    const cadence = finiteNumber(lap?.avgRunningCadence) ?? finiteNumber(lap?.avgCadence);
+    const avgPitch = cadence > 0 ? Math.round(cadence < 100 ? cadence * 2 : cadence) : 0;
+    const avgStride = avgPitch > 0 && avgSpeedMps > 0
+      ? Number(((avgSpeedMps * 60 * 100) / avgPitch).toFixed(1))
+      : 0;
+    const startMeters = accumulatedMeters;
+    if (distanceMeters > 0) accumulatedMeters += distanceMeters;
+    const startTimeMs = lap?.startTime instanceof Date
+      ? lap.startTime.getTime()
+      : Date.parse(String(lap?.startTime || ''));
+    return {
+      index: index + 1,
+      lapLabel: String(index + 1),
+      distanceLabel: distanceMeters > 0
+        ? `${(startMeters / 1000).toFixed(2)}-${(accumulatedMeters / 1000).toFixed(2)} km`
+        : '-',
+      distanceMeters: distanceMeters > 0 ? Number(distanceMeters.toFixed(1)) : 0,
+      elapsedSeconds: elapsedSeconds > 0 ? Number(elapsedSeconds.toFixed(1)) : 0,
+      avgSpeed: avgSpeedMps > 0 ? Number((avgSpeedMps * 3.6).toFixed(1)) : 0,
+      avgPitch,
+      avgHr: finiteNumber(lap?.avgHeartRate) > 0 ? Math.round(lap.avgHeartRate) : 0,
+      avgStride,
+      startTimeMs: Number.isFinite(startTimeMs) ? startTimeMs : null
+    };
+  }).filter((lap) => lap.distanceMeters > 0 || lap.elapsedSeconds > 0);
+}
+
+async function decodeFitMessages(fitPath) {
   const { Decoder, Stream } = await import('@garmin/fitsdk');
   const buffer = await fs.readFile(fitPath);
   const decoder = new Decoder(Stream.fromBuffer(buffer));
@@ -173,12 +212,24 @@ async function decodeFitRecords(fitPath) {
   if (Array.isArray(errors) && errors.length > 0) throw new Error(`FIT decode failed: ${errors.join('; ')}`);
   const records = Array.isArray(messages?.recordMesgs) ? messages.recordMesgs : [];
   if (records.length === 0) throw new Error('No FIT record messages found');
-  return records;
+  return messages;
+}
+
+async function decodeFitRecords(fitPath) {
+  const messages = await decodeFitMessages(fitPath);
+  return messages.recordMesgs;
+}
+
+async function decodeFitLaps(fitPath) {
+  const messages = await decodeFitMessages(fitPath);
+  return normalizeFitLaps(messages.lapMesgs);
 }
 
 async function importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPath }) {
   const metadata = parseJsonText(await fs.readFile(metadataPath, 'utf8'));
-  const records = await decodeFitRecords(fitPath);
+  const messages = await decodeFitMessages(fitPath);
+  const records = messages.recordMesgs;
+  const lapSplits = normalizeFitLaps(messages.lapMesgs);
   const aggregated = aggregateRecordsByMinute(records);
   const payload = {
     source: 'coros_fit', labelId: String(metadata.labelId || ''), sportType: Number(metadata.sportType),
@@ -186,7 +237,8 @@ async function importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPa
     originalFitPath: path.resolve(fitPath), generatedAt: new Date().toISOString(),
     fitSha256: String(metadata.fitSha256 || '').trim() || null,
     recordCount: aggregated.recordCount, cadenceMedian: aggregated.cadenceMedian,
-    cadenceMultiplier: aggregated.cadenceMultiplier, chartData: aggregated.chartData
+    cadenceMultiplier: aggregated.cadenceMultiplier, chartData: aggregated.chartData,
+    lapSplits
   };
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const temporaryPath = `${outputPath}.tmp`;
@@ -204,4 +256,4 @@ async function importCorosFit({ fitPath, metadataPath, outputPath, routeOutputPa
   return payload;
 }
 
-module.exports = { MINUTE_DISTANCE_DEVIATION_THRESHOLD, aggregateRecordsByMinute, buildRouteData, decodeFitRecords, importCorosFit, normalizeRecord, parseJsonText };
+module.exports = { MINUTE_DISTANCE_DEVIATION_THRESHOLD, aggregateRecordsByMinute, buildRouteData, decodeFitRecords, decodeFitLaps, importCorosFit, normalizeFitLaps, normalizeRecord, parseJsonText };

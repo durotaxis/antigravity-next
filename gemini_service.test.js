@@ -190,3 +190,57 @@ test('COROS overview comment also prepends saved user text', async () => {
     const text = generate.mock.calls[0][0].contents[0].parts[0].text;
     expect(text.startsWith('ユーザー入力\n\n以下のCOROSランニング活動データ')).toBe(true);
 });
+
+
+test('Gemini prompt BLOCKLIST is not retried and reaches the RUN COMMENT caller as a structured error', async () => {
+    const blocked = {
+        promptFeedback: { blockReason: 'BLOCKLIST' },
+        get text() { throw new Error('response.text must not be read after a safety block'); }
+    };
+    const generate = jest.fn().mockResolvedValue(blocked);
+    const service = load(generate, 'テストの追加指示');
+    await expect(service.generateAdvice({
+        date: '2026-11-22', avg_stride_cm: 80, max_stride_cm: 95,
+        avg_heart_rate: 120, max_heart_rate: 130,
+        avg_cadence: 170, max_cadence: 190
+    }, [], { useRunCommentPrefix: true }))
+        .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: 'BLOCKLIST', blockSource: 'prompt' });
+    expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test('Gemini output SAFETY with nonempty text is still blocked, without retry', async () => {
+    const generate = jest.fn().mockResolvedValue({
+        text: 'This content should not be saved as a RUN COMMENT',
+        candidates: [{ finishReason: 'SAFETY' }]
+    });
+    await expect(load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: 'SAFETY', blockSource: 'candidate' });
+    expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test('Gemini PROHIBITED_CONTENT and OTHER prompt blocks are not mistaken for empty responses', async () => {
+    for (const reason of ['PROHIBITED_CONTENT', 'OTHER']) {
+        const generate = jest.fn().mockResolvedValue({ promptFeedback: { blockReason: reason } });
+        await expect(load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+            .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: reason, blockSource: 'prompt' });
+        expect(generate).toHaveBeenCalledTimes(1);
+    }
+});
+
+test('an unspecified block reason does not suppress the existing empty-response fallback', async () => {
+    const generate = jest.fn()
+        .mockResolvedValueOnce({ promptFeedback: { blockReason: 'BLOCK_REASON_UNSPECIFIED' }, text: '' })
+        .mockResolvedValueOnce({ text: '通常コメント' });
+    expect(await load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .toEqual({ message: '通常コメント', model: 'gemini-3.7-flash' });
+    expect(generate).toHaveBeenCalledTimes(2);
+});
+
+test('non-safety HTTP 400 errors are not incorrectly labeled a safety block', async () => {
+    const generate = jest.fn()
+        .mockRejectedValueOnce(Object.assign(new Error('invalid arguments'), { status: 400 }))
+        .mockResolvedValueOnce({ text: '通常コメント' });
+    expect(await load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .toEqual({ message: '通常コメント', model: 'gemini-3.7-flash' });
+    expect(generate).toHaveBeenCalledTimes(2);
+});

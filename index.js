@@ -3158,6 +3158,17 @@ app.get('/api/coros-fit-minute', async (req, res) => {
     if (!intradayPath) return res.status(400).json({ error: 'Valid date and labelId required' });
     const payload = JSON.parse(await fs.readFile(intradayPath, 'utf8'));
     if (payload?.source !== 'coros_fit' || String(payload?.labelId || '') !== labelId) return res.status(422).json({ error: 'COROS FIT metadata mismatch' });
+    // Historical minute caches predate native lap extraction. Decode the original
+    // FIT on demand without regenerating the run comment or rewriting its cache.
+    if (!Array.isArray(payload.lapSplits)) {
+      const fitPath = path.join(COROS_FIT_DIR, `${date}_${labelId}.fit`);
+      try {
+        payload.lapSplits = await corosFitImporter.decodeFitLaps(fitPath);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        payload.lapSplits = [];
+      }
+    }
     res.json(payload);
   } catch (err) {
     if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT minute data not found' });

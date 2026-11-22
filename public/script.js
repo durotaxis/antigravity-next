@@ -2352,9 +2352,9 @@ async function applySelectedRunAdviceFromCurrentView() {
     }
     const date = currentAdviceRunDate;
     const runId = selectedRun.runId;
-    const saved = await loadRunMessage(date, runId);
-    if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || saved !== visibleText) {
-        throw new Error('選択したランの保存済みコメントを確認できません。');
+    const source = currentRunChartSource;
+    if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || source !== currentRunChartSource) {
+        throw new Error('選択したランが変更されました。');
     }
     const btn = document.getElementById('refreshTcxAdviceBtn');
     const originalText = btn ? btn.textContent : '';
@@ -2363,11 +2363,13 @@ async function applySelectedRunAdviceFromCurrentView() {
         btn.textContent = 'Applying...';
     }
     try {
-        const res = await fetch('/api/daily', {
+        const res = await fetch('/api/run-comment/apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                date: currentAdviceRunDate,
+                date,
+                runId,
+                source,
                 message: visibleText
             })
         });

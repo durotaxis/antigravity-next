@@ -11,6 +11,7 @@ import LegacyMinuteDetail from './components/LegacyMinuteDetail';
 import RunVideoModal from './components/RunVideoModal';
 import CorosAutoImportControl from './components/CorosAutoImportControl';
 import CorosDirectReceive from './components/CorosDirectReceive';
+import SaveHtmlButton from './components/SaveHtmlButton';
 function getApiBase(): string {
   const envBase = (process.env.NEXT_PUBLIC_API_URL || '').trim();
   if (envBase) return envBase;
@@ -696,7 +697,7 @@ export default function Home() {
   }, [API_BASE]);
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
+    <div id="run-page" className="min-h-screen bg-gray-100 p-8 font-sans text-gray-900">
 
       {/* Lightbox (繝｢繝ｼ繝繝ｫ陦ｨ遉ｺ) */}
       {/* Lightbox (繝｢繝ｼ繝繝ｫ陦ｨ遉ｺ) */}
@@ -728,9 +729,12 @@ export default function Home() {
       )}
 
       <header className="mb-8">
-        <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight mb-6">
-          🏃‍♂️ AntiGravity <span className="text-blue-600">Next</span>
-        </h1>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">
+            🏃‍♂️ AntiGravity <span className="text-blue-600">Next</span>
+          </h1>
+          <SaveHtmlButton apiBase={API_BASE} ready={runs.length > 0} />
+        </div>
         {/* Upload Component */}
         <RunUploader />
         <CorosDirectReceive apiBase={API_BASE} onImported={loadRuns} />

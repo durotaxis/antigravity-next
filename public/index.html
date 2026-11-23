@@ -42,6 +42,18 @@
             </div>
         </section>
 
+        <section id="runCommentPrefixEditor" data-html-export-omit class="glass-card" style="width:90%; margin: 16px auto; padding: 14px 16px;">
+            <label for="runCommentPrefixInput" style="display:block; font-weight:600; margin-bottom:8px;">Gemini RUN COMMENT 追加プロンプト（先頭に挿入）</label>
+            <textarea id="runCommentPrefixInput" rows="4" maxlength="8000" disabled
+                style="box-sizing:border-box; width:100%; min-height:100px; padding:12px; color:#f3f4f6; background:#111; border:1px solid #555; border-radius:8px; font:inherit; resize:vertical;"
+                placeholder="天候、気温も回答に含めて&#10;（例文は保存されません。空欄なら既存プロンプトのみで生成します）"></textarea>
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:10px;">
+                <button id="saveRunCommentPrefixBtn" class="btn-primary" type="button" disabled style="min-width:auto; padding:8px 16px;">保存</button>
+                <span id="runCommentPrefixStatus" role="status" aria-live="polite" style="color:var(--text-secondary); font-size:0.85rem;">読み込み中…</span>
+            </div>
+            <div style="color:var(--text-secondary); font-size:0.8rem; margin-top:8px;">既存の指示文は変更しません。保存した内容は次回のRUN Comment生成から反映されます。保存済みコメントは自動で再生成しません。</div>
+        </section>
+
         <section>
 
 
@@ -66,9 +78,11 @@
                     <div id="tcxRunPagerLabel" style="color: var(--text-primary); font-weight: 600;">TCX Run 1 / 1</div>
                     <button id="tcxRunNextBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">▶</button>
                     <button id="copyTcxChartsBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">COPY CHARTS</button>
-                    <button id="shareRunPdfBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">共有用PDF</button>
+                    <button id="shareRunHtmlBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">共有用HTML</button>
                     <button id="refreshTcxAdviceBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">Apply</button>
+                    <button id="regenerateRunCommentBtn" class="btn-primary" type="button" style="padding: 6px 12px; min-width:auto;">RUN Comment再取得（Gemini）</button>
                 </div>
+                <div id="regenerateRunCommentStatus" data-html-export-omit role="status" aria-live="polite" style="margin-top:8px; color:var(--text-secondary); font-size:0.85rem;"></div>
                 <div id="tcxDailyMessageSlot"></div>
             </section>
 
@@ -278,7 +292,7 @@
                 </div>
             </section>
 
-            <section class="glass-card">
+            <section class="glass-card" id="runHistorySection">
                 <h3
                     style="margin-bottom: 15px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.9rem;">
                     Run History</h3>
@@ -352,9 +366,8 @@
 
     <!-- Logic -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="vendor/jspdf-4.2.1.umd.min.js"></script>
-    <script src="run-share-pdf.js?v=20261107-1"></script>
-    <script src="script.js?v=20261107-run-comment-1"></script>
+    <script src="run-share-html.js?v=20261122-5"></script>
+    <script src="script.js?v=20261123-apply-2"></script>
 </body>
 
 </html>

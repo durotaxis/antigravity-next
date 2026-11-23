@@ -11,6 +11,8 @@ const imageService = require('./image_service');
 const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
+const { renderCorosRunChartPng } = require('./coros_run_chart');
+const { readRunCommentPrefix, saveRunCommentPrefix } = require('./run_comment_prefix_store');
 const openaiService = require('./openai_service');
 const googleFitService = require('./google_fit_service');
 const trainingLoadService = require('./training_load_service');
@@ -778,6 +780,19 @@ function normalizeAdviceProvider(provider) {
   return normalized === 'openai' ? 'openai' : 'gemini';
 }
 
+// Safety-blocked generations are application-level refusals, not transient API failures.
+// Return a structured error without including the user's prompt or a generated refusal in DB messages.
+function respondGeminiSafetyBlock(res, err) {
+  if (err?.code !== 'GEMINI_SAFETY_BLOCK') return false;
+  res.status(422).json({
+    code: 'GEMINI_SAFETY_BLOCK',
+    blockReason: String(err.blockReason || 'OTHER').slice(0, 64),
+    blockSource: err.blockSource === 'candidate' ? 'candidate' : 'prompt',
+    error: 'Gemini blocked this request or generated response'
+  });
+  return true;
+}
+
 function isTemporaryRunMessage(message) {
   return [GEMINI_TEMPORARY_UNAVAILABLE_MESSAGE, 'No API Key', 'AI Analysis is currently unavailable.'].includes(String(message || '').trim());
 }
@@ -789,6 +804,9 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
 
   const adviceProvider = normalizeAdviceProvider(provider);
   const summary = runSummary.summary;
+  const chartImageDataUrl = source === 'coros_fit' && adviceProvider === 'gemini'
+    ? 'data:image/png;base64,' + renderCorosRunChartPng(minuteRows).toString('base64')
+    : '';
   const completeRestWindows = trainingLoadService.extractCompleteRestWindows(
     Array.isArray(options.trackpoints) ? options.trackpoints : []
   );
@@ -865,7 +883,9 @@ async function generateTcxRunMessage(dateString, runId, minuteRows, provider = '
     latestRunSummary,
     compareRunSummaries,
     completeRestWindows,
-    previousRunComment
+    previousRunComment,
+    chartImageDataUrl,
+    useRunCommentPrefix: true
   });
 }
 
@@ -2001,6 +2021,23 @@ const model = null; // Removed generic init
 
 // --- API Controller ---
 
+// User-authored prefix for Gemini RUN COMMENT; shared by browser and FIT reception.
+app.get('/api/gemini/run-comment-prefix', async (_req, res) => {
+  try {
+    res.json({ text: await readRunCommentPrefix() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/gemini/run-comment-prefix', async (req, res) => {
+  try {
+    res.json({ text: await saveRunCommentPrefix(req.body?.text) });
+  } catch (error) {
+    res.status(error.code === 'INVALID_PREFIX' ? 400 : 500).json({ error: error.message });
+  }
+});
+
 // 1. Get All Runs (繧ｷ繝ｳ繝励Ν繝ｻ繧､繧ｺ繝ｻ繝吶せ繝・
 // DB縺ｫ縺ゅｋ莠句ｮ滂ｼ域律莉倥√せ繝医Λ繧､繝峨∝ｿ・牛謨ｰ縲∫判蜒擾ｼ峨□縺代ｒ霑斐＠縺ｾ縺・
 app.get('/api/runs', async (req, res) => {
@@ -2169,6 +2206,32 @@ app.get('/api/daily/:date/run-message/:runId', async (req, res) => {
     const row = await repo.getRunMessage(date, runId);
     if (!row) return res.status(404).json({ error: 'No run message found' });
     res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Apply the currently displayed selected RUN comment (a preview may not yet be saved).
+// Persist both the run-level message and the selected date-level message together.
+app.post('/api/run-comment/apply', async (req, res) => {
+  try {
+    const date = normalizeRunDate(req.body?.date);
+    const runId = String(req.body?.runId || '').trim();
+    const source = String(req.body?.source || '').trim();
+    const message = String(req.body?.message || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !runId) {
+      return res.status(400).json({ error: 'Valid date and runId are required' });
+    }
+    const validTcx = source === 'tcx' && runId.startsWith(`${date}_`) && sanitizeTcxRunId(runId) === runId;
+    const validCorosFit = source === 'coros_fit' && sanitizeCorosLabelId(runId) === runId;
+    if (!validTcx && !validCorosFit) {
+      return res.status(400).json({ error: 'Run source and runId do not match' });
+    }
+    if (!message || isTemporaryRunMessage(message)) {
+      return res.status(422).json({ error: 'A completed Run Comment is required' });
+    }
+    await repo.applyRunComment({ date, run_id: runId, message });
+    res.json({ success: true, date, runId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3173,6 +3236,7 @@ app.post('/api/import-coros-fit/apply-comment', async (req, res) => {
     const result = await generateAndPersistCorosFitRunMessage(date, labelId, req.body?.provider || 'gemini');
     res.json({ success: true, ...result });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT minute data not found' });
     res.status(500).json({ error: err.message });
   }
@@ -3185,6 +3249,7 @@ app.post('/api/import-coros-fit', async (req, res) => {
     const result = await importAndApplyCorosFit(date, labelId, req.body?.provider || 'gemini');
     res.json({ success: true, ...result });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     if (err?.code === 'ENOENT') return res.status(404).json({ error: 'COROS FIT or metadata file not found' });
     res.status(500).json({ error: err.message });
   }
@@ -4283,6 +4348,10 @@ app.post('/api/advice', async (req, res) => {
 // Advice API (Gemini)
 app.post('/api/advice/gemini', async (req, res) => {
   try {
+    if (req.body.regenerate !== undefined && typeof req.body.regenerate !== 'boolean') {
+      return res.status(400).json({ error: 'regenerate must be a boolean' });
+    }
+    const regenerate = req.body.regenerate === true;
     const {
       date,
       runId,
@@ -4305,6 +4374,10 @@ app.post('/api/advice/gemini', async (req, res) => {
     } = req.body;
     if (!date) return res.status(400).json({ error: 'date is required' });
 
+    if (regenerate && !String(runId || '').trim()) {
+      return res.status(400).json({ error: 'A selected run is required for regeneration' });
+    }
+
     if (String(runId || '').trim()) {
       const selectedRunId = String(runId).trim();
       const source = req.body.source;
@@ -4312,7 +4385,7 @@ app.post('/api/advice/gemini', async (req, res) => {
         return res.status(400).json({ error: 'Invalid run source or date' });
       }
       const saved = await repo.getRunMessage(date, selectedRunId);
-      if (saved?.message?.trim() && !isTemporaryRunMessage(saved.message)) return res.json({ advice: saved.message });
+      if (!regenerate && saved?.message?.trim() && !isTemporaryRunMessage(saved.message)) return res.json({ advice: saved.message });
       let rows;
       if (source === 'coros_fit') {
         const file = getCorosFitIntradayPath(date, selectedRunId);
@@ -4467,6 +4540,7 @@ app.post('/api/advice/gemini', async (req, res) => {
 
     return res.json({ advice, provider: 'gemini-live' });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     console.error(err);
     return res.status(500).json({ error: err.message });
   }
@@ -4499,6 +4573,7 @@ app.post('/api/advice/gemini/chart', async (req, res) => {
 
     return res.json({ advice, provider: 'gemini-chart-live' });
   } catch (err) {
+    if (respondGeminiSafetyBlock(res, err)) return;
     console.error(err);
     return res.status(500).json({ error: err.message });
   }

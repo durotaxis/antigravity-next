@@ -55,14 +55,14 @@ test('loading or missing-data placeholder rows cannot masquerade as a split tabl
 
 test('changing the selected date without reloading refuses to export stale charts', async () => {
     const script = fs.readFileSync('public/script.js', 'utf8');
-    const body = script.slice(script.indexOf('async function exportSelectedRunPdf()'), script.indexOf('\nasync function loadData(', script.indexOf('async function exportSelectedRunPdf()')));
+    const body = script.slice(script.indexOf('async function exportSelectedRunHtml()'), script.indexOf('\nasync function loadData(', script.indexOf('async function exportSelectedRunHtml()')));
     const save = jest.fn();
     const context = { currentTcxMinuteExport: { date: '2026-10-30' },
         normalizeRunDate: value => value,
         document: { getElementById: id => id === 'dateInput' ? { value: '2026-10-29' } : { disabled: false } },
-        window: { RunSharePdf: { save } } };
+        window: { RunShareHtml: { save } } };
     vm.runInNewContext(body, context);
-    await expect(context.exportSelectedRunPdf()).rejects.toThrow('RUN ANALYZER');
+    await expect(context.exportSelectedRunHtml()).rejects.toThrow('RUN ANALYZER');
     expect(save).not.toHaveBeenCalled();
 });
 
@@ -111,8 +111,8 @@ function exportSetup(source = 'coros_fit') {
         selectedId: runIds[0], normalizeRunDate: value => value,
         getSelectedActiveRun: () => ({ runId: context.selectedId }),
         isElementVisibleForExport: wrapper => !!wrapper,
-        document: { getElementById: id => elements[id] },
-        window: { RunSharePdf: { save } },
+        document: { getElementById: id => elements[id], querySelector: () => ({}) },
+        window: { RunShareHtml: { save } },
         fetch: jest.fn(async url => {
             const runId = url.split('/run-message/')[1];
             return { ok: true, json: async () => ({ date, run_id: runId,
@@ -120,32 +120,45 @@ function exportSetup(source = 'coros_fit') {
         })
     };
     const script = fs.readFileSync('public/script.js', 'utf8');
-    const start = script.indexOf('async function exportSelectedRunPdf()');
+    const start = script.indexOf('async function exportSelectedRunHtml()');
     vm.runInNewContext(script.slice(start, script.indexOf('\nasync function loadData(', start)), context);
     return { context, save, runIds, messages, elements, date };
 }
+
+test.each(['coros_fit', 'tcx', 'health_connect'])('%s refuses placeholder split rows before reading comments', async source => {
+    const { context, save, elements } = exportSetup(source);
+    const table = elements[source === 'tcx' ? 'tcxLapTable' : 'lapTable'];
+    for (const textContent of ['Loading splits...', 'No 1km splits', 'Error loading splits: unavailable']) {
+        table.querySelectorAll = selector => selector === 'thead th'
+            ? [{ textContent: 'Lap' }, { textContent: 'Speed' }]
+            : [{ querySelectorAll: () => [{ textContent }] }];
+        await expect(context.exportSelectedRunHtml()).rejects.toThrow('グラフと1km表');
+        expect(save).not.toHaveBeenCalled();
+        expect(context.fetch).not.toHaveBeenCalled();
+    }
+});
 
 test.each(['coros_fit', 'tcx'])('%s exports each selected RUN comment, including switching back', async source => {
     const { context, save, runIds, messages, date } = exportSetup(source);
     for (const runId of [...runIds, runIds[0]]) {
         context.selectedId = runId;
-        await context.exportSelectedRunPdf();
+        await context.exportSelectedRunHtml();
         expect(context.fetch).toHaveBeenLastCalledWith(`/api/daily/${date}/run-message/${runId}`, { cache: 'no-store' });
-        expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ runId, message: messages.get(runId), selectedRunComment: true }));
+        expect(save).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining(runId), expect.objectContaining({ message: messages.get(runId) }));
     }
 });
 
 test('Health Connect retains its existing daily comment', async () => {
     const { context, save, date } = exportSetup('health_connect');
-    await context.exportSelectedRunPdf();
+    await context.exportSelectedRunHtml();
     expect(context.fetch).toHaveBeenCalledWith(`/api/daily/${date}`, { cache: 'no-store' });
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ message: '日次コメント（後半RUN）', selectedRunComment: false }));
+    expect(save).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.objectContaining({ message: '日次コメント（後半RUN）' }));
 });
 
 test.each(['date', 'run_id'])('rejects a mismatched comment %s', async field => {
     const { context, save, date, runIds } = exportSetup();
     context.fetch.mockResolvedValue({ ok: true, json: async () => ({ date, run_id: runIds[0], message: 'wrong', [field]: 'wrong' }) });
-    await expect(context.exportSelectedRunPdf()).rejects.toThrow('一致しません');
+    await expect(context.exportSelectedRunHtml()).rejects.toThrow('一致しません');
     expect(save).not.toHaveBeenCalled();
 });
 
@@ -157,7 +170,7 @@ test.each(['run', 'source', 'date'])('selection change during comment read rejec
         if (field === 'date') elements.dateInput.value = '2026-11-06';
         return { ok: true, json: async () => ({ date, run_id: runIds[0], message: 'old selection' }) };
     });
-    await expect(context.exportSelectedRunPdf()).rejects.toThrow('選択が変わりました');
+    await expect(context.exportSelectedRunHtml()).rejects.toThrow('選択が変わりました');
     expect(save).not.toHaveBeenCalled();
 });
 
@@ -165,7 +178,7 @@ test.each([404, 500, 'network'])('failed per-run read never falls back to the da
     const { context, save } = exportSetup();
     if (status === 'network') context.fetch.mockRejectedValue(new Error('offline'));
     else context.fetch.mockResolvedValue({ ok: false, status });
-    await expect(context.exportSelectedRunPdf()).rejects.toThrow();
+    await expect(context.exportSelectedRunHtml()).rejects.toThrow();
     expect(context.fetch).toHaveBeenCalledTimes(1);
     expect(save).not.toHaveBeenCalled();
 });
@@ -173,6 +186,6 @@ test.each([404, 500, 'network'])('failed per-run read never falls back to the da
 test('empty per-run comment stays empty instead of substituting daily text', async () => {
     const { context, save, messages, runIds } = exportSetup();
     messages.set(runIds[0], '');
-    await context.exportSelectedRunPdf();
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ message: '' }));
+    await context.exportSelectedRunHtml();
+    expect(save).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.objectContaining({ message: '' }));
 });

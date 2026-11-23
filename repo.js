@@ -1,4 +1,5 @@
 const db = require('./db');
+const sqlite3 = require('sqlite3').verbose();
 const analysisService = require('./analysis_service');
 const imageRepo = require('./image_repo');
 
@@ -323,6 +324,63 @@ function saveRunMessage(data) {
     });
 }
 
+// APPLY is the confirmation boundary for a new, currently displayed Run Comment.
+// Use a separate SQLite connection so its two writes form one transaction, without
+// enlisting unrelated writes on the application's shared database connection.
+function applyRunComment(data) {
+    const date = toTextOrNull(data && data.date);
+    const runId = toTextOrNull(data && data.run_id);
+    const message = toTextOrNull(data && data.message);
+    if (!date || !runId || !message) {
+        return Promise.reject(new Error('date, run_id, and message are required'));
+    }
+
+    const now = new Date().toISOString();
+    const runSql = `
+        INSERT INTO run_messages (date, run_id, message, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(date, run_id) DO UPDATE SET
+            message = excluded.message,
+            created_at = excluded.created_at
+    `;
+    // Do not modify running metrics when a comment alone is being applied.
+    const dailySql = `
+        INSERT INTO daily_summary (date, message, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            message = excluded.message,
+            created_at = excluded.created_at
+    `;
+
+    return new Promise((resolve, reject) => {
+        const connection = new sqlite3.Database(db.databasePath, sqlite3.OPEN_READWRITE, (openError) => {
+            if (openError) return reject(openError);
+            connection.configure('busyTimeout', 5000);
+            const finish = (error) => connection.close((closeError) => {
+                if (error || closeError) reject(error || closeError);
+                else resolve({ date, run_id: runId });
+            });
+            const rollback = (error) => connection.run('ROLLBACK', () => finish(error));
+
+            connection.serialize(() => {
+                connection.run('BEGIN IMMEDIATE TRANSACTION', (beginError) => {
+                    if (beginError) return finish(beginError);
+                    connection.run(runSql, [date, runId, message, now], (runError) => {
+                        if (runError) return rollback(runError);
+                        connection.run(dailySql, [date, message, now], (dailyError) => {
+                            if (dailyError) return rollback(dailyError);
+                            connection.run('COMMIT', (commitError) => {
+                                if (commitError) return rollback(commitError);
+                                finish(null);
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
 function getRunMessage(date, runId) {
     return new Promise((resolve, reject) => {
         const normalizedDate = toTextOrNull(date);
@@ -338,6 +396,38 @@ function getRunMessage(date, runId) {
                 return reject(err);
             }
             resolve(row || null);
+        });
+    });
+}
+
+// A single DB-backed setting; deliberately not associated with a run or daily message.
+const RUN_COMMENT_PREFIX_SETTING_KEY = 'gemini.run_comment_prefix';
+
+function getRunCommentPrefix() {
+    return new Promise((resolve, reject) => {
+        db.get(
+            'SELECT value FROM app_settings WHERE setting_key = ?',
+            [RUN_COMMENT_PREFIX_SETTING_KEY],
+            (err, row) => {
+                if (err) return reject(err);
+                resolve(row ? String(row.value) : '');
+            }
+        );
+    });
+}
+
+function saveRunCommentPrefix(text) {
+    return new Promise((resolve, reject) => {
+        const now = new Date().toISOString();
+        db.run(`
+            INSERT INTO app_settings (setting_key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+        `, [RUN_COMMENT_PREFIX_SETTING_KEY, text, now], function (err) {
+            if (err) return reject(err);
+            resolve(text);
         });
     });
 }
@@ -461,8 +551,11 @@ module.exports = {
     saveDailySummary,
     saveDailySummaryExact,
     saveRunMessage,
+    applyRunComment,
     getRunMessage,
     getPreviousRunMessage,
+    getRunCommentPrefix,
+    saveRunCommentPrefix,
     getDailySummary,
     getAllRuns,
     deleteRun

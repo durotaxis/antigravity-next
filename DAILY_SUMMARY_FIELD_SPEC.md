@@ -693,3 +693,22 @@ COROS Run Comment JSON import writes the generated Run Comment to both `run_mess
 ## Selected-run Gemini and notification restoration (2026-11-03)
 
 Legacy RUN ANALYZER Gemini generation for a selected TCX or COROS FIT run saves that run's comment in run_messages and applies the same comment to daily_summary.message. It does not substitute date-level data for the selected run's analysis.
+
+## 15. Global Gemini RUN COMMENT prefix setting (2026-11-22, draft PR #9)
+
+The user-authored prompt prefix is a **global configuration value**, not RUN data.
+
+- SQLite table: `app_settings(setting_key, value, updated_at)`, key `gemini.run_comment_prefix` (see `db.js` / `repo.js`).
+- It contains no `date`, `run_id`, or `message` linkage and requires no additional columns in `run_messages` or `daily_summary`.
+- Saving or clearing this setting does **not** trigger a `daily_summary` upsert, change `daily_summary.message`, or overwrite a per-RUN comment.
+- The setting is fetched when generating a new Gemini RUN COMMENT. Its contents are prepended to the fixed instruction text. The prompt text is **not** copied to either message table as metadata or an audit snapshot.
+- The normal FIT generation path still persists its successfully generated comment to `run_messages` and `daily_summary.message` under existing rules. That is a separate operation, not a side effect of editing this setting.
+- On an AI generation failure, the current FIT path does not persist a new comment. Editing the setting does not delete or roll back older messages. Structured safety-rejection feedback is included. The local explicit regeneration action is described below.
+- The global setting does not reset on a date change. The old filesystem JSON experiment is not read or written by this implementation.
+- This change does not modify the numerical aggregation, exact-overwrite metrics, Apply behavior, or existing message ownership.
+
+Status: code committed on `feature/coros-run-comment-chart-20261122`; actual database/AI integration testing on PC remains outstanding.
+
+### 15.1 Explicit selected-RUN regeneration (2026-11-23)
+
+`POST /api/advice/gemini` with boolean `regenerate: true`, a date, exact string run ID, and COROS FIT/TCX source bypasses reuse of the saved comment. It reads existing selected-run minute data and the saved prefix. Successful output replaces the selected run message and the daily message; no numeric daily-summary fields are supplied by this path. Generation failure preserves saved messages. Requests without the flag retain existing reuse behavior. No FIT acquisition is triggered.

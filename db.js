@@ -15,6 +15,9 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
+// Share the resolved SQLite location with transactional repository operations.
+db.databasePath = dbPath;
+
 db.serialize(() => {
     // チェック5 (最重要): date に PRIMARY KEY を指定し、UNIQUE制約を保証する
     // これで repo.js の ON CONFLICT(date) がエラーにならず機能する
@@ -93,6 +96,16 @@ db.serialize(() => {
         PRIMARY KEY (date, run_id)
     )`, (err) => {
         if (err) console.error('Error creating table run_messages:', err);
+    });
+
+    // User-authored Gemini RUN COMMENT prefix is one global setting, independent of RUN identity.
+    // No date/run_id foreign key and no snapshots on run_messages or daily_summary.
+    db.run(`CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        value TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    )`, (err) => {
+        if (err) console.error('Error creating table app_settings:', err);
     });
 
     // Lightweight migration for existing DBs.

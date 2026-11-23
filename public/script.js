@@ -68,6 +68,65 @@ function bindAdviceToggles() {
     });
 }
 
+// Keep the safety refusal next to the editable prompt, not in the Apply-able RUN COMMENT.
+function showGeminiSafetyBlock(details) {
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!status) return;
+    const reason = String(details?.blockReason || 'OTHER').replace(/[^A-Z0-9_]/gi, '').slice(0, 64) || 'OTHER';
+    const source = details?.blockSource === 'candidate' ? '出力' : 'リクエスト';
+    status.textContent = `Geminiの${source}が制限されました（${reason}）。入力文は保持しています。`;
+}
+
+async function initializeRunCommentPrefixEditor() {
+    const input = document.getElementById('runCommentPrefixInput');
+    const save = document.getElementById('saveRunCommentPrefixBtn');
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!input || !save || !status) return;
+    input.disabled = true;
+    save.disabled = true;
+
+    input.addEventListener('input', () => {
+        status.textContent = '変更中（保存ボタンで確定）';
+    });
+
+    save.addEventListener('click', async () => {
+        save.disabled = true;
+        input.disabled = true;
+        status.textContent = '保存中…';
+        try {
+            const response = await fetch('/api/gemini/run-comment-prefix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: input.value })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '保存できませんでした');
+            input.value = data.text;
+            input.dataset.savedText = data.text;
+            status.textContent = '保存済み（次のRUN Comment生成から適用）';
+        } catch (error) {
+            status.textContent = '保存失敗: ' + error.message;
+        } finally {
+            input.disabled = false;
+            save.disabled = false;
+        }
+    });
+
+    try {
+        const response = await fetch('/api/gemini/run-comment-prefix');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '読み込みに失敗しました');
+        input.value = data.text || '';
+        input.dataset.savedText = input.value;
+        input.disabled = false;
+        save.disabled = false;
+        status.textContent = '設定読込済み';
+    } catch (error) {
+        // Do not overwrite an unknown server value if reading failed.
+        status.textContent = '読込失敗: ' + error.message;
+    }
+}
+
 function isValidRunDate(value) {
     return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
@@ -1391,7 +1450,7 @@ async function copyVisibleTcxChartsAsImage() {
     alert('Clipboard image copy is unavailable in this browser. Downloaded PNG instead.');
 }
 
-async function exportSelectedRunPdf() {
+async function exportSelectedRunHtml() {
     const date = normalizeRunDate(document.getElementById('dateInput')?.value || '');
     if (document.getElementById('analyzeBtn')?.disabled || !date || currentTcxMinuteExport?.date !== date) {
         throw new Error('対象日をRUN ANALYZERで読み込んでから書き出してください。');
@@ -1420,21 +1479,12 @@ async function exportSelectedRunPdf() {
     const headers = Array.from(table?.querySelectorAll('thead th') || [], cell => cell.textContent.trim());
     const rows = Array.from(table?.querySelectorAll('tbody tr') || [])
         .map(row => Array.from(row.querySelectorAll('td'), cell => cell.textContent.trim()));
+    if (!charts.length || !headers.length || !rows.length ||
+        rows.some(row => row.length !== headers.length)) {
+        throw new Error('グラフと1km表を読み込んでください。');
+    }
     // Keep the displayed values and source, including the day-based Fit splits.
     const tableSource = currentRunChartSource === 'tcx' ? 'TCX (selected run)' : 'Health Connect / Google Fit (day)';
-    const minuteTables = [
-        ['legacyPerMinuteWrapper', 'resultTable'],
-        ['tcxPerMinuteWrapper', 'tcxResultTable']
-    ].flatMap(([wrapperId, minuteTableId]) => {
-        const wrapper = document.getElementById(wrapperId);
-        const minuteTable = document.getElementById(minuteTableId);
-        if (!isElementVisibleForExport(wrapper) || !minuteTable) return [];
-        const minuteHeaders = Array.from(minuteTable.querySelectorAll('thead th'), cell => cell.innerText.trim());
-        const minuteRows = Array.from(minuteTable.querySelectorAll('tbody tr'), row =>
-            Array.from(row.querySelectorAll('td'), cell => cell.innerText.trim()));
-        if (!minuteHeaders.length || !minuteRows.length) return [];
-        return [{ title: wrapper.querySelector('h3').innerText.trim(), headers: minuteHeaders, rows: minuteRows }];
-    });
     const source = currentRunChartSource;
     // TCX/COROS comments belong to (date, run_id), not the last applied daily message.
     const selectedRunComment = source === 'tcx' || source === 'coros_fit';
@@ -1453,7 +1503,11 @@ async function exportSelectedRunPdf() {
         throw new Error('選択が変わりました。対象のランを確認して書き出し直してください。');
     }
     const message = typeof summary.message === 'string' ? summary.message : '';
-    return window.RunSharePdf.save({ date, runId, source, charts, headers, rows, tableSource, minuteTables, message, selectedRunComment });
+    return window.RunShareHtml.save(document.querySelector('.container'), `${date}_${runId}_run-report.html`, {
+        description: `${date} / ${runId} / ${source} / 1km Splits: ${tableSource}`,
+        message,
+        omit: '#analyzerControls, #debugControls, #setupControls, #runHistorySection, [data-html-export-omit]'
+    });
 }
 
 async function loadData(options = {}) {
@@ -2331,11 +2385,84 @@ async function getGeminiAdvice(date, maxStride, data) {
             body: JSON.stringify(payload)
         });
         const json = await res.json();
+        if (json?.code === 'GEMINI_SAFETY_BLOCK') {
+            if (!stillSelected()) return;
+            showGeminiSafetyBlock(json);
+            // Leave the saved comment untouched and never expose a refusal in the Apply-able message.
+            textSpan.textContent = '';
+            container.style.display = 'none';
+            const saved = requestedRunId
+                ? await loadRunMessage(date, requestedRunId).catch(() => null)
+                : await fetchDailySummary(date).then(row => row?.message || null).catch(() => null);
+            if (stillSelected() && String(saved || '').trim()) {
+                textSpan.textContent = String(saved).trim();
+                container.style.display = 'block';
+            }
+            return;
+        }
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
         if (stillSelected()) textSpan.textContent = normalizedAdvice;
     } catch (e) {
         if (stillSelected()) textSpan.textContent = `Gemini Advice Failed: ${e.message}`;
+    }
+}
+
+async function regenerateSelectedRunComment() {
+    const button = document.getElementById('regenerateRunCommentBtn');
+    const status = document.getElementById('regenerateRunCommentStatus');
+    const input = document.getElementById('runCommentPrefixInput');
+    const save = document.getElementById('saveRunCommentPrefixBtn');
+    if (!button || !status || button.disabled) return;
+    const date = normalizeRunDate(document.getElementById('dateInput')?.value);
+    const runId = getSelectedAdviceRunId();
+    const source = currentRunChartSource;
+    if (document.getElementById('analyzeBtn')?.disabled || !date || date !== currentAdviceRunDate ||
+        !runId || !['tcx', 'coros_fit'].includes(source)) {
+        status.textContent = 'RUN ANALYZERで対象のTCXまたはCOROS FITのRUNを選択してください。';
+        return;
+    }
+    if (!input || input.disabled || input.dataset.savedText === undefined) {
+        status.textContent = '追加プロンプト設定の読み込み・保存完了後に再取得してください。';
+        return;
+    }
+    if (input.value.trim() !== input.dataset.savedText) {
+        status.textContent = '追加プロンプトに未保存の変更があります。先に「保存」を押してください。';
+        return;
+    }
+    const stillSelected = () => date === currentAdviceRunDate &&
+        date === normalizeRunDate(document.getElementById('dateInput')?.value) &&
+        runId === getSelectedAdviceRunId() && source === currentRunChartSource;
+    button.disabled = true;
+    input.disabled = true;
+    if (save) save.disabled = true;
+    button.textContent = '再取得中…';
+    status.textContent = `${date} / ${runId} のコメントを生成中…`;
+    try {
+        const response = await fetch('/api/advice/gemini', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date, runId, source, regenerate: true })
+        });
+        const data = await response.json();
+        if (data.code === 'GEMINI_SAFETY_BLOCK') {
+            showGeminiSafetyBlock(data);
+            throw new Error('Geminiにより生成が制限されました。保存済みコメントは保持しています。');
+        }
+        if (!response.ok || data.error) throw new Error(data.error || `API ${response.status}`);
+        if (stillSelected()) {
+            const text = document.getElementById('daily-message-text');
+            const container = document.getElementById('daily-message-container');
+            if (text) text.textContent = data.advice;
+            if (container) container.style.display = 'block';
+        }
+        status.textContent = `${date} / ${runId} のRUNコメントと日別コメントを更新しました。`;
+    } catch (error) {
+        status.textContent = `再取得失敗: ${error.message}`;
+    } finally {
+        button.disabled = false;
+        button.textContent = 'RUN Comment再取得（Gemini）';
+        input.disabled = false;
+        if (save) save.disabled = false;
     }
 }
 
@@ -2352,9 +2479,9 @@ async function applySelectedRunAdviceFromCurrentView() {
     }
     const date = currentAdviceRunDate;
     const runId = selectedRun.runId;
-    const saved = await loadRunMessage(date, runId);
-    if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || saved !== visibleText) {
-        throw new Error('選択したランの保存済みコメントを確認できません。');
+    const source = currentRunChartSource;
+    if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || source !== currentRunChartSource) {
+        throw new Error('選択したランが変更されました。');
     }
     const btn = document.getElementById('refreshTcxAdviceBtn');
     const originalText = btn ? btn.textContent : '';
@@ -2363,11 +2490,13 @@ async function applySelectedRunAdviceFromCurrentView() {
         btn.textContent = 'Applying...';
     }
     try {
-        const res = await fetch('/api/daily', {
+        const res = await fetch('/api/run-comment/apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                date: currentAdviceRunDate,
+                date,
+                runId,
+                source,
                 message: visibleText
             })
         });
@@ -3713,6 +3842,8 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreAdviceToggles();
     renderHeartRateGuide();
     bindAdviceToggles();
+    initializeRunCommentPrefixEditor();
+    document.getElementById('regenerateRunCommentBtn')?.addEventListener('click', regenerateSelectedRunComment);
 
     loadData({ triggerAdvice: false });
     updateDebugHints();
@@ -3756,17 +3887,17 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Failed to copy charts: ${err.message}`);
         }
     });
-    document.getElementById('shareRunPdfBtn')?.addEventListener('click', async (event) => {
+    document.getElementById('shareRunHtmlBtn')?.addEventListener('click', async (event) => {
         const button = event.currentTarget;
         button.disabled = true;
-        button.textContent = 'PDF作成中…';
+        button.textContent = 'HTML作成中…';
         try {
-            await exportSelectedRunPdf();
+            await exportSelectedRunHtml();
         } catch (error) {
-            alert(`PDFを書き出せませんでした: ${error.message}`);
+            alert(`HTMLを書き出せませんでした: ${error.message}`);
         } finally {
             button.disabled = false;
-            button.textContent = '共有用PDF';
+            button.textContent = '共有用HTML';
         }
     });
     document.getElementById('refreshTcxAdviceBtn')?.addEventListener('click', async () => {

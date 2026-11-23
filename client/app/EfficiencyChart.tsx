@@ -158,7 +158,9 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
           </p>
         </div>
 
-        <div style={{ width: '100%', height: '350px' }}>
+        <div data-export-chart-values={JSON.stringify(chartData.map(row =>
+          `${row.date}\nStride: ${row.displayMaxStride} cm\nHeart Rate: ${row.displayMaxHr} bpm`
+        ))} style={{ width: '100%', height: '350px' }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={chartData}
@@ -282,7 +284,9 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
           </p>
         </div>
 
-        <div style={{ width: '100%', height: '350px' }}>
+        <div data-export-chart-values={JSON.stringify(chartData.map(row =>
+          `${row.date}\nStride: ${formatFixed(row.displayAvgStride, 1)} cm\nSpeed: ${formatFixed(row.displayAvgSpeed, 1)} km/h\nPitch: ${formatFixed(row.displayAvgPitch, 0)} spm\nHeart Rate: ${formatFixed(row.displayAvgHr, 0)} bpm`
+        ))} style={{ width: '100%', height: '350px' }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={chartData}

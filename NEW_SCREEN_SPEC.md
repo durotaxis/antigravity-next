@@ -505,7 +505,7 @@ The new screen can display a Run Comment imported independently of TCX.
 
 ## 13. Relation to Legacy Screen
 
-The legacy run pager includes a `共有用PDF` action to save the displayed run charts and existing 1km split table, with date and run ID, as one PDF for manual attachment to ChatGPT. See `LEGACY_SCREEN_SPEC.md` section 14.1 for source and validation rules. For TCX and COROS FIT, the PDF appends the full saved `run_messages.message` for the selected `(date, run_id)`, with wrapping and pagination; it does not use the latest applied daily comment. Health Connect retains its date-level comment. PDF export reads the DB without AI generation or DB updates. No new-screen card action or automatic ChatGPT attachment is added.
+The legacy run pager provides `共有用HTML` for an offline report of the selected run. See `LEGACY_SCREEN_SPEC.md` section 14.1 for content and source rules.
 
 The conceptual separation is:
 
@@ -520,4 +520,14 @@ This is the current operational split between the two UIs.
 ## Selected-run Gemini and notification restoration (2026-11-03)
 
 The new screen continues to display persisted DB comments. After comment persistence, both manual and automatic notifications extract the 1分毎テーブル所見 section from the saved run comment immediately before sending/displaying. Automatic completion events retain the saved comment so notification formatting occurs after generation has completed.
-The legacy shareable run PDF includes the visible per-minute tables with their displayed values and correction annotations. See Legacy Screen Spec section 14.1.
+The legacy shareable HTML includes visible minute tables with displayed values and correction annotations.
+
+## HTML export
+
+- `HTML保存` saves the rendered trend chart and the first six run cards in screen order in one standalone HTML file, preserving the screen colors and layout. If fewer than six cards exist, all available cards are exported.
+- The trend chart reflects its current date filter. Cards after the sixth and their images are excluded from export.
+- Card metrics and comments remain HTML text. Charts and images are embedded for offline viewing, with an embedded offline tooltip script. The Max and Avg trend charts expose the same filtered values and units as their on-screen tooltips on hover or tap.
+- Upload, synchronization controls, and export controls are omitted. Image retrieval or export errors are reported to the user.
+- Saving does not generate advice or update stored run data.
+
+- New-screen HTML saving is enabled after run data has loaded. Export checks that cards exist and that both trend charts contain data and rendered points before saving, preventing an empty frame-only file.

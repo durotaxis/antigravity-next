@@ -1,10 +1,11 @@
 const fs = require('fs');
 const vm = require('vm');
 
-function load(generateContent) {
+function load(generateContent, prefix = '') {
     const sandbox = {
         require(name) {
             if (name === 'dotenv') return { config() {} };
+            if (name === './run_comment_prefix_store') return { readRunCommentPrefix: async () => prefix };
             if (name === '@google/genai') return { GoogleGenAI: class {
                 constructor() { this.models = { generateContent }; }
             } };
@@ -127,4 +128,119 @@ test('OCR keeps the configured model, image MIME, prompt and numeric conversion 
     expect(request.model).toBe('configured-ocr');
     expect(request.contents[0].parts[0].text).toContain('Return ONLY valid JSON');
     expect(request.contents[0].parts[1].inlineData).toEqual({ data: 'YQ==', mimeType: 'image/png' });
+});
+
+
+test('COROS FIT chart and minute table reach Gemini; rest-placement instruction is absent', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: '観測結果' });
+    const service = load(generate);
+    const answer = await service.generateAdvice({
+        date: '2026-11-22',
+        avg_stride_cm: 75,
+        max_stride_cm: 82,
+        avg_heart_rate: 121,
+        max_heart_rate: 137,
+        avg_cadence: 168,
+        max_cadence: 182,
+        avg_speed: 8,
+        max_speed: 10
+    }, [], {
+        chartImageDataUrl: 'data:image/png;base64,YQ==',
+        minuteTableMarkdown: '## COROS FIT Per Minute\n| Time | Speed |\n| --- | --- |\n| 10:00 | 8 |',
+        completeRestWindows: [],
+        previousRunComment: '前回の記録'
+    });
+    expect(answer).toBe('観測結果');
+    const parts = generate.mock.calls[0][0].contents[0].parts;
+    expect(parts[1]).toEqual({ inlineData: { data: 'YQ==', mimeType: 'image/png' } });
+    expect(parts[0].text).toContain('## COROS FIT Per Minute');
+    expect(parts[0].text).toContain('前回のRUN COMMENT');
+    expect(parts[0].text).toContain('完全休止時間帯:');
+    expect(parts[0].text).not.toContain('走行構造がインターバルトレーニングと判断できる場合');
+});
+
+
+test('saved user prefix comes before the existing FIT RUN COMMENT prompt', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: 'コメント' });
+    const service = load(generate, '最高値は同時発生とは限らない');
+    await service.generateAdvice({
+        date: '2026-11-22',
+        avg_stride_cm: 70,
+        max_stride_cm: 90,
+        avg_heart_rate: 120,
+        max_heart_rate: 140,
+        avg_cadence: 160,
+        max_cadence: 180,
+        avg_speed: 8,
+        max_speed: 10
+    }, [], { useRunCommentPrefix: true, minuteTableMarkdown: '## COROS FIT Per Minute' });
+    const text = generate.mock.calls[0][0].contents[0].parts[0].text;
+    expect(text.startsWith('最高値は同時発生とは限らない\n\n')).toBe(true);
+    expect(text).toContain('あなたはバイオメカニクス専門のランニング分析コーチです。');
+    expect(text).toContain('## COROS FIT Per Minute');
+
+    await service.generateAdvice({ date: '2026-11-22' }, [], {});
+    expect(generate.mock.calls[1][0].contents[0].parts[0].text).not.toContain('最高値は同時発生とは限らない');
+});
+
+test('COROS overview comment also prepends saved user text', async () => {
+    const generate = jest.fn().mockResolvedValue({ text: '概要コメント' });
+    const service = load(generate, 'ユーザー入力');
+    await service.generateCorosRunComment({ date: '2026-11-22' });
+    const text = generate.mock.calls[0][0].contents[0].parts[0].text;
+    expect(text.startsWith('ユーザー入力\n\n以下のCOROSランニング活動データ')).toBe(true);
+});
+
+
+test('Gemini prompt BLOCKLIST is not retried and reaches the RUN COMMENT caller as a structured error', async () => {
+    const blocked = {
+        promptFeedback: { blockReason: 'BLOCKLIST' },
+        get text() { throw new Error('response.text must not be read after a safety block'); }
+    };
+    const generate = jest.fn().mockResolvedValue(blocked);
+    const service = load(generate, 'テストの追加指示');
+    await expect(service.generateAdvice({
+        date: '2026-11-22', avg_stride_cm: 80, max_stride_cm: 95,
+        avg_heart_rate: 120, max_heart_rate: 130,
+        avg_cadence: 170, max_cadence: 190
+    }, [], { useRunCommentPrefix: true }))
+        .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: 'BLOCKLIST', blockSource: 'prompt' });
+    expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test('Gemini output SAFETY with nonempty text is still blocked, without retry', async () => {
+    const generate = jest.fn().mockResolvedValue({
+        text: 'This content should not be saved as a RUN COMMENT',
+        candidates: [{ finishReason: 'SAFETY' }]
+    });
+    await expect(load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: 'SAFETY', blockSource: 'candidate' });
+    expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test('Gemini PROHIBITED_CONTENT and OTHER prompt blocks are not mistaken for empty responses', async () => {
+    for (const reason of ['PROHIBITED_CONTENT', 'OTHER']) {
+        const generate = jest.fn().mockResolvedValue({ promptFeedback: { blockReason: reason } });
+        await expect(load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+            .rejects.toMatchObject({ code: 'GEMINI_SAFETY_BLOCK', blockReason: reason, blockSource: 'prompt' });
+        expect(generate).toHaveBeenCalledTimes(1);
+    }
+});
+
+test('an unspecified block reason does not suppress the existing empty-response fallback', async () => {
+    const generate = jest.fn()
+        .mockResolvedValueOnce({ promptFeedback: { blockReason: 'BLOCK_REASON_UNSPECIFIED' }, text: '' })
+        .mockResolvedValueOnce({ text: '通常コメント' });
+    expect(await load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .toEqual({ message: '通常コメント', model: 'gemini-3.7-flash' });
+    expect(generate).toHaveBeenCalledTimes(2);
+});
+
+test('non-safety HTTP 400 errors are not incorrectly labeled a safety block', async () => {
+    const generate = jest.fn()
+        .mockRejectedValueOnce(Object.assign(new Error('invalid arguments'), { status: 400 }))
+        .mockResolvedValueOnce({ text: '通常コメント' });
+    expect(await load(generate).generateCorosRunComment({ date: '2026-11-22' }))
+        .toEqual({ message: '通常コメント', model: 'gemini-3.7-flash' });
+    expect(generate).toHaveBeenCalledTimes(2);
 });

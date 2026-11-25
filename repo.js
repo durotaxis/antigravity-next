@@ -342,6 +342,38 @@ function getRunMessage(date, runId) {
     });
 }
 
+// A single DB-backed setting; deliberately not associated with a run or daily message.
+const RUN_COMMENT_PREFIX_SETTING_KEY = 'gemini.run_comment_prefix';
+
+function getRunCommentPrefix() {
+    return new Promise((resolve, reject) => {
+        db.get(
+            'SELECT value FROM app_settings WHERE setting_key = ?',
+            [RUN_COMMENT_PREFIX_SETTING_KEY],
+            (err, row) => {
+                if (err) return reject(err);
+                resolve(row ? String(row.value) : '');
+            }
+        );
+    });
+}
+
+function saveRunCommentPrefix(text) {
+    return new Promise((resolve, reject) => {
+        const now = new Date().toISOString();
+        db.run(`
+            INSERT INTO app_settings (setting_key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+        `, [RUN_COMMENT_PREFIX_SETTING_KEY, text, now], function (err) {
+            if (err) return reject(err);
+            resolve(text);
+        });
+    });
+}
+
 function getPreviousRunMessage(date, runId) {
     return new Promise((resolve, reject) => {
         const normalizedDate = toTextOrNull(date);
@@ -463,6 +495,8 @@ module.exports = {
     saveRunMessage,
     getRunMessage,
     getPreviousRunMessage,
+    getRunCommentPrefix,
+    saveRunCommentPrefix,
     getDailySummary,
     getAllRuns,
     deleteRun

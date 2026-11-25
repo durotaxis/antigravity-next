@@ -95,6 +95,16 @@ db.serialize(() => {
         if (err) console.error('Error creating table run_messages:', err);
     });
 
+    // User-authored Gemini RUN COMMENT prefix is one global setting, independent of RUN identity.
+    // No date/run_id foreign key and no snapshots on run_messages or daily_summary.
+    db.run(`CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        value TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    )`, (err) => {
+        if (err) console.error('Error creating table app_settings:', err);
+    });
+
     // Lightweight migration for existing DBs.
     db.all(`PRAGMA table_info(image_assets)`, (err, rows) => {
         if (err) return console.error('Error reading image_assets schema:', err);

@@ -68,6 +68,63 @@ function bindAdviceToggles() {
     });
 }
 
+// Keep the safety refusal next to the editable prompt, not in the Apply-able RUN COMMENT.
+function showGeminiSafetyBlock(details) {
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!status) return;
+    const reason = String(details?.blockReason || 'OTHER').replace(/[^A-Z0-9_]/gi, '').slice(0, 64) || 'OTHER';
+    const source = details?.blockSource === 'candidate' ? '出力' : 'リクエスト';
+    status.textContent = `Geminiの${source}が制限されました（${reason}）。入力文は保持しています。`;
+}
+
+async function initializeRunCommentPrefixEditor() {
+    const input = document.getElementById('runCommentPrefixInput');
+    const save = document.getElementById('saveRunCommentPrefixBtn');
+    const status = document.getElementById('runCommentPrefixStatus');
+    if (!input || !save || !status) return;
+    input.disabled = true;
+    save.disabled = true;
+
+    input.addEventListener('input', () => {
+        status.textContent = '変更中（保存ボタンで確定）';
+    });
+
+    save.addEventListener('click', async () => {
+        save.disabled = true;
+        input.disabled = true;
+        status.textContent = '保存中…';
+        try {
+            const response = await fetch('/api/gemini/run-comment-prefix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: input.value })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '保存できませんでした');
+            input.value = data.text;
+            status.textContent = '保存済み（次のRUN Comment生成から適用）';
+        } catch (error) {
+            status.textContent = '保存失敗: ' + error.message;
+        } finally {
+            input.disabled = false;
+            save.disabled = false;
+        }
+    });
+
+    try {
+        const response = await fetch('/api/gemini/run-comment-prefix');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '読み込みに失敗しました');
+        input.value = data.text || '';
+        input.disabled = false;
+        save.disabled = false;
+        status.textContent = '設定読込済み';
+    } catch (error) {
+        // Do not overwrite an unknown server value if reading failed.
+        status.textContent = '読込失敗: ' + error.message;
+    }
+}
+
 function isValidRunDate(value) {
     return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
@@ -2331,6 +2388,21 @@ async function getGeminiAdvice(date, maxStride, data) {
             body: JSON.stringify(payload)
         });
         const json = await res.json();
+        if (json?.code === 'GEMINI_SAFETY_BLOCK') {
+            if (!stillSelected()) return;
+            showGeminiSafetyBlock(json);
+            // Leave the saved comment untouched and never expose a refusal in the Apply-able message.
+            textSpan.textContent = '';
+            container.style.display = 'none';
+            const saved = requestedRunId
+                ? await loadRunMessage(date, requestedRunId).catch(() => null)
+                : await fetchDailySummary(date).then(row => row?.message || null).catch(() => null);
+            if (stillSelected() && String(saved || '').trim()) {
+                textSpan.textContent = String(saved).trim();
+                container.style.display = 'block';
+            }
+            return;
+        }
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
         const normalizedAdvice = String(json.advice || '').trim() || 'No advice returned.';
         if (stillSelected()) textSpan.textContent = normalizedAdvice;
@@ -3713,6 +3785,7 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreAdviceToggles();
     renderHeartRateGuide();
     bindAdviceToggles();
+    initializeRunCommentPrefixEditor();
 
     loadData({ triggerAdvice: false });
     updateDebugHints();

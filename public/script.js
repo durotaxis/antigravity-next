@@ -863,6 +863,8 @@ let currentRunChartSource = 'tcx';
 let currentAdviceRunDate = '';
 let currentAdviceData = [];
 let currentAdviceUsesTcx = false;
+let runCommentViewRevision = 0;
+let runCommentCandidate = null;
 
 function getSelectedTcxRun() {
     if (!Array.isArray(currentTcxRunPages) || currentTcxRunPages.length === 0) return null;
@@ -995,6 +997,34 @@ function updateActiveRunPager() {
         return;
     }
     updateTcxRunPager(currentTcxRunPages, currentTcxRunPageIndex);
+}
+
+let runListRefreshPending = false;
+async function refreshAvailableRunLists() {
+    const date = document.getElementById('dateInput')?.value;
+    if (!date || runListRefreshPending || document.hidden || document.getElementById('analyzeBtn')?.disabled) return;
+    if (date !== currentTcxRunPageDate || date !== currentCorosFitRunPageDate) return;
+    runListRefreshPending = true;
+    const tcxId = getSelectedTcxRun()?.runId;
+    const corosId = getSelectedCorosFitRun()?.labelId;
+    try {
+        const results = await Promise.allSettled([fetchTcxRuns(date), fetchCorosFitRuns(date)]);
+        if (date !== document.getElementById('dateInput')?.value || document.getElementById('analyzeBtn')?.disabled) return;
+        // Do not change a selection made while the request was in flight.
+        if (tcxId !== getSelectedTcxRun()?.runId || corosId !== getSelectedCorosFitRun()?.labelId) return;
+        if (results[0].status === 'fulfilled' && (!tcxId || results[0].value.some(run => run.runId === tcxId))) {
+            currentTcxRunPages = results[0].value;
+            currentTcxRunPageIndex = Math.max(0, currentTcxRunPages.findIndex(run => run.runId === tcxId));
+        }
+        if (results[1].status === 'fulfilled' && (!corosId || results[1].value.some(run => run.labelId === corosId))) {
+            currentCorosFitRuns = results[1].value;
+            currentCorosFitRunPageIndex = Math.max(0, currentCorosFitRuns.findIndex(run => run.labelId === corosId));
+        }
+        updateActiveRunPager();
+        updateRunSourceControls(currentCorosFitRuns.length > 0, currentTcxRunPages.length > 0);
+    } finally {
+        runListRefreshPending = false;
+    }
 }
 
 function changeTcxRunPage(delta) {
@@ -1511,6 +1541,10 @@ async function exportSelectedRunHtml() {
 }
 
 async function loadData(options = {}) {
+    runCommentViewRevision++;
+    runCommentCandidate = null;
+    const candidateStatus = document.getElementById('regenerateRunCommentStatus');
+    if (candidateStatus) candidateStatus.textContent = '';
     const triggerAdvice = !!(options && options.triggerAdvice);
     const syncSummary = !!(options && options.syncSummary);
     const dateInput = document.getElementById('dateInput');
@@ -1555,7 +1589,7 @@ async function loadData(options = {}) {
         const qs = new URLSearchParams({ date: String(date || '').trim() });
         if (syncSummary) qs.set('sync', '1');
         const [res, fitSpeedSeriesRaw, fitHeartRateSeriesRaw, fitPitchSeries, fitStrideSeries, tcxRuns, corosFitRuns] = await Promise.all([
-            fetch(`/api/stride?${qs.toString()}`),
+            fetch(`/api/stride?${qs.toString()}`).catch(error => ({ ok: false, text: async () => error.message })),
             fetchDetailedFitSpeedSeries(date).catch(() => []),
             fetchDetailedFitHeartRateSeries(date).catch(() => []),
             fetchDetailedFitPitchSeries(date).catch(() => []),
@@ -1563,12 +1597,18 @@ async function loadData(options = {}) {
             fetchTcxRuns(date).catch(() => []),
             fetchCorosFitRuns(date).catch(() => [])
         ]);
+        let chartLoadError = '';
         if (!res.ok) {
             const errText = await res.text();
-            throw new Error(errText || 'Failed to fetch data');
+            chartLoadError = errText || 'Failed to fetch data';
+            if (!tcxRuns.length && !corosFitRuns.length) throw new Error(chartLoadError);
         }
 
-        const data = await res.json();
+        // Local RUN files remain usable when the independent Google Fit request fails.
+        const data = res.ok ? await res.json() : [];
+        const chartStatus = document.getElementById('runDataStatus');
+        if (chartStatus) chartStatus.textContent = chartLoadError
+            ? `Google Fitデータを取得できません。保存済みRUNを表示します: ${chartLoadError}` : '';
         const dailySummary = await fetchDailySummary(date);
         const sessions = await fetchDailySessions(date);
         currentTcxRunPages = Array.isArray(tcxRuns) ? tcxRuns : [];
@@ -2413,10 +2453,11 @@ async function regenerateSelectedRunComment() {
     const status = document.getElementById('regenerateRunCommentStatus');
     const input = document.getElementById('runCommentPrefixInput');
     const save = document.getElementById('saveRunCommentPrefixBtn');
-    if (!button || !status || button.disabled) return;
+    if (!button || !status || button.disabled || document.getElementById('refreshTcxAdviceBtn')?.disabled) return;
     const date = normalizeRunDate(document.getElementById('dateInput')?.value);
     const runId = getSelectedAdviceRunId();
     const source = currentRunChartSource;
+    const viewRevision = runCommentViewRevision;
     if (document.getElementById('analyzeBtn')?.disabled || !date || date !== currentAdviceRunDate ||
         !runId || !['tcx', 'coros_fit'].includes(source)) {
         status.textContent = 'RUN ANALYZERで対象のTCXまたはCOROS FITのRUNを選択してください。';
@@ -2430,7 +2471,7 @@ async function regenerateSelectedRunComment() {
         status.textContent = '追加プロンプトに未保存の変更があります。先に「保存」を押してください。';
         return;
     }
-    const stillSelected = () => date === currentAdviceRunDate &&
+    const stillSelected = () => viewRevision === runCommentViewRevision && date === currentAdviceRunDate &&
         date === normalizeRunDate(document.getElementById('dateInput')?.value) &&
         runId === getSelectedAdviceRunId() && source === currentRunChartSource;
     button.disabled = true;
@@ -2452,10 +2493,13 @@ async function regenerateSelectedRunComment() {
         if (stillSelected()) {
             const text = document.getElementById('daily-message-text');
             const container = document.getElementById('daily-message-container');
+            runCommentCandidate = { date, runId, source, message: String(data.advice || '').trim() };
             if (text) text.textContent = data.advice;
             if (container) container.style.display = 'block';
         }
-        status.textContent = `${date} / ${runId} のRUNコメントと日別コメントを更新しました。`;
+        status.textContent = stillSelected()
+            ? `${date} / ${runId} の候補を表示しています。採用する場合は「Apply（確定）」を押してください。`
+            : `${date} / ${runId} の候補は選択変更により破棄しました。保存済みコメントは変更していません。`;
     } catch (error) {
         status.textContent = `再取得失敗: ${error.message}`;
     } finally {
@@ -2467,6 +2511,10 @@ async function regenerateSelectedRunComment() {
 }
 
 async function applySelectedRunAdviceFromCurrentView() {
+    if (document.getElementById('regenerateRunCommentBtn')?.disabled || document.getElementById('analyzeBtn')?.disabled) return;
+    if (document.getElementById('refreshTcxAdviceBtn')?.disabled) return;
+    const inputDate = document.getElementById('dateInput')?.value;
+    if (inputDate && inputDate !== currentAdviceRunDate) throw new Error('日付が変更されています。対象のRUNを読み直してください。');
     const selectedRun = getSelectedActiveRun();
     const visibleText = String(document.getElementById('daily-message-text')?.textContent || '').trim();
     if (!selectedRun || !selectedRun.runId || !currentAdviceRunDate) {
@@ -2480,6 +2528,10 @@ async function applySelectedRunAdviceFromCurrentView() {
     const date = currentAdviceRunDate;
     const runId = selectedRun.runId;
     const source = currentRunChartSource;
+    if (runCommentCandidate && (runCommentCandidate.date !== date || runCommentCandidate.runId !== runId ||
+        runCommentCandidate.source !== source || runCommentCandidate.message !== visibleText)) {
+        throw new Error('候補と選択中のRUNが一致しません。対象のRUNで再取得してください。');
+    }
     if (date !== currentAdviceRunDate || runId !== getSelectedAdviceRunId() || source !== currentRunChartSource) {
         throw new Error('選択したランが変更されました。');
     }
@@ -2502,6 +2554,11 @@ async function applySelectedRunAdviceFromCurrentView() {
         });
         const json = await res.json();
         if (!res.ok || json.error) throw new Error(json.error || `API ${res.status}`);
+        const status = document.getElementById('regenerateRunCommentStatus');
+        if (date === currentAdviceRunDate && runId === getSelectedAdviceRunId() && source === currentRunChartSource) {
+            runCommentCandidate = null;
+            if (status) status.textContent = `${date} / ${runId} のコメントを確定しました。新画面を再読み込みすると反映されます。`;
+        }
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -2707,7 +2764,7 @@ async function fetchDetailedFitStrideSeries(date) {
 }
 
 async function fetchTcxRuns(date) {
-    const res = await fetch(`/api/tcx-runs?date=${encodeURIComponent(String(date || '').trim())}`);
+    const res = await fetch(`/api/tcx-runs?date=${encodeURIComponent(String(date || '').trim())}`, { cache: 'no-store' });
     if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || 'Failed to fetch TCX runs');
@@ -2717,7 +2774,7 @@ async function fetchTcxRuns(date) {
 }
 
 async function fetchCorosFitRuns(date) {
-    const res = await fetch(`/api/coros-fit-runs?date=${encodeURIComponent(String(date || '').trim())}`);
+    const res = await fetch(`/api/coros-fit-runs?date=${encodeURIComponent(String(date || '').trim())}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(await res.text() || 'Failed to fetch COROS FIT runs');
     const payload = await res.json();
     return Array.isArray(payload?.runs) ? payload.runs : [];
@@ -3843,6 +3900,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderHeartRateGuide();
     bindAdviceToggles();
     initializeRunCommentPrefixEditor();
+    window.setInterval(refreshAvailableRunLists, 10000);
+    window.addEventListener('focus', refreshAvailableRunLists);
     document.getElementById('regenerateRunCommentBtn')?.addEventListener('click', regenerateSelectedRunComment);
 
     loadData({ triggerAdvice: false });

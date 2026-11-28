@@ -41,6 +41,25 @@
         return [...points.values()];
     }
 
+    function chartPoints(holder) {
+        const values = JSON.parse(holder.getAttribute('data-export-chart-values') || '[]');
+        if (!values.length) throw new Error('指定期間にグラフのデータがありません。Chart Start Dateを確認してください。');
+        // Legend icons also use recharts-surface; only inspect the actual chart.
+        const svg = holder.querySelector('.recharts-wrapper > svg.recharts-surface');
+        const rect = svg?.getBoundingClientRect();
+        if (!rect || !(rect.width > 0) || !(rect.height > 0)) throw new Error('グラフの描画完了後に保存してください。');
+        const points = new Map();
+        svg.querySelectorAll('[data-export-point-index]').forEach(dot => {
+            const index = Number(dot.getAttribute('data-export-point-index'));
+            if (!Number.isInteger(index) || index < 0 || index >= values.length) return;
+            const bounds = dot.getBoundingClientRect();
+            const x = (bounds.left + bounds.width / 2 - rect.left) / rect.width;
+            if (Number.isFinite(x)) points.set(index, { x, text: values[index] });
+        });
+        if (points.size !== values.length) throw new Error('グラフの描画完了後に保存してください。');
+        return [...points.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]);
+    }
+
     async function save(element, filename, options = {}) {
         if (!element) throw new Error('保存する画面がありません。');
         const closedDetails = [...element.querySelectorAll('details:not([open])')];
@@ -63,7 +82,15 @@
                     target.remove();
                     continue;
                 }
-                for (const name of style) {
+                // Hundreds of SVG points do not need hundreds of HTML layout properties each.
+                // Keep the SVG presentation properties; its geometry remains in attributes.
+                const styleNames = source.namespaceURI === 'http://www.w3.org/2000/svg' && source.tagName.toLowerCase() !== 'svg'
+                    ? ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray',
+                        'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-family',
+                        'font-size', 'font-weight', 'font-style', 'text-anchor', 'dominant-baseline',
+                        'visibility', 'display', 'paint-order', 'vector-effect', 'overflow']
+                    : style;
+                for (const name of styleNames) {
                     const value = style.getPropertyValue(name);
                     if (!value.includes('url(')) target.style.setProperty(name, value);
                 }
@@ -95,13 +122,7 @@
                     const holder = source.matches('svg.recharts-surface') && source.parentElement?.classList.contains('recharts-wrapper')
                         ? source.closest('[data-export-chart-values]') : null;
                     if (holder) {
-                        const values = JSON.parse(holder.getAttribute('data-export-chart-values'));
-                        const dots = source.querySelector('.recharts-line-dots')?.querySelectorAll('.recharts-dot') || [];
-                        const rect = source.getBoundingClientRect();
-                        const points = [...dots].map((dot, index) => {
-                            const bounds = dot.getBoundingClientRect();
-                            return { x: (bounds.left + bounds.width / 2 - rect.left) / rect.width, text: values[index] };
-                        }).filter(point => point.text && Number.isFinite(point.x));
+                        const points = chartPoints(holder);
                         target.setAttribute('data-chart-values', JSON.stringify(points));
                     }
                 }
@@ -156,5 +177,5 @@
         }
     }
 
-    root.RunShareHtml = { save };
+    root.RunShareHtml = { save, chartPoints };
 })(globalThis);

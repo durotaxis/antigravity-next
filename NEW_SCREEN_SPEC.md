@@ -531,3 +531,8 @@ The legacy shareable HTML includes visible minute tables with displayed values a
 - Saving does not generate advice or update stored run data.
 
 - New-screen HTML saving is enabled after run data has loaded. Export checks that cards exist and that both trend charts contain data and rendered points before saving, preventing an empty frame-only file.
+
+## HTML readiness and confirmed comments (2026-11-28)
+
+- Legacy explicit comment regeneration creates a preview only. The new screen continues to show the confirmed daily message until Apply commits a candidate and the list is reloaded.
+- HTML export verifies nonempty chart data, a laid-out chart, and explicit per-data-index export markers. It does not depend on the first Recharts internal dot group. The same markers supply offline tooltip positions and labels. Missing/unfinished charts still block export with a specific message.

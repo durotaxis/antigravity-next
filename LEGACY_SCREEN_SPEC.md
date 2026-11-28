@@ -726,7 +726,7 @@ RUN ANALYZER with Gemini selected generates a comment for the currently selected
 
 - The same global setting remains visible when the selected date or RUN changes; the date selector does not implicitly reset it. This avoids the editor showing one value while the server secretly uses another.
 - The setting is **read at the moment of each new Gemini RUN COMMENT generation**. Existing saved messages are not retroactively associated with that setting, and changing the setting requires an explicit separate regeneration step to affect their content.
-- The existing `Apply` action only copies a previously saved per-RUN comment to the daily message. It does not send the new prefix or call Gemini; regeneration uses the separate action described in section 17.6.
+- The `Apply（確定）` action saves the displayed selected-RUN comment (including an unsaved regeneration candidate) to both the per-RUN and daily messages. It does not send the new prefix or call Gemini; regeneration uses the separate action described in section 17.6.
 - Gemini safety refusals are checked **before accessing SDK response.text**, including `response.promptFeedback.blockReason` (non-unspecified value) and candidate `finishReason` (`SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `MODEL_ARMOR`, `IMAGE_SAFETY`, `RECITATION`). `OTHER` from prompt feedback is an unknown block reason; it must **not** be labeled an NG word.
 - On an explicitly structured safety refusal, the active request **does not fall back to another Gemini model**, and the error propagates with code `GEMINI_SAFETY_BLOCK`, `blockReason` and `blockSource` (`prompt` or `candidate`). Relevant Gemini HTTP routes return 422 with those fields, not the rejected text. Non-safety API errors and empty SDK output keep their existing fallback handling.
 - The legacy RUN ANALYZER's Gemini request displays a structured rejection at the existing `runCommentPrefixStatus` beside the prompt input. The prompt text is **never cleared or edited** as part of this failure. The RUN Comment area restores a stored message where available, or is hidden, instead of displaying a refusal that could be mistaken for an Apply-able comment.
@@ -759,7 +759,13 @@ RUN ANALYZER with Gemini selected generates a comment for the currently selected
 - Save edited additional instructions first. Unloaded settings, unsaved edits, a loading analyzer, or a changed date prevent submission.
 - The button posts the exact date, string run ID, source, and boolean `regenerate: true` to `/api/advice/gemini`. Ordinary requests continue to reuse saved comments.
 - Regeneration reads the existing selected-run minute cache and current saved global prefix. It does not download FIT again or recalculate persisted numerical metrics.
-- A successful generation overwrites that run's `run_messages.message` and the date's `daily_summary.message`. Apply retains its existing separate meaning.
+- Explicit regeneration returns an unsaved candidate displayed only in the current legacy view. It does not overwrite `run_messages` or `daily_summary`. `Apply（確定）` atomically saves the displayed selected-RUN comment to both records. Reloading or changing the selected RUN discards the candidate; failure preserves confirmed comments. Ordinary initial/import generation retains its existing automatic persistence.
 - Generation errors, empty output, temporary-unavailable responses, and structured safety blocks do not replace either saved message. The UI retains the displayed comment and entered prefix and reports the error separately.
 - During regeneration, repeated button clicks and prompt editing/saving are disabled. A response for a run no longer selected does not replace the current displayed comment.
 - The prompt editor and regeneration status are omitted from shared HTML exports.
+
+## RUN list refresh and comment confirmation (2026-11-28)
+
+- The visible legacy screen refreshes TCX/COROS FIT RUN lists every 10 seconds and on window focus, without regenerating advice or replacing the selected RUN/comment. Selection is retained by RUN ID, not list position. Failed list reads preserve the current list.
+- Google Fit chart failures do not prevent displaying successfully loaded local TCX/COROS FIT runs. The screen reports the Google Fit error; unavailable Google Fit data is not synthesized from COROS.
+- Apply and regeneration cannot overlap. Apply confirms the current candidate; the new screen displays it after reloading. Automatic FIT import behavior is unchanged.

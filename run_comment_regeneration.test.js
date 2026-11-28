@@ -23,12 +23,13 @@ function api(generate = jest.fn(async () => 'new comment')) {
   return { repo, generate, res, request: body => handler({ body: { date, runId, source: 'coros_fit', ...body } }, res), date, runId };
 }
 
-test('explicit regeneration bypasses saved comment and updates only selected run and daily message', async () => {
+test('explicit regeneration returns a candidate without changing confirmed messages', async () => {
   const t = api();
   await t.request({ regenerate: true });
   expect(t.generate).toHaveBeenCalledWith(t.date, t.runId, [{ speed: 8 }], 'gemini', { source: 'coros_fit' });
-  expect(t.repo.saveRunMessage).toHaveBeenCalledWith({ date: t.date, run_id: t.runId, message: 'new comment' });
-  expect(t.repo.saveDailySummary).toHaveBeenCalledWith({ date: t.date, message: 'new comment' });
+  expect(t.repo.saveRunMessage).not.toHaveBeenCalled();
+  expect(t.repo.saveDailySummary).not.toHaveBeenCalled();
+  expect(t.res.json).toHaveBeenCalledWith({ advice: 'new comment', provider: 'gemini-live' });
 });
 
 test.each([undefined, false])('normal viewing still reuses stored comment (%s)', async regenerate => {
@@ -36,6 +37,14 @@ test.each([undefined, false])('normal viewing still reuses stored comment (%s)',
   expect(t.generate).not.toHaveBeenCalled();
   expect(t.repo.saveDailySummary).not.toHaveBeenCalled();
   expect(t.res.json).toHaveBeenCalledWith({ advice: 'saved comment' });
+});
+
+test('ordinary initial generation still saves both messages', async () => {
+  const t = api();
+  t.repo.getRunMessage.mockResolvedValue(null);
+  await t.request({ regenerate: false });
+  expect(t.repo.saveRunMessage).toHaveBeenCalledWith({ date: t.date, run_id: t.runId, message: 'new comment' });
+  expect(t.repo.saveDailySummary).toHaveBeenCalledWith({ date: t.date, message: 'new comment' });
 });
 
 test.each([{ regenerate: 'true' }, { regenerate: true, runId: '' }, { regenerate: true, source: 'health_connect' }])('invalid regeneration request is rejected: %j', async body => {
@@ -69,6 +78,7 @@ function ui() {
   const context = {
     document: { getElementById: id => elements[id] }, normalizeRunDate: value => value,
     currentAdviceRunDate: '2026-11-22', currentRunChartSource: 'coros_fit',
+    runCommentViewRevision: 0, runCommentCandidate: null,
     selectedId: '481584951647567878', getSelectedAdviceRunId: () => context.selectedId,
     showGeminiSafetyBlock: jest.fn(),
     fetch: jest.fn(async () => ({ ok: true, json: async () => ({ advice: 'new comment' }) }))
@@ -112,4 +122,22 @@ test('UI failure retains displayed comment and input and releases busy state', a
   expect(t.elements.runCommentPrefixInput.value).toBe('saved prefix');
   expect(t.elements.runCommentPrefixInput.disabled).toBe(false);
   expect(t.elements.regenerateRunCommentStatus.textContent).toContain('network');
+});
+
+test('leaving and returning to the same run discards a late candidate', async () => {
+  const t = ui(); let finish;
+  t.context.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const pending = t.run();
+  t.context.runCommentViewRevision += 2;
+  finish({ ok: true, json: async () => ({ advice: 'late candidate' }) });
+  await pending;
+  expect(t.elements['daily-message-text'].textContent).toBe('old comment');
+  expect(t.context.runCommentCandidate).toBeNull();
+});
+
+test('regenerated candidate is explicitly bound to selected date, run and source', async () => {
+  const t = ui(); await t.run();
+  expect(t.context.runCommentCandidate).toEqual({ date: '2026-11-22',
+    runId: '481584951647567878', source: 'coros_fit', message: 'new comment' });
+  expect(t.elements.regenerateRunCommentStatus.textContent).toContain('Apply（確定）');
 });

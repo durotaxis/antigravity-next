@@ -6,6 +6,7 @@ declare global {
   interface Window {
     RunShareHtml?: {
       save(element: Element, filename: string, options?: { omit?: string; description?: string }): Promise<void>;
+      chartPoints(element: Element): { x: number; text: string }[];
     };
   }
 }
@@ -17,10 +18,10 @@ export default function SaveHtmlButton({ apiBase, ready }: { apiBase: string; re
     if (!ready) return;
     setBusy(true);
     try {
-      if (!window.RunShareHtml) {
+      if (!window.RunShareHtml?.chartPoints) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement('script');
-          script.src = `${apiBase}/run-share-html.js?v=20261122-5`;
+          script.src = `${apiBase}/run-share-html.js?v=20261128-2`;
           script.onload = () => { script.remove(); resolve(); };
           script.onerror = () => { script.remove(); reject(new Error('HTML保存機能を読み込めません。')); };
           document.head.append(script);
@@ -30,10 +31,7 @@ export default function SaveHtmlButton({ apiBase, ready }: { apiBase: string; re
       if (!page || !window.RunShareHtml) throw new Error('画面を読み込んでから保存してください。');
       if (!page.querySelector('[id^="run-card-"]')) throw new Error('ラン一覧の読み込み完了後に保存してください。');
       for (const chart of page.querySelectorAll('[data-export-chart-values]')) {
-        const values = JSON.parse(chart.getAttribute('data-export-chart-values') || '[]');
-        if (!values.length) throw new Error('指定期間にグラフのデータがありません。Chart Start Dateを確認してください。');
-        const dots = chart.querySelector('.recharts-line-dots')?.querySelectorAll('.recharts-dot');
-        if (dots?.length !== values.length) throw new Error('グラフの描画完了後に保存してください。');
+        window.RunShareHtml.chartPoints(chart);
       }
       const remainingCards = Array.from(page.querySelectorAll('[id^="run-card-"]'))
         .slice(6)

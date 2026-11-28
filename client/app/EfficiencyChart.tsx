@@ -33,6 +33,12 @@ type Props = {
   startDate?: string | null;
 };
 
+// Stable export markers, independent of Recharts' internal layer ordering.
+function ExportDot({ cx, cy, index, stroke, r = 3, strokeWidth = 1 }: { cx?: number; cy?: number; index?: number; stroke?: string; r?: number; strokeWidth?: number }) {
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return <g />;
+  return <circle cx={cx} cy={cy} r={r} stroke={stroke} strokeWidth={strokeWidth} fill="white" data-export-point-index={index} />;
+}
+
 export default function EfficiencyChart({ runs, startDate }: Props) {
   // 1. 日付順にソート
   const sortedRuns = [...runs].sort((a, b) =>
@@ -208,10 +214,6 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
               <Tooltip content={<MaxTooltip />} />
               <Legend
                 wrapperStyle={{ paddingTop: '20px' }}
-                payload={[
-                  { value: 'Max Stride', type: 'line', id: 'max-stride', color: '#3b82f6' },
-                  { value: 'Max Heart Rate', type: 'line', id: 'max-hr', color: '#ef4444' }
-                ]}
               />
 
               <Area
@@ -233,7 +235,6 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                   x={maxDistancePoint.date}
                   y={maxDistancePoint.displayDistance}
                   r={0}
-                  isFront={false}
                   label={{
                     value: `${formatFixed(maxDistancePoint.displayDistance, 2)} km`,
                     position: 'top',
@@ -251,7 +252,8 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                 name="Max Stride"
                 stroke="#3b82f6"
                 strokeWidth={3}
-                dot={{ r: 4, strokeWidth: 2 }}
+                dot={<ExportDot r={4} strokeWidth={2} />}
+                isAnimationActive={false}
                 activeDot={{ r: 6 }}
                 connectNulls={true}
               />
@@ -334,7 +336,8 @@ export default function EfficiencyChart({ runs, startDate }: Props) {
                 name="Avg Speed"
                 stroke="#4ade80"
                 strokeWidth={2}
-                dot={{ r: 3 }}
+                dot={<ExportDot />}
+                isAnimationActive={false}
                 connectNulls={true}
               />
 

@@ -4399,8 +4399,11 @@ app.post('/api/advice/gemini', async (req, res) => {
       if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Run minute data not found' });
       const advice = String(await generateTcxRunMessage(date, selectedRunId, rows, 'gemini', { source }) || '').trim();
       if (!advice || isTemporaryRunMessage(advice)) throw new Error('Run Comment generation did not complete');
-      await repo.saveRunMessage({ date, run_id: selectedRunId, message: advice });
-      await repo.saveDailySummary({ date, message: advice });
+      // Explicit regeneration is a preview. Apply commits the chosen candidate.
+      if (!regenerate) {
+        await repo.saveRunMessage({ date, run_id: selectedRunId, message: advice });
+        await repo.saveDailySummary({ date, message: advice });
+      }
       return res.json({ advice, provider: 'gemini-live' });
     }
 

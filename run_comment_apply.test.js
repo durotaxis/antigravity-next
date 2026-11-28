@@ -21,6 +21,7 @@ test.each([
   const fetch = jest.fn(async () => ({ ok: true, json: async () => ({ success: true }) }));
   const context = {
     currentAdviceRunDate: '2026-11-22', currentRunChartSource: source,
+    runCommentCandidate: null,
     getSelectedActiveRun: () => ({ runId }),
     getSelectedAdviceRunId: () => runId,
     document: { getElementById: id => id === 'daily-message-text' ? text : id === 'refreshTcxAdviceBtn' ? button : null },
@@ -84,4 +85,23 @@ test('APPLY fails without reporting success if persistence throws', async () => 
   await handler({ body: { date: '2026-11-22', runId: '123', source: 'coros_fit', message: 'new message' } }, res);
   expect(res.status).toHaveBeenCalledWith(500);
   expect(res.json).toHaveBeenCalledWith({ error: 'DB write failed' });
+});
+
+test.each(['other run', 'changed date', 'regenerating'])('APPLY refuses unsafe candidate state: %s', async state => {
+  const date = '2026-11-22';
+  const ctx = {
+    currentAdviceRunDate: date, currentRunChartSource: 'coros_fit',
+    runCommentCandidate: { date, runId: 'other', source: 'coros_fit', message: 'candidate' },
+    getSelectedActiveRun: () => ({ runId: '123' }), getSelectedAdviceRunId: () => '123',
+    document: { getElementById: id => ({
+      dateInput: { value: state === 'changed date' ? '2026-11-23' : date },
+      regenerateRunCommentBtn: { disabled: state === 'regenerating' },
+      'daily-message-text': { textContent: 'candidate' }
+    })[id] },
+    isTemporaryUnavailableMessage: () => false, fetch: jest.fn(), alert: jest.fn()
+  };
+  vm.runInNewContext(applyFunction, ctx);
+  if (state === 'regenerating') await ctx.applySelectedRunAdviceFromCurrentView();
+  else await expect(ctx.applySelectedRunAdviceFromCurrentView()).rejects.toThrow();
+  expect(ctx.fetch).not.toHaveBeenCalled();
 });

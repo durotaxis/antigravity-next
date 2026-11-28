@@ -1,6 +1,20 @@
 const fs = require('fs');
 const vm = require('vm');
 
+test('notification reaction uses a separate short character prompt without the RUN prefix', async () => {
+    const generate = jest.fn(async () => ({ text: '最後まで走ってすごい！' }));
+    expect(await load(generate, 'RUN専用指示').generateNotificationReaction('最後まで一定速度')).toBe('最後まで走ってすごい！');
+    const prompt = generate.mock.calls[0][0].contents[0].parts[0].text;
+    expect(prompt).toContain('こめっこ');
+    expect(prompt).toContain('最後まで一定速度');
+    expect(prompt).not.toContain('RUN専用指示');
+});
+
+test('overlong notification reactions are rejected', async () => {
+    await expect(load(jest.fn(async () => ({ text: 'あ'.repeat(61) }))).generateNotificationReaction('所見'))
+        .rejects.toThrow('length');
+});
+
 function load(generateContent, prefix = '') {
     const sandbox = {
         require(name) {

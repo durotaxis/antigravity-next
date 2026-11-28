@@ -247,15 +247,20 @@ test('force accepts only an explicit boolean at controller and API boundaries', 
   expect(receive).toHaveBeenLastCalledWith('2026-09-08', { force: true });
 });
 
-test('manual receive push uses saved minute findings from each imported ID', async () => {
+test('manual receive push uses one generated reaction from saved findings', async () => {
   const { controller } = await setup();
   const notifications = { check: jest.fn(), send: jest.fn() };
   const app = express();
-  app.use(express.json(), createCorosDirectRouter(controller, { notifications }));
+  const generate = jest.fn(async () => 'みんな元気に走ってすごい！');
+  const { createNotificationReaction } = require('./run_notification_reaction');
+  app.use(express.json(), createCorosDirectRouter(controller, { notifications, notificationReaction: createNotificationReaction(generate) }));
   const response = await request(app).post('/receive').set('Host', 'localhost').set('Origin', 'https://localhost')
     .send({ date: '2026-09-08', notificationId: 'device' }).expect(200);
   expect(response.body.imported).toEqual(records.map(run => run.labelId));
   const body = notifications.send.mock.calls[0][1].body;
-  for (const run of records) expect(body).toContain('所見' + run.labelId);
+  expect(body).toContain('みんな元気に走ってすごい！');
+  expect(generate).toHaveBeenCalledTimes(1);
+  for (const run of records) expect(generate.mock.calls[0][0]).toContain('所見' + run.labelId);
+  expect(body).not.toContain('所見');
   expect(body).not.toContain('次の提案');
 });

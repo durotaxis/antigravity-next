@@ -519,7 +519,7 @@ This is the current operational split between the two UIs.
 
 ## Selected-run Gemini and notification restoration (2026-11-03)
 
-The new screen continues to display persisted DB comments. After comment persistence, both manual and automatic notifications extract the 1分毎テーブル所見 section from the saved run comment immediately before sending/displaying. Automatic completion events retain the saved comment so notification formatting occurs after generation has completed.
+The new screen continues to display persisted DB comments. After comment persistence, notification preparation extracts the 1分毎テーブル所見 section from the saved run comment. Notification text is now generated as specified below, instead of displaying those findings directly.
 The legacy shareable HTML includes visible minute tables with displayed values and correction annotations.
 
 ## HTML export
@@ -536,3 +536,11 @@ The legacy shareable HTML includes visible minute tables with displayed values a
 
 - Legacy explicit comment regeneration creates a preview only. The new screen continues to show the confirmed daily message until Apply commits a candidate and the list is reloaded.
 - HTML export verifies nonempty chart data, a laid-out chart, and explicit per-data-index export markers. It does not depend on the first Recharts internal dot group. The same markers supply offline tooltip positions and labels. Missing/unfinished charts still block export with a specific message.
+
+## Gemini notification reaction (2026-11-28)
+
+- After RUN comment persistence, send only its `1分毎テーブル所見` to Gemini for a short Japanese reaction as こめっこ from 『この素晴らしい世界に祝福を！』. Request one sentence, at most 60 characters, grounded in the findings. Use the existing Gemini model order and structured safety-block handling, without the RUN COMMENT prefix.
+- Append this reaction to the existing import-result notification body for both manual reception and automatic import. Manual reception combines successfully saved RUN findings into one reaction per receipt; automatic completion creates one reaction per new RUN revision after duplicate suppression.
+- Persist the automatic reaction as `notificationReaction` in the completion journal. Polling, display retries, and restart reuse it without another Gemini request. Historical events without a reaction show only the import result.
+- Missing findings, generation failure, safety refusal, empty or overlong output produce an import-result-only notification. They do not fail or undo RUN import. Existing receipt failure/test notifications keep their purpose.
+- The reaction is notification text only; saved RUN comments, daily_summary messages, metrics, and Apply confirmation remain unchanged.

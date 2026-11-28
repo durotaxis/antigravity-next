@@ -67,24 +67,13 @@ test('test notification does not change the import cursor', async () => {
 });
 
 
-test('notification formats minute findings from the completed saved comment', async () => {
-  const options = setup();
-  setImportNotifications(options.storage, options.key, true, 0);
-  await deliverImportNotifications({ ...options, snapshot: { completionSequence: 1, completions: [{ ...event(1), message: 'Overall comment\n\n1分毎テーブル所見：\nMinute findings\n\nNext advice' }] } });
-  assert.match(options.shown[0].options.body, /Minute findings/);
-  assert.doesNotMatch(options.shown[0].options.body, /Overall comment|Next advice/);
-});
-
-for (const message of [
-  '総合分析。 1分毎テーブル所見: 後半の所見。',
-  '総合分析。 **1分毎テーブル所見：** 後半の所見。',
-  '総合分析。\r\n\r\n1分毎テーブル所見:\r\n後半の所見。\r\n\r\n次回の助言。',
-  '1分毎テーブル所見: 後半の所見。\n## 次回\n次回の助言。',
-]) test('minute finding accepts inline or formatted heading: ' + message, async () => {
-  const options = setup();
-  setImportNotifications(options.storage, options.key, true, 0);
-  await deliverImportNotifications({ ...options, snapshot: { completionSequence: 1,
-    completions: [{ ...event(1), message }] } });
-  assert.match(options.shown[0].options.body, /後半の所見。/);
-  assert.doesNotMatch(options.shown[0].options.body, /総合分析|次回の助言/);
+test('notification uses persisted reaction, never the raw saved findings', async () => {
+  for (const reaction of ['最後まで走ってすごい！', undefined]) {
+    const options = setup();
+    setImportNotifications(options.storage, options.key, true, 0);
+    await deliverImportNotifications({ ...options, snapshot: { completionSequence: 1,
+      completions: [{ ...event(1), message: '1分毎テーブル所見: 生の所見', notificationReaction: reaction }] } });
+    assert.doesNotMatch(options.shown[0].options.body, /生の所見/);
+    assert.equal(options.shown[0].options.body, '2026-09-21 のRUNとコメントを保存しました。' + (reaction ? `\n${reaction}` : ''));
+  }
 });

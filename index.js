@@ -11,6 +11,8 @@ const imageService = require('./image_service');
 const ocrComponent = require('./ocr_component');
 const fs = require('fs').promises;
 const geminiService = require('./gemini_service');
+const { createNotificationReaction } = require('./run_notification_reaction');
+const notificationReaction = createNotificationReaction(geminiService.generateNotificationReaction);
 const { renderCorosRunChartPng } = require('./coros_run_chart');
 const { readRunCommentPrefix, saveRunCommentPrefix } = require('./run_comment_prefix_store');
 const openaiService = require('./openai_service');
@@ -42,6 +44,7 @@ const COROS_AUTOMATION_MEMORY_PATH = path.join(
 );
 let corosFitScanPromise = null;
 const corosAutoImport = createCorosAutoImport({
+  notificationReaction,
   settingsPath: path.join(__dirname, 'data', 'coros', 'auto-import-settings.json'),
   scan: async () => {
     const fitResult = await scanCorosFitImports();
@@ -3165,7 +3168,7 @@ app.use('/api/coros-mcp', createCorosDirectRouter(createCorosDirectMcp({
     const row = await repo.getRunMessage(date, labelId);
     return Boolean(row?.message && !isTemporaryRunMessage(row.message));
   }
-}), { notifications: corosPush }));
+}), { notifications: corosPush, notificationReaction }));
 
 app.get('/api/coros-sync-status', async (req, res) => {
   try {

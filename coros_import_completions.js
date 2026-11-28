@@ -19,7 +19,7 @@ function completedImports(fitResult, inboxResult) {
 }
 
 // This journal records successful application, independently of download timestamps.
-function createCorosImportCompletions(filePath) {
+function createCorosImportCompletions(filePath, { notificationReaction = async () => '' } = {}) {
   let state = { version: 1, sequence: 0, revisions: {}, events: [] };
   let initialized;
   let writes = Promise.resolve();
@@ -57,8 +57,9 @@ function createCorosImportCompletions(filePath) {
               typeof item.revision !== 'string' || !item.revision) throw new Error('Invalid completed COROS import');
           const key = `${item.date}:${item.runId}`;
           if (next.revisions[key] === item.revision) continue;
+          const reaction = await notificationReaction(item.message);
           next.revisions[key] = item.revision;
-          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString(), ...(item.message ? { message: String(item.message) } : {}) });
+          next.events.push({ sequence: ++next.sequence, date: item.date, runId: item.runId, completedAt: new Date().toISOString(), ...(item.message ? { message: String(item.message) } : {}), ...(reaction ? { notificationReaction: reaction } : {}) });
         }
         if (next.sequence === state.sequence) return;
         next.events = next.events.slice(-HISTORY_LIMIT);

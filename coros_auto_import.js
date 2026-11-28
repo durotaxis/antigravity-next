@@ -4,8 +4,8 @@ const crypto = require('crypto');
 const express = require('express');
 const { createCorosImportCompletions } = require('./coros_import_completions');
 
-function createCorosAutoImport({ settingsPath, scan, intervalMs = 30000, onError = console.error }) {
-  const completions = createCorosImportCompletions(path.join(path.dirname(settingsPath), 'import-completions.json'));
+function createCorosAutoImport({ settingsPath, scan, notificationReaction, intervalMs = 30000, onError = console.error }) {
+  const completions = createCorosImportCompletions(path.join(path.dirname(settingsPath), 'import-completions.json'), { notificationReaction });
   let enabled;
   let initialized;
   let started = false;

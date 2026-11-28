@@ -1,4 +1,4 @@
-export type ImportCompletion = { sequence: number; date: string; runId: string; completedAt: string; message?: string };
+export type ImportCompletion = { sequence: number; date: string; runId: string; completedAt: string; message?: string; notificationReaction?: string };
 export type ImportCompletionSnapshot = { completionSequence: number; completions: ImportCompletion[] };
 type Preferences = { enabled: boolean; cursor: number };
 type StorageAccess = Pick<Storage, 'getItem' | 'setItem'>;
@@ -50,7 +50,7 @@ export async function deliverImportNotifications({ snapshot, storage, key, show,
     preferences = readNotificationPreferences(storage, key);
     if (!preferences.enabled) break;
     if (event.sequence <= preferences.cursor) continue;
-    const findings = String(event.message || '').replace(/\r\n?/g, '\n').replace(/\*\*|__/g, '').match(/1分毎テーブル所見[ \t]*[:：][ \t]*(?:\n(?![ \t]*\n))?([\s\S]*?)(?=\n[ \t]*\n|\n[ \t]*#{1,6}[ \t]+|$)/u)?.[1]?.trim();
+    const findings = event.notificationReaction?.trim();
     await show('COROSの取込が完了しました', {
       body: `${event.date} のRUNとコメントを保存しました。${findings ? `\n${findings}` : ''}`,
       tag: `coros-import-${event.date}-${event.runId}`,

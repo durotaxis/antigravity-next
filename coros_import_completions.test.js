@@ -38,6 +38,30 @@ describe('COROS completion notifications', () => {
     expect(snapshot.completions[0].sequence).toBe(6);
   });
 
+  test('reaction is persisted once per revision and reused after restart', async () => {
+    const notificationReaction = jest.fn(async () => '最後まで元気だね！');
+    const item = { ...run(), message: '1分毎テーブル所見: 最後まで一定速度' };
+    let journal = createCorosImportCompletions(journalPath, { notificationReaction });
+    await journal.record([item, item]);
+    journal = createCorosImportCompletions(journalPath, { notificationReaction });
+    await journal.record([item]);
+    expect(notificationReaction).toHaveBeenCalledTimes(1);
+    const event = (await journal.getSnapshot()).completions[0];
+    expect(event.notificationReaction).toBe('最後まで元気だね！');
+    expect(event.message).toBe(item.message);
+  });
+
+  test('Gemini failure still records successful import without a reaction', async () => {
+    const { createNotificationReaction } = require('./run_notification_reaction');
+    const journal = createCorosImportCompletions(journalPath, {
+      notificationReaction: createNotificationReaction(async () => { throw new Error('offline'); }, jest.fn())
+    });
+    await journal.record([{ ...run(), message: '1分毎テーブル所見: 元気' }]);
+    const event = (await journal.getSnapshot()).completions[0];
+    expect(event.sequence).toBe(1);
+    expect(event.notificationReaction).toBeUndefined();
+  });
+
   test('failed journal save does not publish an uncommitted completion and can retry', async () => {
     const journal = createCorosImportCompletions(journalPath);
     await journal.record([run()]);

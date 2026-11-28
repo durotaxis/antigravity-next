@@ -349,7 +349,7 @@ function createCorosDirectMcp({ root = __dirname, redirectUrl = process.env.CORO
   return { status, begin, callback, disconnect, receive };
 }
 
-function createCorosDirectRouter(controller, { notifications } = {}) {
+function createCorosDirectRouter(controller, { notifications, notificationReaction = async () => '' } = {}) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -394,10 +394,8 @@ function createCorosDirectRouter(controller, { notifications } = {}) {
     if (id) {
       try {
         // receive resolves only after each imported RUN's comment has been saved.
-        const comments = savedComments
-          .map(message => message.replace(/\r\n?/g, '\n').replace(/\*\*|__/g, '').match(/1分毎テーブル所見[ \t]*[:：][ \t]*(?:\n(?![ \t]*\n))?([\s\S]*?)(?=\n[ \t]*\n|\n[ \t]*#{1,6}[ \t]+|$)/u)?.[1]?.trim())
-          .filter(Boolean);
-        const findingsText = comments.length ? `\n${comments.join('\n\n')}` : '';
+        const reaction = await notificationReaction(savedComments);
+        const findingsText = reaction ? `\n${reaction}` : '';
         await notifications.send(id, {
           title: result.failed.length ? 'COROSの受信で失敗したランがあります' : 'COROSの受信が完了しました',
           body: `${result.date}：反映 ${result.imported.length}件・取得済み ${result.skipped.length}件・失敗 ${result.failed.length}件${findingsText}`, tag,
